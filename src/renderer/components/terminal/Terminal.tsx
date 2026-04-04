@@ -1,0 +1,14 @@
+import { useRef } from 'react';
+import { useTerminal } from '../../hooks/use-terminal';
+
+export function TerminalView() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  useTerminal(containerRef);
+
+  return (
+    <div
+      ref={containerRef}
+      className="flex-1 bg-bg overflow-hidden [&_.xterm]:h-full [&_.xterm]:p-4 [&_.xterm-viewport]:!scrollbar-none"
+    />
+  );
+}
