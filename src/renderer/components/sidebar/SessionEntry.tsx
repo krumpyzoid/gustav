@@ -60,7 +60,7 @@ export function SessionEntry({ entry, repoRoot, onRequestRemove }: Props) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1">
           <span className="truncate text-[13px]">
-            {isOrphan ? `○ ${entry.branch}` : entry.branch}
+            {entry.branch}
           </span>
           {entry.isMainWorktree && (
             <span className="text-[10px] text-accent/60 shrink-0">(dir)</span>

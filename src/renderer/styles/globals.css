@@ -17,6 +17,7 @@
   --color-c7: var(--c7, #d4be98);
 }
 
+@layer base {
 * {
   margin: 0;
   padding: 0;
@@ -26,7 +27,7 @@
 body {
   background: var(--bg, #282828);
   color: var(--fg, #d4be98);
-  font-family: "JetBrainsMono Nerd Font", "JetBrains Mono", "Fira Code", monospace;
+  font-family: 'Adwaita Sans';
   font-size: 13px;
   overflow: hidden;
   height: 100vh;
@@ -36,3 +37,5 @@ body {
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--c0, #3c3836); border-radius: 2px; }
+}
+
