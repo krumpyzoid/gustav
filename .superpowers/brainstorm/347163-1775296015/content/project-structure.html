@@ -1,0 +1,91 @@
+<h2>Project Structure</h2>
+<p class="subtitle">electron-vite with Hybrid Services + Ports architecture</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">Main Process (src/main/)</div>
+    <div class="mockup-body" style="font-family: monospace; font-size: 12px; line-height: 1.7; white-space: pre;">src/main/
+  index.ts              <span style="opacity:0.5"># App lifecycle, window creation</span>
+  ipc/
+    handlers.ts         <span style="opacity:0.5"># Thin IPC handlers &rarr; call services</span>
+    channels.ts         <span style="opacity:0.5"># Channel name constants + types</span>
+  services/
+    worktree.service.ts <span style="opacity:0.5"># Create, remove, clean, list</span>
+    session.service.ts  <span style="opacity:0.5"># Tmux session lifecycle</span>
+    state.service.ts    <span style="opacity:0.5"># Aggregate state, polling</span>
+    theme.service.ts    <span style="opacity:0.5"># Load, watch, broadcast</span>
+    config.service.ts   <span style="opacity:0.5"># Parse .wt config files</span>
+    registry.service.ts <span style="opacity:0.5"># Repo registry CRUD</span>
+  ports/
+    git.port.ts         <span style="opacity:0.5"># Interface: worktree ops, branch queries</span>
+    tmux.port.ts        <span style="opacity:0.5"># Interface: session/window/pane ops</span>
+    filesystem.port.ts  <span style="opacity:0.5"># Interface: read, write, copy, watch</span>
+    shell.port.ts       <span style="opacity:0.5"># Interface: exec commands (hooks, install)</span>
+  adapters/
+    git.adapter.ts      <span style="opacity:0.5"># Implements GitPort via git CLI</span>
+    tmux.adapter.ts     <span style="opacity:0.5"># Implements TmuxPort via tmux CLI</span>
+    fs.adapter.ts       <span style="opacity:0.5"># Implements FileSystemPort via node:fs</span>
+    shell.adapter.ts    <span style="opacity:0.5"># Implements ShellPort via child_process</span>
+  domain/
+    types.ts            <span style="opacity:0.5"># SessionEntry, ClaudeStatus, WtConfig, etc.</span>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">Preload + Renderer (src/)</div>
+    <div class="mockup-body" style="font-family: monospace; font-size: 12px; line-height: 1.7; white-space: pre;">src/preload/
+  index.ts              <span style="opacity:0.5"># contextBridge, typed API</span>
+  api.d.ts              <span style="opacity:0.5"># Window.api type declarations</span>
+
+src/renderer/
+  index.html            <span style="opacity:0.5"># Entry HTML</span>
+  main.tsx              <span style="opacity:0.5"># React root + providers</span>
+  App.tsx               <span style="opacity:0.5"># Layout: sidebar + terminal</span>
+  hooks/
+    use-state.ts        <span style="opacity:0.5"># Subscribe to state-update IPC</span>
+    use-theme.ts        <span style="opacity:0.5"># Subscribe to theme-update IPC</span>
+    use-terminal.ts     <span style="opacity:0.5"># xterm.js lifecycle</span>
+  components/
+    sidebar/
+      Sidebar.tsx       <span style="opacity:0.5"># Session list with repo groups</span>
+      RepoGroup.tsx     <span style="opacity:0.5"># Collapsible repo header + entries</span>
+      SessionEntry.tsx  <span style="opacity:0.5"># Single session row</span>
+      StatusDot.tsx     <span style="opacity:0.5"># Claude status indicator</span>
+    terminal/
+      Terminal.tsx      <span style="opacity:0.5"># xterm.js wrapper component</span>
+      ResizeHandle.tsx  <span style="opacity:0.5"># Draggable divider</span>
+    dialogs/
+      NewWorktreeDialog.tsx   <span style="opacity:0.5"># Branch, base ref, options</span>
+      CleanWorktreesDialog.tsx<span style="opacity:0.5"># Cross-repo stale cleanup</span>
+      ConfirmDialog.tsx       <span style="opacity:0.5"># Reusable confirm/cancel</span>
+      NewSessionDialog.tsx    <span style="opacity:0.5"># Standalone session creation</span>
+  lib/
+    utils.ts            <span style="opacity:0.5"># shadcn cn() utility</span>
+  styles/
+    globals.css         <span style="opacity:0.5"># Tailwind base + theme vars</span></div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 1.5rem; padding: 1rem; background: rgba(255,255,255,0.03); border-radius: 8px;">
+  <h3 style="margin-bottom: 0.5rem;">Root config files</h3>
+  <div style="font-family: monospace; font-size: 12px; line-height: 1.7; white-space: pre;">electron.vite.config.ts   <span style="opacity:0.5"># electron-vite: main + preload + renderer</span>
+tsconfig.json             <span style="opacity:0.5"># Base TS config</span>
+tsconfig.main.json        <span style="opacity:0.5"># Main process (Node)</span>
+tsconfig.preload.json     <span style="opacity:0.5"># Preload (restricted Node)</span>
+tsconfig.renderer.json    <span style="opacity:0.5"># Renderer (browser + React)</span>
+tailwind.config.ts        <span style="opacity:0.5"># Tailwind with theme vars</span>
+components.json           <span style="opacity:0.5"># shadcn/ui config (Base UI)</span>
+forge.config.ts           <span style="opacity:0.5"># Electron Forge packaging</span>
+package.json</div>
+</div>
+
+<div class="section" style="margin-top: 1rem; padding: 1rem; background: rgba(255,255,255,0.03); border-radius: 8px; border-left: 3px solid var(--accent, #7daea3);">
+  <h3 style="margin-bottom: 0.5rem;">Key decisions</h3>
+  <ul style="line-height: 1.8;">
+    <li><strong>electron-vite</strong> replaces bun build &mdash; unified HMR for main + renderer</li>
+    <li><strong>Shared types</strong> in <code>src/main/domain/types.ts</code> imported by preload for type-safe IPC</li>
+    <li><strong>Services depend on ports</strong> (interfaces), never on adapters directly</li>
+    <li><strong>IPC handlers</strong> are thin: validate args &rarr; call service &rarr; return Result type</li>
+    <li><strong>React + Zustand</strong> in renderer for state, <strong>shadcn/ui (Base UI)</strong> for components</li>
+  </ul>
+</div>

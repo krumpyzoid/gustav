@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "electron-best-practices": {
+      "source": "jwynia/agent-skills",
+      "sourceType": "github",
+      "computedHash": "e692cde3f6d9c4695a5c3d12ecddd69f407def5fdc5611ea8ee7b14215f7ab5a"
+    }
+  }
+}
