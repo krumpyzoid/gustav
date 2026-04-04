@@ -1,2 +1,4 @@
 node_modules/
-dist/renderer.js
+out/
+dist/
+.superpowers/
