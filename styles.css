@@ -1,0 +1,306 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg: #282828;
+  --fg: #d4be98;
+  --accent: #7daea3;
+  --c0: #3c3836;
+  --c1: #ea6962;
+  --c3: #d8a657;
+  --c5: #d3869b;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "JetBrainsMono Nerd Font", "JetBrains Mono", "Fira Code", monospace;
+  font-size: 13px;
+  overflow: hidden;
+  height: 100vh;
+}
+
+#app {
+  display: flex;
+  height: 100vh;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────── */
+#sidebar {
+  width: 220px;
+  min-width: 220px;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0;
+  overflow-y: auto;
+}
+
+#sessions {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.repo-group {
+  margin-bottom: 4px;
+}
+
+.repo-header {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 6px 12px 2px;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.repo-header.standalone {
+  color: var(--c5);
+}
+
+.repo-remove-btn {
+  background: none;
+  border: none;
+  color: var(--c0);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0 4px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.repo-header:hover .repo-remove-btn {
+  opacity: 1;
+}
+
+.repo-remove-btn:hover {
+  color: var(--c1);
+}
+
+.session-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 12px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: background 0.1s;
+}
+
+.session-entry:hover {
+  background: var(--c0);
+}
+
+.session-entry.active {
+  border-left-color: var(--accent);
+  background: var(--c0);
+}
+
+.session-entry.orphan {
+  opacity: 0.5;
+}
+
+.session-entry.orphan:hover {
+  opacity: 0.8;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.action { background: var(--c1); }
+.status-dot.busy { background: var(--c3); }
+.status-dot.done { background: var(--c2); }
+.status-dot.none { background: var(--c0); }
+
+.session-name-block {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-name-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.session-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dir-label {
+  font-size: 10px;
+  color: var(--accent);
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.origin-ref {
+  font-size: 10px;
+  color: var(--fg);
+  opacity: 0.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: 1px;
+}
+
+.status-label {
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.status-label.action { color: var(--c1); }
+.status-label.busy { color: var(--c3); }
+.status-label.done { color: var(--c2); }
+
+/* ── Add worktree row ────────────────────────────────────────── */
+.session-entry.add-worktree {
+  opacity: 0.35;
+  padding: 2px 12px 2px 26px;
+}
+
+.session-entry.add-worktree:hover {
+  opacity: 0.7;
+}
+
+.add-worktree-label {
+  font-size: 12px;
+  color: var(--accent);
+}
+
+/* ── Action bar ──────────────────────────────────────────────── */
+#action-bar {
+  padding: 8px 12px;
+  border-top: 1px solid var(--c0);
+  display: flex;
+  gap: 6px;
+}
+
+#action-bar button {
+  background: var(--c0);
+  color: var(--accent);
+  border: none;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+#action-bar button:hover {
+  opacity: 0.8;
+}
+
+.session-input {
+  flex: 1;
+  background: var(--c0);
+  border: 1px solid var(--accent);
+  color: var(--fg);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.cancel-btn {
+  background: none;
+  border: none;
+  color: var(--c0);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+}
+
+/* ── Resize handle ───────────────────────────────────────────── */
+#resize-handle {
+  width: 4px;
+  cursor: col-resize;
+  background: var(--c0);
+  transition: background 0.15s;
+}
+
+#resize-handle:hover,
+#resize-handle.dragging {
+  background: var(--accent);
+}
+
+/* ── Session action buttons ──────────────────────────────────── */
+.session-actions {
+  display: none;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.session-entry:hover .session-actions {
+  display: flex;
+}
+
+.session-actions button {
+  background: none;
+  border: none;
+  color: var(--c0);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 3px;
+  line-height: 1;
+  border-radius: 3px;
+  transition: color 0.1s, background 0.1s;
+}
+
+.session-actions button:hover {
+  color: var(--c1);
+  background: rgba(255,255,255,0.05);
+}
+
+.session-actions button.btn-delete:hover {
+  color: var(--c1);
+}
+
+/* ── Terminal ────────────────────────────────────────────────── */
+#terminal-container {
+  flex: 1;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+#terminal-container .xterm {
+  height: 100%;
+  padding: 16px;
+}
+
+#terminal-container .xterm-viewport::-webkit-scrollbar {
+  display: none;
+}
+
+#terminal-container .xterm-viewport {
+  scrollbar-width: none;
+}
+
+/* Scrollbar */
+#sessions::-webkit-scrollbar {
+  width: 4px;
+}
+
+#sessions::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#sessions::-webkit-scrollbar-thumb {
+  background: var(--c0);
+  border-radius: 2px;
+}
