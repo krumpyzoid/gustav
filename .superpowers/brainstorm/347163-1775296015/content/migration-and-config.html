@@ -1,0 +1,128 @@
+<h2>Migration Strategy & Config Changes</h2>
+<p class="subtitle">How we get from current state to the new architecture</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">.wt Config — New [clean] section</div>
+    <div class="mockup-body" style="font-family: monospace; font-size: 12px; line-height: 1.8; white-space: pre; color: #d4be98;">
+<span style="color: #504945"># Existing sections (unchanged)</span>
+[env]
+DATABASE_URL=postgres://localhost/myapp
+
+[copy]
+.env.local
+config/secrets.yml
+
+[install]
+cmd=bun install
+
+[new]
+base=origin/main
+
+[hooks]
+pre_new=echo "setting up"
+post_rm=echo "cleaned up"
+
+[tmux]
+window=Logs:tail -f log/dev.log
+window=Console:bun repl
+
+<span style="color: #7daea3"># NEW: configurable merge-check target</span>
+<span style="color: #a9b665">[clean]</span>
+<span style="color: #a9b665">merged_into=origin/staging</span>
+</div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">Dependency Changes</div>
+    <div class="mockup-body" style="font-family: monospace; font-size: 12px; line-height: 1.8; white-space: pre; color: #d4be98;">
+<span style="color: #ea6962">REMOVE</span>
+  <span style="color: #504945">bun build (replaced by electron-vite)</span>
+
+<span style="color: #a9b665">ADD — Runtime</span>
+  electron-vite
+  react, react-dom
+  @base-ui-components/react
+  tailwindcss, @tailwindcss/vite
+  zustand
+  <span style="color: #504945">(shadcn components are copy-pasted,</span>
+  <span style="color: #504945"> not a dep — just the CLI to install)</span>
+
+<span style="color: #a9b665">ADD — Dev</span>
+  @vitejs/plugin-react
+  typescript
+  @types/react, @types/react-dom
+  @electron-forge/cli
+  @electron-forge/maker-*
+
+<span style="color: #d8a657">KEEP</span>
+  electron
+  node-pty
+  @xterm/xterm
+  @xterm/addon-fit
+  @electron/rebuild
+</div>
+  </div>
+</div>
+
+<div class="mockup" style="margin-top: 1.5rem;">
+  <div class="mockup-header">Migration Phases</div>
+  <div class="mockup-body" style="padding: 1.5rem;">
+    <div style="display: flex; gap: 12px; font-family: system-ui, sans-serif; color: #d4be98; font-size: 13px;">
+
+      <div style="flex: 1; background: #282828; border-radius: 8px; padding: 14px; border-top: 3px solid #7daea3;">
+        <div style="font-weight: 700; color: #7daea3; margin-bottom: 8px;">Phase 1: Scaffold</div>
+        <ul style="line-height: 1.7; padding-left: 16px; color: #a89984;">
+          <li>electron-vite project setup</li>
+          <li>React + Tailwind + shadcn init</li>
+          <li>TypeScript configs (3 targets)</li>
+          <li>Shared domain types</li>
+          <li>Port interfaces defined</li>
+        </ul>
+      </div>
+
+      <div style="flex: 1; background: #282828; border-radius: 8px; padding: 14px; border-top: 3px solid #d8a657;">
+        <div style="font-weight: 700; color: #d8a657; margin-bottom: 8px;">Phase 2: Main Process</div>
+        <ul style="line-height: 1.7; padding-left: 16px; color: #a89984;">
+          <li>Adapters (git, tmux, fs, shell)</li>
+          <li>Services (worktree, session, state, theme, config, registry)</li>
+          <li>Typed IPC handlers</li>
+          <li>Preload bridge with types</li>
+          <li>All wt logic internalized</li>
+        </ul>
+      </div>
+
+      <div style="flex: 1; background: #282828; border-radius: 8px; padding: 14px; border-top: 3px solid #a9b665;">
+        <div style="font-weight: 700; color: #a9b665; margin-bottom: 8px;">Phase 3: Renderer</div>
+        <ul style="line-height: 1.7; padding-left: 16px; color: #a89984;">
+          <li>React components (sidebar, terminal)</li>
+          <li>shadcn/ui dialogs & selects</li>
+          <li>Zustand state management</li>
+          <li>Theme integration (CSS vars &rarr; Tailwind)</li>
+          <li>All confirm() &rarr; ConfirmDialog</li>
+        </ul>
+      </div>
+
+      <div style="flex: 1; background: #282828; border-radius: 8px; padding: 14px; border-top: 3px solid #d3869b;">
+        <div style="font-weight: 700; color: #d3869b; margin-bottom: 8px;">Phase 4: Package</div>
+        <ul style="line-height: 1.7; padding-left: 16px; color: #a89984;">
+          <li>Electron Forge config</li>
+          <li>Remove wt dependency</li>
+          <li>Test on clean machine</li>
+          <li>Build artifacts for Linux</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 1.5rem; padding: 1rem; background: rgba(255,255,255,0.03); border-radius: 8px; border-left: 3px solid var(--accent, #7daea3);">
+  <h3 style="margin-bottom: 0.5rem;">Notes</h3>
+  <ul style="line-height: 1.8;">
+    <li><strong>Full rewrite, not incremental migration</strong> &mdash; the current 3-file structure doesn't lend itself to gradual refactoring. We scaffold the new structure and port logic into it.</li>
+    <li><strong>Registry format unchanged</strong> &mdash; <code>~/.local/share/wt/repos.json</code> stays compatible so existing repos are picked up automatically.</li>
+    <li><strong>.wt config is backward compatible</strong> &mdash; new <code>[clean]</code> section is additive. Repos without it default to <code>origin/staging</code>.</li>
+    <li><strong>No wt CLI needed at runtime</strong> &mdash; all git worktree, branch, and tmux operations are done directly by Gustav's adapters.</li>
+  </ul>
+</div>
