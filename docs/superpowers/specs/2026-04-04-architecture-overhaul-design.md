@@ -153,7 +153,7 @@ type IpcChannelMap = {
   'create-session':       { args: [name: string];                   ret: Result<void> }
   'start-session':        { args: [session: string, workdir: string]; ret: Result<void> }
   'create-worktree':      { args: [params: CreateWorktreeParams];   ret: Result<void> }
-  'remove-worktree':      { args: [repo: string, branch: string, deleteBranch: boolean]; ret: Result<void> }
+  'remove-worktree':      { args: [repoRoot: string, branch: string, deleteBranch: boolean]; ret: Result<void> }
   'clean-worktrees':      { args: [items: CleanTarget[]];           ret: Result<CleanReport> }
   'remove-repo':          { args: [repoName: string];               ret: Result<void> }
 
