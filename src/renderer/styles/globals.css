@@ -24,11 +24,15 @@
   box-sizing: border-box;
 }
 
+html {
+  font-size: 13px;
+}
+
 body {
   background: var(--bg, #282828);
   color: var(--fg, #d4be98);
   font-family: 'Adwaita Sans';
-  font-size: 13px;
+  font-size: inherit;
   overflow: hidden;
   height: 100vh;
 }

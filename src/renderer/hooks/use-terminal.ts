@@ -13,7 +13,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     const term = new Terminal({
       cursorBlink: true,
-      fontFamily: '"JetBrainsMono Nerd Font", "JetBrains Mono", "Fira Code", monospace',
+      fontFamily: '"CaskaydiaMono NF", "CaskaydiaMono Nerd Font", monospace',
       fontSize: 13,
     });
     const fitAddon = new FitAddon();
@@ -35,11 +35,26 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     // PTY data
     const cleanupPty = window.api.onPtyData((data) => term.write(data));
 
-    // Custom key handler: Shift+Enter
+    // Custom key handler: Shift+Enter, Ctrl+/-, Ctrl+0
     term.attachCustomKeyEventHandler((event) => {
       if (event.key === 'Enter' && event.shiftKey) {
         if (event.type === 'keydown') window.api.sendPtyInput('\x1b[13;2u');
         return false;
+      }
+      if (event.ctrlKey && event.type === 'keydown') {
+        const current = term.options.fontSize ?? 13;
+        if (event.key === '=' || event.key === '+') {
+          setAppFontSize(Math.min(32, current + 1));
+          return false;
+        }
+        if (event.key === '-') {
+          setAppFontSize(Math.max(6, current - 1));
+          return false;
+        }
+        if (event.key === '0') {
+          setAppFontSize(13);
+          return false;
+        }
       }
       return true;
     });
@@ -55,9 +70,33 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       term.options.theme = xtermTheme(colors);
     });
 
+    // Global keyboard listener for font size (scales terminal + sidebar together)
+    function setAppFontSize(size: number) {
+      term.options.fontSize = size;
+      document.documentElement.style.fontSize = `${size}px`;
+      fit();
+    }
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (!e.ctrlKey) return;
+      const current = term.options.fontSize ?? 13;
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault();
+        setAppFontSize(Math.min(32, current + 1));
+      } else if (e.key === '-') {
+        e.preventDefault();
+        setAppFontSize(Math.max(6, current - 1));
+      } else if (e.key === '0') {
+        e.preventDefault();
+        setAppFontSize(13);
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown);
+
     term.focus();
 
     return () => {
+      document.removeEventListener('keydown', handleKeyDown);
       cleanupPty();
       cleanupTheme();
       resizeObserver.disconnect();

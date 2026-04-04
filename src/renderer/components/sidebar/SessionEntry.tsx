@@ -59,22 +59,22 @@ export function SessionEntry({ entry, repoRoot, onRequestRemove }: Props) {
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1">
-          <span className="truncate text-[13px]">
+          <span className="truncate text-sm">
             {entry.branch}
           </span>
           {entry.isMainWorktree && (
-            <span className="text-[10px] text-accent/60 shrink-0">(dir)</span>
+            <span className="text-xs text-accent/60 shrink-0">(dir)</span>
           )}
         </div>
         {entry.repo !== 'standalone' && (
-          <div className="text-[10px] text-fg/30 truncate pl-px">
+          <div className="text-xs text-fg/30 truncate pl-px">
             origin/{entry.branch}
           </div>
         )}
       </div>
 
       {label && entry.tmuxSession && (
-        <span className={`text-[10px] shrink-0 ${statusLabelColors[entry.status]}`}>
+        <span className={`text-xs shrink-0 ${statusLabelColors[entry.status]}`}>
           {label}
         </span>
       )}

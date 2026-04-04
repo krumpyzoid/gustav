@@ -121,6 +121,13 @@ app.on('ready', () => {
     getPtyClientTty,
   });
 
+  // Prevent Electron's built-in zoom so Ctrl+/- reaches the renderer for terminal font sizing
+  mainWindow.webContents.on('before-input-event', (_event, input) => {
+    if (input.control && (input.key === '=' || input.key === '+' || input.key === '-' || input.key === '0')) {
+      mainWindow!.webContents.setZoomLevel(0);
+    }
+  });
+
   // Start PTY and theme after window is ready
   mainWindow.webContents.on('did-finish-load', () => {
     const colors = themeService.load();
