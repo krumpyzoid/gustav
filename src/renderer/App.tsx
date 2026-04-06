@@ -50,21 +50,25 @@ export function App() {
       <NewWorktreeDialog
         open={newWorktreeOpen}
         onClose={() => setNewWorktreeOpen(false)}
+
         repo={newWorktreeRepo}
         repoRoot={newWorktreeRoot}
       />
       <RemoveWorktreeDialog
         open={removeEntry !== null}
         onClose={() => setRemoveEntry(null)}
+
         entry={removeEntry}
       />
       <CleanWorktreesDialog
         open={cleanOpen}
         onClose={() => setCleanOpen(false)}
+
       />
       <NewSessionDialog
         open={newSessionOpen}
         onClose={() => setNewSessionOpen(false)}
+
       />
     </div>
   );
