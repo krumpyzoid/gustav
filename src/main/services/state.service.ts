@@ -38,12 +38,12 @@ export class StateService {
     this.listener = listener;
   }
 
-  startPolling(intervalMs = 5000): void {
+  startPolling(intervalMs = 5000, getActiveSession?: () => string | null): void {
     this.timer = setInterval(async () => {
       if (this.polling) return;
       this.polling = true;
       try {
-        const state = await this.collect();
+        const state = await this.collect(getActiveSession?.() ?? undefined);
         this.listener?.(state);
       } finally {
         this.polling = false;
@@ -55,7 +55,7 @@ export class StateService {
     if (this.timer) clearInterval(this.timer);
   }
 
-  async collect(): Promise<AppState> {
+  async collect(activeSession?: string): Promise<AppState> {
     const entries: SessionEntry[] = [];
     const repoSet = new Map<string, string>();
 
@@ -165,7 +165,11 @@ export class StateService {
       if (!activeSessions.has(s)) this.dirtySessions.delete(s);
     }
 
-    return { entries, repos: [...repoSet.entries()] };
+    const windows = activeSession
+      ? await this.tmux.listWindows(activeSession)
+      : [];
+
+    return { entries, repos: [...repoSet.entries()], windows };
   }
 
   private async detectClaudeStatus(session: string): Promise<ClaudeStatus> {
