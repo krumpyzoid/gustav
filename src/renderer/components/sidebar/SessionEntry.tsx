@@ -12,8 +12,9 @@ function statusLabel(status: ClaudeStatus): string {
 }
 
 const statusLabelColors: Record<ClaudeStatus, string> = {
-  action: 'text-c1',
+  new: '',
   busy: 'text-c3',
+  action: 'text-c1',
   done: 'text-c2',
   none: '',
 };

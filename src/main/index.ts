@@ -149,7 +149,7 @@ app.on('ready', () => {
       mainWindow.webContents.send(Channels.STATE_UPDATE, state);
     }
   });
-  stateService.startPolling(5000);
+  stateService.startPolling(2000);
 });
 
 app.on('window-all-closed', () => {

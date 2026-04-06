@@ -4,7 +4,7 @@ export type Result<T> =
   | { success: false; error: string };
 
 // ── Claude status ─────────────────────────────────────────────────
-export type ClaudeStatus = 'action' | 'busy' | 'done' | 'none';
+export type ClaudeStatus = 'new' | 'busy' | 'action' | 'done' | 'none';
 
 // ── Session / state ───────────────────────────────────────────────
 export type SessionEntry = {
