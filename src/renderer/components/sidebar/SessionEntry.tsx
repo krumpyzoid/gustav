@@ -36,7 +36,9 @@ export function SessionEntry({ entry, repoRoot, onRequestRemove }: Props) {
       setActiveSession(entry.tmuxSession);
       await window.api.switchSession(entry.tmuxSession);
     } else if (entry.worktreePath) {
-      const session = `${entry.repo}/${entry.branch}`;
+      const session = entry.isMainWorktree
+        ? `${entry.repo}/$dir`
+        : `${entry.repo}/${entry.branch}`;
       await window.api.startSession(session, entry.worktreePath);
       setActiveSession(session);
       setTimeout(refreshState, 500);

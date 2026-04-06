@@ -68,8 +68,9 @@ export class StateService {
         }
         const repo = trimmed.slice(0, slashIdx);
         const branch = trimmed.slice(slashIdx + 1);
+        const isDir = branch === '$dir';
         const status = await this.detectClaudeStatus(trimmed);
-        return { repo, branch, tmuxSession: trimmed, status, worktreePath: null, isMainWorktree: false, upstream: null };
+        return { repo, branch: isDir ? '' : branch, tmuxSession: trimmed, status, worktreePath: null, isMainWorktree: isDir, upstream: null };
       });
 
     entries.push(...await Promise.all(sessionPromises));
@@ -98,8 +99,26 @@ export class StateService {
             const isMain = curPath === repoRoot;
             const isUnderWtDir = curPath.startsWith(wtDir);
             if ((isUnderWtDir || isMain) && curBranch) {
-              const sessionName = `${repoName}/${curBranch}`;
-              if (!activeNames.has(sessionName)) {
+              // $dir sessions match main worktree; branch sessions match by name
+              const dirSessionName = `${repoName}/$dir`;
+              const branchSessionName = `${repoName}/${curBranch}`;
+
+              if (isMain && activeNames.has(dirSessionName)) {
+                // Main worktree with active $dir session — resolve branch dynamically
+                const entry = entries.find((e) => e.tmuxSession === dirSessionName);
+                if (entry) {
+                  entry.branch = curBranch;
+                  entry.worktreePath = curPath;
+                  entry.upstream = upstreams.get(curBranch) ?? null;
+                }
+              } else if (activeNames.has(branchSessionName)) {
+                const entry = entries.find((e) => e.tmuxSession === branchSessionName);
+                if (entry) {
+                  entry.worktreePath = curPath;
+                  entry.isMainWorktree = isMain;
+                  entry.upstream = upstreams.get(curBranch) ?? null;
+                }
+              } else {
                 entries.push({
                   repo: repoName,
                   branch: curBranch,
@@ -109,13 +128,6 @@ export class StateService {
                   isMainWorktree: isMain,
                   upstream: upstreams.get(curBranch) ?? null,
                 });
-              } else {
-                const entry = entries.find((e) => e.tmuxSession === sessionName);
-                if (entry) {
-                  entry.worktreePath = curPath;
-                  entry.isMainWorktree = isMain;
-                  entry.upstream = upstreams.get(curBranch) ?? null;
-                }
               }
             }
             curPath = '';

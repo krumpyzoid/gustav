@@ -237,6 +237,78 @@ describe('StateService.collect', () => {
     expect(elapsed).toBeLessThan(120);
   });
 
+  it('resolves $dir session branch dynamically from git', async () => {
+    const git = makeMockGit();
+    const tmux = makeMockTmux();
+    const registry = makeMockRegistry();
+    vi.mocked(registry.load).mockReturnValue({ myrepo: '/home/user/myrepo' });
+    vi.mocked(git.getWorktreeDir).mockReturnValue('/home/user/myrepo/.worktrees');
+    vi.mocked(git.getUpstreams).mockResolvedValue(new Map([['feat-x', 'origin/main']]));
+    vi.mocked(git.worktreeListPorcelain).mockResolvedValue(
+      'worktree /home/user/myrepo\nHEAD abc\nbranch refs/heads/feat-x\n'
+    );
+    // $dir session exists for this repo
+    vi.mocked(tmux.listSessions).mockResolvedValue(['myrepo/$dir']);
+    vi.mocked(tmux.listPanes).mockResolvedValue('%0\tClaude Code\tclaude');
+    vi.mocked(tmux.capturePaneContent).mockResolvedValue('');
+
+    const fs = require('node:fs');
+    const originalExistsSync = fs.existsSync;
+    fs.existsSync = (p: string) => {
+      if (p === '/home/user/myrepo') return true;
+      return originalExistsSync(p);
+    };
+
+    const svc = new StateService(git, tmux, registry);
+    const state = await svc.collect();
+
+    const dirEntry = state.entries.find((e) => e.tmuxSession === 'myrepo/$dir');
+    expect(dirEntry).toBeDefined();
+    expect(dirEntry!.branch).toBe('feat-x');
+    expect(dirEntry!.isMainWorktree).toBe(true);
+    expect(dirEntry!.worktreePath).toBe('/home/user/myrepo');
+    expect(dirEntry!.upstream).toBe('origin/main');
+    fs.existsSync = originalExistsSync;
+  });
+
+  it('updates $dir session branch when git checkout changes branch', async () => {
+    const git = makeMockGit();
+    const tmux = makeMockTmux();
+    const registry = makeMockRegistry();
+    vi.mocked(registry.load).mockReturnValue({ myrepo: '/home/user/myrepo' });
+    vi.mocked(git.getWorktreeDir).mockReturnValue('/home/user/myrepo/.worktrees');
+    vi.mocked(tmux.listSessions).mockResolvedValue(['myrepo/$dir']);
+    vi.mocked(tmux.listPanes).mockResolvedValue('%0\tClaude Code\tclaude');
+    vi.mocked(tmux.capturePaneContent).mockResolvedValue('');
+
+    const fs = require('node:fs');
+    const originalExistsSync = fs.existsSync;
+    fs.existsSync = (p: string) => {
+      if (p === '/home/user/myrepo') return true;
+      return originalExistsSync(p);
+    };
+
+    const svc = new StateService(git, tmux, registry);
+
+    // First poll: on main
+    vi.mocked(git.getUpstreams).mockResolvedValue(new Map([['main', 'origin/main']]));
+    vi.mocked(git.worktreeListPorcelain).mockResolvedValue(
+      'worktree /home/user/myrepo\nHEAD abc\nbranch refs/heads/main\n'
+    );
+    const state1 = await svc.collect();
+    expect(state1.entries.find((e) => e.tmuxSession === 'myrepo/$dir')!.branch).toBe('main');
+
+    // Second poll: checked out feat
+    vi.mocked(git.getUpstreams).mockResolvedValue(new Map([['feat', 'origin/feat']]));
+    vi.mocked(git.worktreeListPorcelain).mockResolvedValue(
+      'worktree /home/user/myrepo\nHEAD def\nbranch refs/heads/feat\n'
+    );
+    const state2 = await svc.collect();
+    expect(state2.entries.find((e) => e.tmuxSession === 'myrepo/$dir')!.branch).toBe('feat');
+
+    fs.existsSync = originalExistsSync;
+  });
+
   it('sets upstream to null when branch has no tracking info', async () => {
     const git = makeMockGit();
     const tmux = makeMockTmux();
