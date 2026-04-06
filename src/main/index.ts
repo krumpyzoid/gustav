@@ -135,9 +135,6 @@ app.on('ready', () => {
   mainWindow.webContents.on('did-finish-load', () => {
     const colors = themeService.load();
     mainWindow!.webContents.send(Channels.THEME_UPDATE, colors);
-    // Gustav owns all navigation — hide tmux status bar and disable prefix key
-    tmuxAdapter.exec('set-option -g status off');
-    tmuxAdapter.exec('set-option -g prefix None');
     startPty(80, 24);
     themeService.startWatching();
   });

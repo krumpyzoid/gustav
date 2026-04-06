@@ -24,8 +24,9 @@ export class SessionService {
 
     // Create session with Claude Code window
     await this.tmux.newSession(session, { windowName: 'Claude Code', cwd: workdir });
-    // Hide tmux status bar — Gustav renders its own tab bar
+    // Gustav owns navigation — hide tmux chrome for this session only
     await this.tmux.exec(`set-option -t '${session}' status off`);
+    await this.tmux.exec(`set-option -t '${session}' prefix None`);
     await this.tmux.sendKeys(`${session}:Claude Code`, 'claude');
 
     // Default windows
