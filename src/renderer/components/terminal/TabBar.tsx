@@ -1,12 +1,14 @@
 import { useAppStore } from '../../hooks/use-app-state';
 
 export function TabBar() {
-  const { windows, activeSession } = useAppStore();
+  const { windows, activeSession, setWindows } = useAppStore();
 
   if (windows.length === 0) return null;
 
   async function handleClick(windowName: string) {
     if (!activeSession) return;
+    // Optimistic update — highlight immediately, don't wait for poll
+    setWindows(windows.map((w) => ({ ...w, active: w.name === windowName })));
     await window.api.selectWindow(activeSession, windowName);
   }
 
