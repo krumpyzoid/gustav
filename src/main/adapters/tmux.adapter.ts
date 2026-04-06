@@ -62,4 +62,13 @@ export class TmuxAdapter implements TmuxPort {
   async displayMessage(target: string, format: string): Promise<string> {
     return this.exec(`display-message -t '${target}' -p '${format}'`);
   }
+
+  async listWindows(session: string): Promise<{ index: number; name: string; active: boolean }[]> {
+    const raw = await this.exec(`list-windows -t '${session}' -F '#{window_index}\t#{window_name}\t#{window_active}'`);
+    if (!raw) return [];
+    return raw.split('\n').filter(Boolean).map((line) => {
+      const [idx, name, active] = line.split('\t');
+      return { index: Number(idx), name, active: active === '1' };
+    });
+  }
 }
