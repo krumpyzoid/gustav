@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('api', {
   cleanWorktrees: (items: any[]) => ipcRenderer.invoke('clean-worktrees', items),
   pinProjects: () => ipcRenderer.invoke('pin-projects'),
   unpinProject: (repoName: string) => ipcRenderer.invoke('unpin-project', repoName),
+  selectWindow: (session: string, window: string) => ipcRenderer.invoke('select-window', session, window),
   getBranches: (repoRoot: string) => ipcRenderer.invoke('get-branches', repoRoot),
   getCleanCandidates: () => ipcRenderer.invoke('get-clean-candidates'),
 

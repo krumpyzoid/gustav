@@ -15,6 +15,7 @@ export const Channels = {
   CLEAN_WORKTREES: 'clean-worktrees',
   PIN_PROJECTS: 'pin-projects',
   UNPIN_PROJECT: 'unpin-project',
+  SELECT_WINDOW: 'select-window',
 
   // Streams (fire-and-forget)
   PTY_INPUT: 'pty-input',

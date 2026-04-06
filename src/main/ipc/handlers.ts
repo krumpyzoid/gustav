@@ -157,4 +157,13 @@ export function registerHandlers(deps: {
       return err((e as Error).message);
     }
   });
+
+  ipcMain.handle(Channels.SELECT_WINDOW, async (_event, session: string, window: string) => {
+    try {
+      await tmux.selectWindow(session, window);
+      return ok(undefined);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
 }
