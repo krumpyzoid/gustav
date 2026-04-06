@@ -6,7 +6,7 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   main: {
     build: {
-      outDir: 'out/main',
+      outDir: 'build/main',
       rollupOptions: {
         external: ['node-pty']
       }
@@ -14,13 +14,13 @@ export default defineConfig({
   },
   preload: {
     build: {
-      outDir: 'out/preload'
+      outDir: 'build/preload'
     }
   },
   renderer: {
     root: 'src/renderer',
     build: {
-      outDir: 'out/renderer',
+      outDir: 'build/renderer',
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/renderer/index.html')

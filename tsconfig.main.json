@@ -4,7 +4,7 @@
     "module": "ES2022",
     "moduleResolution": "bundler",
     "lib": ["ES2022"],
-    "outDir": "out/main",
+    "outDir": "build/main",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

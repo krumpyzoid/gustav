@@ -5,6 +5,7 @@ const config: ForgeConfig = {
     asar: true,
     executableName: 'gustav',
     name: 'Gustav',
+    ignore: [/^\/pkg/, /^\/plans/, /^\/docs/, /^\/.agents/],
   },
   makers: [
     {
