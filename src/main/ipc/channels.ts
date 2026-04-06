@@ -13,7 +13,8 @@ export const Channels = {
   CREATE_WORKTREE: 'create-worktree',
   REMOVE_WORKTREE: 'remove-worktree',
   CLEAN_WORKTREES: 'clean-worktrees',
-  REMOVE_REPO: 'remove-repo',
+  PIN_PROJECTS: 'pin-projects',
+  UNPIN_PROJECT: 'unpin-project',
 
   // Streams (fire-and-forget)
   PTY_INPUT: 'pty-input',

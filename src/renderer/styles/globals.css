@@ -15,6 +15,7 @@
   --color-c5: var(--c5, #d3869b);
   --color-c6: var(--c6, #89b482);
   --color-c7: var(--c7, #d4be98);
+  --color-destructive: var(--c1, #d4be98);
 }
 
 @layer base {
@@ -31,10 +32,11 @@ html {
 body {
   background: var(--bg, #282828);
   color: var(--fg, #d4be98);
-  font-family: 'Adwaita Sans';
+  font-family: 'CaskaydiaMono NF';
   font-size: inherit;
   overflow: hidden;
   height: 100vh;
+  font-smooth: always;
 }
 
 /* Scrollbar */
