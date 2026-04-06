@@ -132,6 +132,8 @@ app.on('ready', () => {
   mainWindow.webContents.on('did-finish-load', () => {
     const colors = themeService.load();
     mainWindow!.webContents.send(Channels.THEME_UPDATE, colors);
+    // Hide tmux status bar globally — Gustav renders its own tab bar
+    tmuxAdapter.exec('set-option -g status off');
     startPty(80, 24);
     themeService.startWatching();
   });
