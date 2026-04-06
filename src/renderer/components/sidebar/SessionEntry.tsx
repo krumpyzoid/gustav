@@ -12,8 +12,9 @@ function statusLabel(status: ClaudeStatus): string {
 }
 
 const statusLabelColors: Record<ClaudeStatus, string> = {
-  action: 'text-c1',
+  new: '',
   busy: 'text-c3',
+  action: 'text-c1',
   done: 'text-c2',
   none: '',
 };
@@ -35,7 +36,9 @@ export function SessionEntry({ entry, repoRoot, onRequestRemove }: Props) {
       setActiveSession(entry.tmuxSession);
       await window.api.switchSession(entry.tmuxSession);
     } else if (entry.worktreePath) {
-      const session = `${entry.repo}/${entry.branch}`;
+      const session = entry.isMainWorktree
+        ? `${entry.repo}/$dir`
+        : `${entry.repo}/${entry.branch}`;
       await window.api.startSession(session, entry.worktreePath);
       setActiveSession(session);
       setTimeout(refreshState, 500);

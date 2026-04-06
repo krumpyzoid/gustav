@@ -52,7 +52,7 @@ export class TmuxAdapter implements TmuxPort {
   }
 
   async listPanes(session: string): Promise<string> {
-    return this.exec(`list-panes -t '${session}' -a -F '#{pane_id}\t#{window_name}\t#{pane_current_command}'`);
+    return this.exec(`list-panes -t '${session}' -s -F '#{pane_id}\t#{window_name}\t#{pane_current_command}'`);
   }
 
   async capturePaneContent(paneId: string): Promise<string> {

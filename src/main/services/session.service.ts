@@ -5,8 +5,9 @@ import type { WtConfig } from '../domain/types';
 export class SessionService {
   constructor(private tmux: TmuxPort) {}
 
-  getSessionName(repoRoot: string, branch: string): string {
-    return `${basename(repoRoot)}/${branch}`;
+  getSessionName(repoRoot: string, branch: string, isMainWorktree = false): string {
+    const repo = basename(repoRoot);
+    return isMainWorktree ? `${repo}/$dir` : `${repo}/${branch}`;
   }
 
   async launch(
@@ -49,8 +50,8 @@ export class SessionService {
     return session;
   }
 
-  async kill(repoRoot: string, branch: string): Promise<void> {
-    const session = this.getSessionName(repoRoot, branch);
+  async kill(repoRoot: string, branch: string, isMainWorktree = false): Promise<void> {
+    const session = this.getSessionName(repoRoot, branch, isMainWorktree);
     if (await this.tmux.hasSession(session)) {
       await this.tmux.killSession(session);
     }

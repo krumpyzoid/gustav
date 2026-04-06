@@ -3,10 +3,30 @@ import type { TmuxPort } from '../ports/tmux.port';
 import type { RegistryService } from './registry.service';
 import type { AppState, SessionEntry, ClaudeStatus } from '../domain/types';
 
+export type RawStatus = 'busy' | 'action' | null;
+
+export function parseRawStatus(content: string): RawStatus {
+  if (!content || !content.trim()) return null;
+
+  const lines = content.split('\n').filter((l) => l.trim().length > 0);
+
+  // Busy: spinner symbol at line start + ing… — only check content above ─── chrome
+  const sepIdx = lines.findIndex((l) => /^─+$/.test(l.trim()));
+  const contentLines = sepIdx >= 0 ? lines.slice(0, sepIdx) : lines;
+  if (contentLines.slice(-10).some((l) => /^\S\s.*ing…/.test(l))) return 'busy';
+
+  // Action: check full tail (chrome included) — approval prompts may be anywhere
+  const fullTail = lines.slice(-10).join('\n');
+  if (/\(y\s*=\s*yes|Allow|Approve|Do you want/.test(fullTail)) return 'action';
+
+  return null;
+}
+
 export class StateService {
-  private prevPaneContent: Record<string, string> = {};
+  private dirtySessions = new Set<string>();
   private listener: ((state: AppState) => void) | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private polling = false;
 
   constructor(
     private git: GitPort,
@@ -20,8 +40,14 @@ export class StateService {
 
   startPolling(intervalMs = 5000): void {
     this.timer = setInterval(async () => {
-      const state = await this.collect();
-      this.listener?.(state);
+      if (this.polling) return;
+      this.polling = true;
+      try {
+        const state = await this.collect();
+        this.listener?.(state);
+      } finally {
+        this.polling = false;
+      }
     }, intervalMs);
   }
 
@@ -45,27 +71,21 @@ export class StateService {
     // Discover repos from active tmux sessions
     const sessions = await this.tmux.listSessions();
 
-    for (const trimmed of sessions) {
-      if (trimmed.startsWith('_wt_')) continue;
-
-      const slashIdx = trimmed.indexOf('/');
-      if (slashIdx === -1) {
-        entries.push({
-          repo: 'standalone',
-          branch: trimmed,
-          tmuxSession: trimmed,
-          status: 'none',
-          worktreePath: null,
-          isMainWorktree: false,
-          upstream: null,
-        });
-      } else {
+    const sessionPromises = sessions
+      .filter((s) => !s.startsWith('_wt_'))
+      .map(async (trimmed): Promise<SessionEntry> => {
+        const slashIdx = trimmed.indexOf('/');
+        if (slashIdx === -1) {
+          return { repo: 'standalone', branch: trimmed, tmuxSession: trimmed, status: 'none', worktreePath: null, isMainWorktree: false, upstream: null };
+        }
         const repo = trimmed.slice(0, slashIdx);
         const branch = trimmed.slice(slashIdx + 1);
+        const isDir = branch === '$dir';
         const status = await this.detectClaudeStatus(trimmed);
-        entries.push({ repo, branch, tmuxSession: trimmed, status, worktreePath: null, isMainWorktree: false, upstream: null });
-      }
-    }
+        return { repo, branch: isDir ? '' : branch, tmuxSession: trimmed, status, worktreePath: null, isMainWorktree: isDir, upstream: null };
+      });
+
+    entries.push(...await Promise.all(sessionPromises));
 
     // Find orphaned worktrees (including main worktree)
     const activeNames = new Set(entries.map((e) => e.tmuxSession));
@@ -91,8 +111,26 @@ export class StateService {
             const isMain = curPath === repoRoot;
             const isUnderWtDir = curPath.startsWith(wtDir);
             if ((isUnderWtDir || isMain) && curBranch) {
-              const sessionName = `${repoName}/${curBranch}`;
-              if (!activeNames.has(sessionName)) {
+              // $dir sessions match main worktree; branch sessions match by name
+              const dirSessionName = `${repoName}/$dir`;
+              const branchSessionName = `${repoName}/${curBranch}`;
+
+              if (isMain && activeNames.has(dirSessionName)) {
+                // Main worktree with active $dir session — resolve branch dynamically
+                const entry = entries.find((e) => e.tmuxSession === dirSessionName);
+                if (entry) {
+                  entry.branch = curBranch;
+                  entry.worktreePath = curPath;
+                  entry.upstream = upstreams.get(curBranch) ?? null;
+                }
+              } else if (activeNames.has(branchSessionName)) {
+                const entry = entries.find((e) => e.tmuxSession === branchSessionName);
+                if (entry) {
+                  entry.worktreePath = curPath;
+                  entry.isMainWorktree = isMain;
+                  entry.upstream = upstreams.get(curBranch) ?? null;
+                }
+              } else {
                 entries.push({
                   repo: repoName,
                   branch: curBranch,
@@ -102,13 +140,6 @@ export class StateService {
                   isMainWorktree: isMain,
                   upstream: upstreams.get(curBranch) ?? null,
                 });
-              } else {
-                const entry = entries.find((e) => e.tmuxSession === sessionName);
-                if (entry) {
-                  entry.worktreePath = curPath;
-                  entry.isMainWorktree = isMain;
-                  entry.upstream = upstreams.get(curBranch) ?? null;
-                }
               }
             }
             curPath = '';
@@ -128,6 +159,12 @@ export class StateService {
       }
     }
 
+    // Prune dirty tracking for sessions that no longer exist
+    const activeSessions = new Set(sessions);
+    for (const s of this.dirtySessions) {
+      if (!activeSessions.has(s)) this.dirtySessions.delete(s);
+    }
+
     return { entries, repos: [...repoSet.entries()] };
   }
 
@@ -137,8 +174,8 @@ export class StateService {
 
     let claudePaneId: string | null = null;
     for (const line of panes.split('\n')) {
-      const [id, winName, cmd] = line.split('\t');
-      if (winName === 'Claude Code' && cmd === 'claude') {
+      const [id, winName] = line.split('\t');
+      if (winName === 'Claude Code') {
         claudePaneId = id;
         break;
       }
@@ -146,36 +183,13 @@ export class StateService {
     if (!claudePaneId) return 'none';
 
     const content = await this.tmux.capturePaneContent(claudePaneId);
-    if (!content) return 'none';
+    const raw = parseRawStatus(content);
 
-    const lines = content.split('\n').filter((l) => l.trim().length > 0);
-    const tail = lines.slice(-10);
-    const tailStr = tail.join('\n');
-
-    // Tool approval prompts = needs user input
-    if (/\(y\s*=\s*yes|Allow|Approve|Do you want/.test(tailStr)) return 'action';
-
-    // Spinner line
-    for (const line of tail) {
-      const t = line.trim();
-      if (/^[✶·✢✻✹*]/.test(t)) {
-        const parenMatch = t.match(/\(([^)]+)\)\s*$/);
-        if (parenMatch) {
-          const inside = parenMatch[1];
-          if (/ing\b/.test(inside)) return 'busy';
-          if (/for \d/.test(inside)) return 'done';
-        }
-      }
-      if (/⎿\s+\S.*ing/.test(t)) return 'busy';
+    if (raw) {
+      this.dirtySessions.add(session);
+      return raw;
     }
 
-    // Compare output area — if content changed since last poll, busy
-    const outputArea = lines.slice(0, -6).join('\n');
-    const prev = this.prevPaneContent[claudePaneId];
-    this.prevPaneContent[claudePaneId] = outputArea;
-
-    if (prev !== undefined && prev !== outputArea) return 'busy';
-
-    return 'done';
+    return this.dirtySessions.has(session) ? 'done' : 'new';
   }
 }

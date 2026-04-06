@@ -1,8 +1,9 @@
 import type { ClaudeStatus } from '../../../main/domain/types';
 
 const statusColors: Record<ClaudeStatus, string> = {
-  action: 'bg-c1',
+  new: 'bg-fg/20',
   busy: 'bg-c3',
+  action: 'bg-c1',
   done: 'bg-c2',
   none: 'bg-c0',
 };
