@@ -345,12 +345,20 @@ describe('parseRawStatus', () => {
     expect(parseRawStatus('   \n  \n  ')).toBeNull();
   });
 
-  it('returns busy when tail contains ing...', () => {
-    expect(parseRawStatus('Some output\n✶ Thinking...')).toBe('busy');
+  it('returns busy for spinner + ing…', () => {
+    expect(parseRawStatus('Some output\n✻ Thinking…')).toBe('busy');
   });
 
-  it('returns busy for Reading...', () => {
-    expect(parseRawStatus('Line 1\nLine 2\nReading...')).toBe('busy');
+  it('returns busy for various spinner symbols', () => {
+    expect(parseRawStatus('✳ Hashing…')).toBe('busy');
+    expect(parseRawStatus('✢ Stewing…')).toBe('busy');
+    expect(parseRawStatus('· Accomplishing…')).toBe('busy');
+  });
+
+  it('does not match ing… without spinner at line start', () => {
+    expect(parseRawStatus('  ⎿  Running…')).toBeNull();
+    expect(parseRawStatus('Reading…')).toBeNull();
+    expect(parseRawStatus('Some Thinking… happened')).toBeNull();
   });
 
   it('returns action for tool approval prompt with y=yes', () => {
@@ -365,19 +373,65 @@ describe('parseRawStatus', () => {
     expect(parseRawStatus('Some output from claude\n> waiting for input')).toBeNull();
   });
 
-  it('returns null for fresh session with banner', () => {
-    const freshSession = ' ▐▛███▜▌   Claude Code v2.1.92\n▝▜█████▛▘  Opus 4.6\n❯ ';
-    expect(parseRawStatus(freshSession)).toBeNull();
+  it('strips chrome below ─── separator', () => {
+    const pane = [
+      '✻ Thinking…',
+      '───────────',
+      '❯ ',
+      '───────────',
+      '[Opus 4.6]',
+    ].join('\n');
+    expect(parseRawStatus(pane)).toBe('busy');
   });
 
-  it('matches ing... only in the tail (last 10 lines)', () => {
+  it('does not match ing… typed in the prompt box (below separator)', () => {
+    const pane = [
+      'Previous output',
+      '───────────',
+      '❯ I was thinking…',
+      '───────────',
+      '[Opus 4.6]',
+    ].join('\n');
+    expect(parseRawStatus(pane)).toBeNull();
+  });
+
+  it('matches action patterns in chrome area (approval prompts)', () => {
+    const pane = [
+      'Previous output',
+      '───────────',
+      'Allow this tool?',
+      '(y = yes)',
+      '───────────',
+      '[Opus 4.6]',
+    ].join('\n');
+    expect(parseRawStatus(pane)).toBe('action');
+  });
+
+  it('returns null when only chrome is visible (idle)', () => {
+    const pane = [
+      'Here is the result',
+      '───────────',
+      '❯ ',
+      '───────────',
+      '[Opus 4.6]',
+    ].join('\n');
+    expect(parseRawStatus(pane)).toBeNull();
+  });
+
+  it('falls back to all lines when no separator exists', () => {
+    expect(parseRawStatus('✻ Thinking…')).toBe('busy');
+  });
+
+  it('matches spinner+ing… only in the tail (last 10 content lines)', () => {
     const lines = Array.from({ length: 20 }, (_, i) => `line ${i}`);
-    lines[0] = 'Thinking...';  // in head, not tail
+    lines[0] = '✻ Thinking…';  // in head, not tail
     expect(parseRawStatus(lines.join('\n'))).toBeNull();
   });
 });
 
 describe('status state machine', () => {
+  const chrome = '───────────\n❯ \n───────────\n[Opus 4.6]';
+
   it('returns new for a fresh session with no prior activity', async () => {
     const git = makeMockGit();
     const tmux = makeMockTmux();
@@ -385,7 +439,7 @@ describe('status state machine', () => {
     vi.mocked(registry.load).mockReturnValue({});
     vi.mocked(tmux.listSessions).mockResolvedValue(['app/main']);
     vi.mocked(tmux.listPanes).mockResolvedValue('%0\tClaude Code\tclaude');
-    vi.mocked(tmux.capturePaneContent).mockResolvedValue('Welcome banner\n❯ ');
+    vi.mocked(tmux.capturePaneContent).mockResolvedValue(`Welcome banner\n${chrome}`);
 
     const svc = new StateService(git, tmux, registry);
     const state = await svc.collect();
@@ -404,12 +458,12 @@ describe('status state machine', () => {
     const svc = new StateService(git, tmux, registry);
 
     // First poll: busy
-    vi.mocked(tmux.capturePaneContent).mockResolvedValue('✶ Thinking...');
+    vi.mocked(tmux.capturePaneContent).mockResolvedValue(`✻ Pondering…\n${chrome}`);
     const state1 = await svc.collect();
     expect(state1.entries[0].status).toBe('busy');
 
-    // Second poll: no pattern match → done (was dirty)
-    vi.mocked(tmux.capturePaneContent).mockResolvedValue('Here is the result\n❯ ');
+    // Second poll: no activity in content area → done (was dirty)
+    vi.mocked(tmux.capturePaneContent).mockResolvedValue(`Here is the result\n${chrome}`);
     const state2 = await svc.collect();
     expect(state2.entries[0].status).toBe('done');
   });
@@ -424,13 +478,13 @@ describe('status state machine', () => {
 
     const svc = new StateService(git, tmux, registry);
 
-    // First poll: action
-    vi.mocked(tmux.capturePaneContent).mockResolvedValue('Allow this tool?');
+    // First poll: action (approval prompts are in content area above chrome)
+    vi.mocked(tmux.capturePaneContent).mockResolvedValue(`Allow this tool?\n${chrome}`);
     const state1 = await svc.collect();
     expect(state1.entries[0].status).toBe('action');
 
     // Second poll: no pattern match → done
-    vi.mocked(tmux.capturePaneContent).mockResolvedValue('Tool ran successfully\n❯ ');
+    vi.mocked(tmux.capturePaneContent).mockResolvedValue(`Tool ran successfully\n${chrome}`);
     const state2 = await svc.collect();
     expect(state2.entries[0].status).toBe('done');
   });
@@ -446,12 +500,12 @@ describe('status state machine', () => {
 
     // Poll with busy session
     vi.mocked(tmux.listSessions).mockResolvedValue(['app/main']);
-    vi.mocked(tmux.capturePaneContent).mockResolvedValue('Thinking...');
+    vi.mocked(tmux.capturePaneContent).mockResolvedValue(`✻ Pondering…\n${chrome}`);
     await svc.collect();
 
     // Session killed, new session created
     vi.mocked(tmux.listSessions).mockResolvedValue(['app/feat']);
-    vi.mocked(tmux.capturePaneContent).mockResolvedValue('Welcome\n❯ ');
+    vi.mocked(tmux.capturePaneContent).mockResolvedValue(`Welcome\n${chrome}`);
     const state = await svc.collect();
 
     // New session should be 'new', not 'done' from stale dirty tracking

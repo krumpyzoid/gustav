@@ -9,10 +9,15 @@ export function parseRawStatus(content: string): RawStatus {
   if (!content || !content.trim()) return null;
 
   const lines = content.split('\n').filter((l) => l.trim().length > 0);
-  const tail = lines.slice(-10).join('\n');
 
-  if (/ing\.{3}/.test(tail)) return 'busy';
-  if (/\(y\s*=\s*yes|Allow|Approve|Do you want/.test(tail)) return 'action';
+  // Busy: spinner symbol at line start + ing… — only check content above ─── chrome
+  const sepIdx = lines.findIndex((l) => /^─+$/.test(l.trim()));
+  const contentLines = sepIdx >= 0 ? lines.slice(0, sepIdx) : lines;
+  if (contentLines.slice(-10).some((l) => /^\S\s.*ing…/.test(l))) return 'busy';
+
+  // Action: check full tail (chrome included) — approval prompts may be anywhere
+  const fullTail = lines.slice(-10).join('\n');
+  if (/\(y\s*=\s*yes|Allow|Approve|Do you want/.test(fullTail)) return 'action';
 
   return null;
 }
@@ -21,6 +26,7 @@ export class StateService {
   private dirtySessions = new Set<string>();
   private listener: ((state: AppState) => void) | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private polling = false;
 
   constructor(
     private git: GitPort,
@@ -34,8 +40,14 @@ export class StateService {
 
   startPolling(intervalMs = 5000): void {
     this.timer = setInterval(async () => {
-      const state = await this.collect();
-      this.listener?.(state);
+      if (this.polling) return;
+      this.polling = true;
+      try {
+        const state = await this.collect();
+        this.listener?.(state);
+      } finally {
+        this.polling = false;
+      }
     }, intervalMs);
   }
 
