@@ -44,7 +44,7 @@ export class TmuxAdapter implements TmuxPort {
   }
 
   async sendKeys(target: string, keys: string): Promise<void> {
-    await this.exec(`send-keys -t '${target}' ${keys} Enter`);
+    await this.exec(`send-keys -t '${target}' '${keys}' Enter`);
   }
 
   async selectWindow(session: string, window: string): Promise<void> {

@@ -48,3 +48,17 @@ describe('TmuxAdapter.listWindows', () => {
     expect(windows).toEqual([]);
   });
 });
+
+describe('TmuxAdapter.sendKeys', () => {
+  it('quotes multi-word commands to preserve spaces', async () => {
+    const shell = makeMockShell();
+    vi.mocked(shell.exec).mockResolvedValue('');
+
+    const adapter = new TmuxAdapter(shell);
+    await adapter.sendKeys('myapp/feat:Frontend', 'pnpm run dev');
+
+    expect(shell.exec).toHaveBeenCalledWith(
+      "tmux send-keys -t 'myapp/feat:Frontend' 'pnpm run dev' Enter"
+    );
+  });
+});
