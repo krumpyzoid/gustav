@@ -16,6 +16,8 @@ export const Channels = {
   PIN_PROJECTS: 'pin-projects',
   UNPIN_PROJECT: 'unpin-project',
   SELECT_WINDOW: 'select-window',
+  NEW_WINDOW: 'new-window',
+  KILL_WINDOW: 'kill-window',
 
   // Streams (fire-and-forget)
   PTY_INPUT: 'pty-input',

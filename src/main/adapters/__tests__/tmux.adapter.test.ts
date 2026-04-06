@@ -49,6 +49,20 @@ describe('TmuxAdapter.listWindows', () => {
   });
 });
 
+describe('TmuxAdapter.killWindow', () => {
+  it('executes tmux kill-window with session and window index', async () => {
+    const shell = makeMockShell();
+    vi.mocked(shell.exec).mockResolvedValue('');
+
+    const adapter = new TmuxAdapter(shell);
+    await adapter.killWindow('myapp/feat', 2);
+
+    expect(shell.exec).toHaveBeenCalledWith(
+      "tmux kill-window -t 'myapp/feat':2"
+    );
+  });
+});
+
 describe('TmuxAdapter.sendKeys', () => {
   it('quotes multi-word commands to preserve spaces', async () => {
     const shell = makeMockShell();

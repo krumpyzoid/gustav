@@ -176,4 +176,29 @@ export function registerHandlers(deps: {
       return err((e as Error).message);
     }
   });
+
+  ipcMain.handle(Channels.NEW_WINDOW, async (_event, session: string, name: string) => {
+    try {
+      const cwd = (await tmux.displayMessage(`${session}:0`, '#{pane_current_path}')).trim() || process.env.HOME!;
+      await tmux.newWindow(session, name, cwd);
+      await tmux.selectWindow(session, name);
+      return ok(undefined);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
+  ipcMain.handle(Channels.KILL_WINDOW, async (_event, session: string, windowIndex: number) => {
+    try {
+      const windows = await tmux.listWindows(session);
+      if (windows.length <= 1) {
+        await tmux.killSession(session);
+      } else {
+        await tmux.killWindow(session, windowIndex);
+      }
+      return ok(undefined);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
 }

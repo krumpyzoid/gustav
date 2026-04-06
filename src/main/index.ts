@@ -155,7 +155,7 @@ app.on('ready', () => {
       mainWindow.webContents.send(Channels.STATE_UPDATE, state);
     }
   });
-  stateService.startPolling(2000, () => activeSession);
+  stateService.startPolling(1000, () => activeSession);
 });
 
 app.on('window-all-closed', () => {

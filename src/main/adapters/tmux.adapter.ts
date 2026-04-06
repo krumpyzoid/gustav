@@ -51,6 +51,10 @@ export class TmuxAdapter implements TmuxPort {
     await this.exec(`select-window -t '${session}':'${window}'`);
   }
 
+  async killWindow(session: string, windowIndex: number): Promise<void> {
+    await this.exec(`kill-window -t '${session}':${windowIndex}`);
+  }
+
   async listPanes(session: string): Promise<string> {
     return this.exec(`list-panes -t '${session}' -s -F '#{pane_id}\t#{window_name}\t#{pane_current_command}'`);
   }

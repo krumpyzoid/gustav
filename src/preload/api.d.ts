@@ -22,6 +22,8 @@ interface ElectronAPI {
   // Actions
   switchSession: (session: string) => Promise<Result<void>>;
   killSession: (session: string) => Promise<Result<void>>;
+  newWindow: (session: string, name: string) => Promise<Result<void>>;
+  killWindow: (session: string, windowIndex: number) => Promise<Result<void>>;
   createSession: (name: string) => Promise<Result<void>>;
   startSession: (session: string, workdir: string) => Promise<Result<void>>;
   createWorktree: (params: CreateWorktreeParams) => Promise<Result<void>>;
