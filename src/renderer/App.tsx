@@ -33,7 +33,7 @@ export function App() {
 
   return (
     <div className="flex h-screen">
-      <aside ref={sidebarRef} className="w-[220px] min-w-[220px] bg-bg flex flex-col py-2">
+      <aside ref={sidebarRef} onMouseDown={(e) => e.preventDefault()} className="w-[220px] min-w-[220px] bg-bg flex flex-col py-2">
         <Sidebar
           onNewWorktree={handleNewWorktree}
           onRemoveWorktree={(entry) => setRemoveEntry(entry)}

@@ -57,7 +57,6 @@ export function SessionEntry({ entry, repoRoot, onRequestRemove }: Props) {
 
   return (
     <div
-      onMouseDown={(e) => e.preventDefault()}
       onClick={handleClick}
       className={`flex items-center gap-1.5 px-3 py-1 cursor-pointer border-l-2 transition-colors
         ${isActive ? 'border-l-accent bg-c0' : 'border-l-transparent'}
