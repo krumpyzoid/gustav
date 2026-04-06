@@ -1,6 +1,7 @@
 import type { SessionEntry as SessionEntryType, ClaudeStatus } from '../../../main/domain/types';
 import { StatusDot } from './StatusDot';
 import { useAppStore, refreshState } from '../../hooks/use-app-state';
+import type { WindowInfo } from '../../../main/domain/types';
 import { Button } from '../ui/button'
 import { Moon } from 'lucide-react';
 
@@ -26,7 +27,7 @@ interface Props {
 }
 
 export function SessionEntry({ entry, repoRoot, onRequestRemove }: Props) {
-  const { activeSession, setActiveSession } = useAppStore();
+  const { activeSession, setActiveSession, setWindows } = useAppStore();
   const isActive = entry.tmuxSession === activeSession;
   const isOrphan = entry.tmuxSession === null;
   const label = statusLabel(entry.status);
@@ -34,7 +35,8 @@ export function SessionEntry({ entry, repoRoot, onRequestRemove }: Props) {
   async function handleClick() {
     if (entry.tmuxSession) {
       setActiveSession(entry.tmuxSession);
-      await window.api.switchSession(entry.tmuxSession);
+      const result = await window.api.switchSession(entry.tmuxSession);
+      if (result.success) setWindows(result.data as WindowInfo[]);
     } else if (entry.worktreePath) {
       const session = entry.isMainWorktree
         ? `${entry.repo}/$dir`
@@ -67,12 +69,12 @@ export function SessionEntry({ entry, repoRoot, onRequestRemove }: Props) {
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1">
-          <span className="truncate">
-            {entry.branch}
-          </span>
           {entry.isMainWorktree && (
             <span className="text-accent/90 shrink-0">(dir)</span>
           )}
+          <span className="truncate">
+            {entry.branch}
+          </span>
         </div>
         {entry.upstream && (
           <div className="text-fg/50 truncate pl-px">

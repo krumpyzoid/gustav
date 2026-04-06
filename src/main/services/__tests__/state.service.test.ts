@@ -32,6 +32,7 @@ function makeMockTmux(): TmuxPort {
     listPanes: vi.fn(),
     capturePaneContent: vi.fn(),
     sendKeys: vi.fn(),
+    listWindows: vi.fn().mockResolvedValue([]),
   } as unknown as TmuxPort;
 }
 
@@ -333,6 +334,43 @@ describe('StateService.collect', () => {
     const mainEntry = state.entries.find((e) => e.isMainWorktree);
     expect(mainEntry!.upstream).toBeNull();
     fs.existsSync = originalExistsSync;
+  });
+
+  it('includes windows for the active session', async () => {
+    const git = makeMockGit();
+    const tmux = makeMockTmux();
+    const registry = makeMockRegistry();
+    vi.mocked(registry.load).mockReturnValue({});
+    vi.mocked(tmux.listSessions).mockResolvedValue(['app/main']);
+    vi.mocked(tmux.listPanes).mockResolvedValue('%0\tClaude Code\tclaude');
+    vi.mocked(tmux.capturePaneContent).mockResolvedValue('');
+    vi.mocked(tmux.listWindows).mockResolvedValue([
+      { index: 0, name: 'Claude Code', active: true },
+      { index: 1, name: 'Git', active: false },
+      { index: 2, name: 'Shell', active: false },
+    ]);
+
+    const svc = new StateService(git, tmux, registry);
+    const state = await svc.collect('app/main');
+
+    expect(state.windows).toEqual([
+      { index: 0, name: 'Claude Code', active: true },
+      { index: 1, name: 'Git', active: false },
+      { index: 2, name: 'Shell', active: false },
+    ]);
+  });
+
+  it('returns empty windows when no active session is provided', async () => {
+    const git = makeMockGit();
+    const tmux = makeMockTmux();
+    const registry = makeMockRegistry();
+    vi.mocked(registry.load).mockReturnValue({});
+    vi.mocked(tmux.listSessions).mockResolvedValue([]);
+
+    const svc = new StateService(git, tmux, registry);
+    const state = await svc.collect();
+
+    expect(state.windows).toEqual([]);
   });
 });
 

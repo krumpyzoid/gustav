@@ -19,6 +19,7 @@ import { Channels } from './ipc/channels';
 
 let mainWindow: BrowserWindow | null = null;
 let ptyProcess: pty.IPty | null = null;
+let activeSession: string | null = null;
 
 // ── Adapters ──────────────────────────────────────────────────────
 const fsAdapter = new FsAdapter();
@@ -119,6 +120,8 @@ app.on('ready', () => {
     tmux: tmuxAdapter,
     git: gitAdapter,
     getPtyClientTty,
+    getActiveSession: () => activeSession,
+    setActiveSession: (session: string) => { activeSession = session; },
   });
 
   // Prevent Electron's built-in zoom so Ctrl+/- reaches the renderer for terminal font sizing
@@ -132,6 +135,9 @@ app.on('ready', () => {
   mainWindow.webContents.on('did-finish-load', () => {
     const colors = themeService.load();
     mainWindow!.webContents.send(Channels.THEME_UPDATE, colors);
+    // Gustav owns all navigation — hide tmux status bar and disable prefix key
+    tmuxAdapter.exec('set-option -g status off');
+    tmuxAdapter.exec('set-option -g prefix None');
     startPty(80, 24);
     themeService.startWatching();
   });
@@ -149,7 +155,7 @@ app.on('ready', () => {
       mainWindow.webContents.send(Channels.STATE_UPDATE, state);
     }
   });
-  stateService.startPolling(2000);
+  stateService.startPolling(2000, () => activeSession);
 });
 
 app.on('window-all-closed', () => {

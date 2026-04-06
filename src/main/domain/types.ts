@@ -6,6 +6,13 @@ export type Result<T> =
 // ── Claude status ─────────────────────────────────────────────────
 export type ClaudeStatus = 'new' | 'busy' | 'action' | 'done' | 'none';
 
+// ── Window info ───────────────────────────────────────────────────
+export type WindowInfo = {
+  index: number;
+  name: string;
+  active: boolean;
+};
+
 // ── Session / state ───────────────────────────────────────────────
 export type SessionEntry = {
   repo: string;
@@ -20,6 +27,7 @@ export type SessionEntry = {
 export type AppState = {
   entries: SessionEntry[];
   repos: [name: string, path: string][];
+  windows: WindowInfo[];
 };
 
 // ── Theme ─────────────────────────────────────────────────────────
