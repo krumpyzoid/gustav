@@ -10,6 +10,7 @@ function entry(overrides: Partial<SessionEntry> = {}): SessionEntry {
     status: 'none',
     worktreePath: null,
     isMainWorktree: false,
+    upstream: null,
     ...overrides,
   };
 }

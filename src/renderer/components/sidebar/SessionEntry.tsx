@@ -71,9 +71,9 @@ export function SessionEntry({ entry, repoRoot, onRequestRemove }: Props) {
             <span className="text-accent/90 shrink-0">(dir)</span>
           )}
         </div>
-        {entry.repo !== 'standalone' && (
+        {entry.upstream && (
           <div className="text-fg/50 truncate pl-px">
-            origin/{entry.branch}
+            {entry.upstream}
           </div>
         )}
       </div>

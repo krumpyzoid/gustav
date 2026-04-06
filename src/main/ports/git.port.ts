@@ -13,4 +13,5 @@ export interface GitPort {
   worktreePrune(repoRoot: string): Promise<void>;
   branchDelete(repoRoot: string, branch: string): Promise<void>;
   worktreeListPorcelain(repoRoot: string): Promise<string>;
+  getUpstreams(repoRoot: string): Promise<Map<string, string>>;
 }

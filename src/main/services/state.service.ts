@@ -57,25 +57,31 @@ export class StateService {
           status: 'none',
           worktreePath: null,
           isMainWorktree: false,
+          upstream: null,
         });
       } else {
         const repo = trimmed.slice(0, slashIdx);
         const branch = trimmed.slice(slashIdx + 1);
         const status = await this.detectClaudeStatus(trimmed);
-        entries.push({ repo, branch, tmuxSession: trimmed, status, worktreePath: null, isMainWorktree: false });
+        entries.push({ repo, branch, tmuxSession: trimmed, status, worktreePath: null, isMainWorktree: false, upstream: null });
       }
     }
 
     // Find orphaned worktrees (including main worktree)
     const activeNames = new Set(entries.map((e) => e.tmuxSession));
+    const upstreamsByRepo = new Map<string, Map<string, string>>();
+
     for (const [repoName, repoRoot] of repoSet) {
       try {
+        const upstreams = await this.git.getUpstreams(repoRoot);
+        upstreamsByRepo.set(repoName, upstreams);
+
         const wtDir = this.git.getWorktreeDir(repoRoot);
         const raw = await this.git.worktreeListPorcelain(repoRoot);
         let curPath = '';
         let curBranch: string | null = null;
 
-        for (const line of raw.split('\n')) {
+        for (const line of (raw + '\n').split('\n')) {
           if (line.startsWith('worktree ')) {
             curPath = line.slice(9);
             curBranch = null;
@@ -84,7 +90,6 @@ export class StateService {
           } else if (line === '' && curPath) {
             const isMain = curPath === repoRoot;
             const isUnderWtDir = curPath.startsWith(wtDir);
-
             if ((isUnderWtDir || isMain) && curBranch) {
               const sessionName = `${repoName}/${curBranch}`;
               if (!activeNames.has(sessionName)) {
@@ -95,12 +100,14 @@ export class StateService {
                   status: 'none',
                   worktreePath: curPath,
                   isMainWorktree: isMain,
+                  upstream: upstreams.get(curBranch) ?? null,
                 });
               } else {
                 const entry = entries.find((e) => e.tmuxSession === sessionName);
                 if (entry) {
                   entry.worktreePath = curPath;
                   entry.isMainWorktree = isMain;
+                  entry.upstream = upstreams.get(curBranch) ?? null;
                 }
               }
             }
@@ -109,6 +116,16 @@ export class StateService {
           }
         }
       } catch {}
+    }
+
+    // Set upstream for tmux-only entries (no worktree match)
+    for (const entry of entries) {
+      if (entry.repo !== 'standalone' && entry.upstream === null) {
+        const upstreams = upstreamsByRepo.get(entry.repo);
+        if (upstreams) {
+          entry.upstream = upstreams.get(entry.branch) ?? null;
+        }
+      }
     }
 
     return { entries, repos: [...repoSet.entries()] };

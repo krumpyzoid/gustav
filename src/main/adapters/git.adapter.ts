@@ -28,7 +28,7 @@ export class GitAdapter implements GitPort {
     const entries: WorktreeEntry[] = [];
     let current: Partial<WorktreeEntry> = {};
 
-    for (const line of raw.split('\n')) {
+    for (const line of (raw + '\n').split('\n')) {
       if (line.startsWith('worktree ')) {
         current = { path: line.slice(9) };
       } else if (line.startsWith('branch refs/heads/')) {
@@ -135,5 +135,23 @@ export class GitAdapter implements GitPort {
 
   async worktreeListPorcelain(repoRoot: string): Promise<string> {
     return this.shell.exec(`git -C '${repoRoot}' worktree list --porcelain`);
+  }
+
+  async getUpstreams(repoRoot: string): Promise<Map<string, string>> {
+    const result = new Map<string, string>();
+    try {
+      const raw = await this.shell.exec(
+        `git -C '${repoRoot}' for-each-ref --format='%(refname:short) %(upstream:short)' refs/heads/`,
+      );
+      for (const line of raw.split('\n')) {
+        if (!line.trim()) continue;
+        const spaceIdx = line.indexOf(' ');
+        if (spaceIdx === -1) continue;
+        const branch = line.slice(0, spaceIdx);
+        const upstream = line.slice(spaceIdx + 1);
+        if (upstream) result.set(branch, upstream);
+      }
+    } catch {}
+    return result;
   }
 }

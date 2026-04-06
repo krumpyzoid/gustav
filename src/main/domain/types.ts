@@ -14,6 +14,7 @@ export type SessionEntry = {
   status: ClaudeStatus;
   worktreePath: string | null;
   isMainWorktree: boolean;
+  upstream: string | null;
 };
 
 export type AppState = {
