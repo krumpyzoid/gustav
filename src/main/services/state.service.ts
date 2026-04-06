@@ -63,19 +63,6 @@ export class StateService {
         const branch = trimmed.slice(slashIdx + 1);
         const status = await this.detectClaudeStatus(trimmed);
         entries.push({ repo, branch, tmuxSession: trimmed, status, worktreePath: null, isMainWorktree: false });
-
-        if (!repoSet.has(repo)) {
-          try {
-            const panePath = await this.tmux.displayMessage(trimmed, '#{pane_current_path}');
-            if (panePath) {
-              const root = await this.git.getRepoRoot(panePath);
-              if (root) {
-                repoSet.set(repo, root);
-                await this.registry.save(repo, root);
-              }
-            }
-          } catch {}
-        }
       }
     }
 

@@ -1,6 +1,7 @@
 import type { SessionEntry as SessionEntryType } from '../../../main/domain/types';
 import { SessionEntry } from './SessionEntry';
 import { refreshState } from '../../hooks/use-app-state';
+import { PinOff } from 'lucide-react';
 
 interface Props {
   repo: string;
@@ -11,27 +12,27 @@ interface Props {
 }
 
 export function RepoGroup({ repo, entries, repoRoot, onNewWorktree, onRemoveWorktree }: Props) {
-  const hasActive = entries.some((e) => e.tmuxSession !== null);
-
-  async function handleRemoveRepo(e: React.MouseEvent) {
+  async function handleUnpin(e: React.MouseEvent) {
     e.stopPropagation();
-    await window.api.removeRepo(repo);
+    await window.api.unpinProject(repo);
     refreshState();
   }
 
   return (
     <div className="mb-1">
       <div className={`flex items-center justify-between px-3 pt-1.5 pb-0.5
-        text-[11px] font-bold tracking-wider uppercase
+        font-bold tracking-wider uppercase
         ${repo === 'standalone' ? 'text-c5' : 'text-accent'}`}
       >
         {repo}
-        {repo !== 'standalone' && !hasActive && (
+        {repo !== 'standalone' && (
           <button
-            onClick={handleRemoveRepo}
-            className="bg-transparent border-none text-c0 hover:text-c1 cursor-pointer text-[10px] px-1 opacity-0 group-hover/repo:opacity-100 transition-opacity"
-            title="Remove repo from sidebar"
-          >✕</button>
+            onClick={handleUnpin}
+            className="bg-transparent border-none text-c0 hover:text-c1 cursor-pointer px-1 opacity-0 group-hover/repo:opacity-100 transition-opacity"
+            title="Unpin project"
+          >
+            <PinOff size={12} />
+          </button>
         )}
       </div>
 
@@ -52,7 +53,7 @@ export function RepoGroup({ repo, entries, repoRoot, onNewWorktree, onRemoveWork
       {repo !== 'standalone' && (
         <div
           onClick={onNewWorktree}
-          className="px-3 py-0.5 pl-[26px] opacity-35 hover:opacity-70 cursor-pointer"
+          className="px-3 py-0.5 pl-[26px] opacity-65 hover:opacity-100 cursor-pointer"
         >
           <span className="text-accent text-xs">+ new worktree</span>
         </div>
