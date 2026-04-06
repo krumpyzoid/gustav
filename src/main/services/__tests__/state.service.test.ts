@@ -460,8 +460,8 @@ describe('parseRawStatus', () => {
     expect(parseRawStatus('✻ Thinking…')).toBe('busy');
   });
 
-  it('matches spinner+ing… only in the tail (last 10 content lines)', () => {
-    const lines = Array.from({ length: 20 }, (_, i) => `line ${i}`);
+  it('matches spinner+ing… only in the tail (last 30 content lines)', () => {
+    const lines = Array.from({ length: 40 }, (_, i) => `line ${i}`);
     lines[0] = '✻ Thinking…';  // in head, not tail
     expect(parseRawStatus(lines.join('\n'))).toBeNull();
   });
