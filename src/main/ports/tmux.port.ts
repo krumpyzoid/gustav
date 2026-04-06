@@ -8,6 +8,7 @@ export interface TmuxPort {
   newWindow(session: string, name: string, cwd: string): Promise<void>;
   sendKeys(target: string, keys: string): Promise<void>;
   selectWindow(session: string, window: string): Promise<void>;
+  killWindow(session: string, windowIndex: number): Promise<void>;
   listPanes(session: string): Promise<string>;
   capturePaneContent(paneId: string): Promise<string>;
   displayMessage(target: string, format: string): Promise<string>;
