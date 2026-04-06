@@ -19,6 +19,7 @@ import { Channels } from './ipc/channels';
 
 let mainWindow: BrowserWindow | null = null;
 let ptyProcess: pty.IPty | null = null;
+let activeSession: string | null = null;
 
 // ── Adapters ──────────────────────────────────────────────────────
 const fsAdapter = new FsAdapter();
@@ -119,6 +120,7 @@ app.on('ready', () => {
     tmux: tmuxAdapter,
     git: gitAdapter,
     getPtyClientTty,
+    setActiveSession: (session: string) => { activeSession = session; },
   });
 
   // Prevent Electron's built-in zoom so Ctrl+/- reaches the renderer for terminal font sizing
@@ -151,7 +153,7 @@ app.on('ready', () => {
       mainWindow.webContents.send(Channels.STATE_UPDATE, state);
     }
   });
-  stateService.startPolling(2000);
+  stateService.startPolling(2000, () => activeSession);
 });
 
 app.on('window-all-closed', () => {

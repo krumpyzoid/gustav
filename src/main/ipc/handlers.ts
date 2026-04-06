@@ -28,8 +28,9 @@ export function registerHandlers(deps: {
   tmux: TmuxPort;
   git: GitPort;
   getPtyClientTty: () => string | null;
+  setActiveSession: (session: string) => void;
 }): void {
-  const { worktreeService, sessionService, stateService, themeService, registryService, configService, tmux, git, getPtyClientTty } = deps;
+  const { worktreeService, sessionService, stateService, themeService, registryService, configService, tmux, git, getPtyClientTty, setActiveSession } = deps;
 
   // ── Queries ──────────────────────────────────────────────────
   ipcMain.handle(Channels.GET_STATE, async () => {
@@ -54,6 +55,7 @@ export function registerHandlers(deps: {
       const tty = getPtyClientTty();
       if (!tty) return err('No PTY client TTY available');
       await sessionService.switchTo(session, tty);
+      setActiveSession(session);
       return ok(undefined);
     } catch (e) {
       return err((e as Error).message);
@@ -73,7 +75,10 @@ export function registerHandlers(deps: {
     try {
       await tmux.newSession(name, { windowName: 'Shell', cwd: process.env.HOME! });
       const tty = getPtyClientTty();
-      if (tty) await sessionService.switchTo(name, tty);
+      if (tty) {
+        await sessionService.switchTo(name, tty);
+        setActiveSession(name);
+      }
       return ok(undefined);
     } catch (e) {
       return err((e as Error).message);
@@ -95,7 +100,10 @@ export function registerHandlers(deps: {
       await sessionService.launch(repoRoot, branch, workdir, config);
 
       const tty = getPtyClientTty();
-      if (tty) await sessionService.switchTo(session, tty);
+      if (tty) {
+        await sessionService.switchTo(session, tty);
+        setActiveSession(session);
+      }
       return ok(undefined);
     } catch (e) {
       return err((e as Error).message);
