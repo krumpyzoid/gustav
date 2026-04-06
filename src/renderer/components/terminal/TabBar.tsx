@@ -18,7 +18,7 @@ export function TabBar() {
         <button
           key={w.index}
           onClick={() => handleClick(w.name)}
-          className={`px-3 py-1.5 text-sm transition-colors border-b-2
+          className={`px-3 py-3 text-sm transition-colors border-b-2
             ${w.active
               ? 'border-b-accent text-fg'
               : 'border-b-transparent text-fg/60 hover:text-fg hover:bg-c0'

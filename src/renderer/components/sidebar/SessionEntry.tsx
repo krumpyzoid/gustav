@@ -67,12 +67,12 @@ export function SessionEntry({ entry, repoRoot, onRequestRemove }: Props) {
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1">
-          <span className="truncate">
-            {entry.branch}
-          </span>
           {entry.isMainWorktree && (
             <span className="text-accent/90 shrink-0">(dir)</span>
           )}
+          <span className="truncate">
+            {entry.branch}
+          </span>
         </div>
         {entry.upstream && (
           <div className="text-fg/50 truncate pl-px">
