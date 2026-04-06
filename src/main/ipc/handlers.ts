@@ -28,13 +28,14 @@ export function registerHandlers(deps: {
   tmux: TmuxPort;
   git: GitPort;
   getPtyClientTty: () => string | null;
+  getActiveSession: () => string | null;
   setActiveSession: (session: string) => void;
 }): void {
-  const { worktreeService, sessionService, stateService, themeService, registryService, configService, tmux, git, getPtyClientTty, setActiveSession } = deps;
+  const { worktreeService, sessionService, stateService, themeService, registryService, configService, tmux, git, getPtyClientTty, getActiveSession, setActiveSession } = deps;
 
   // ── Queries ──────────────────────────────────────────────────
   ipcMain.handle(Channels.GET_STATE, async () => {
-    return stateService.collect();
+    return stateService.collect(getActiveSession() ?? undefined);
   });
 
   ipcMain.handle(Channels.GET_THEME, () => {
@@ -56,7 +57,8 @@ export function registerHandlers(deps: {
       if (!tty) return err('No PTY client TTY available');
       await sessionService.switchTo(session, tty);
       setActiveSession(session);
-      return ok(undefined);
+      const windows = await tmux.listWindows(session);
+      return ok(windows);
     } catch (e) {
       return err((e as Error).message);
     }

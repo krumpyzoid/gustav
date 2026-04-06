@@ -120,6 +120,7 @@ app.on('ready', () => {
     tmux: tmuxAdapter,
     git: gitAdapter,
     getPtyClientTty,
+    getActiveSession: () => activeSession,
     setActiveSession: (session: string) => { activeSession = session; },
   });
 
