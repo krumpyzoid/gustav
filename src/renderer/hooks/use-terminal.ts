@@ -15,6 +15,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       cursorBlink: true,
       fontFamily: '"CaskaydiaMono NF", "CaskaydiaMono Nerd Font", monospace',
       fontSize: 13,
+      allowProposedApi: true,
     });
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
@@ -61,6 +62,14 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     // Input relay
     term.onData((data) => window.api.sendPtyInput(data));
+
+    // Auto-copy selection to clipboard on mouseup
+    term.onSelectionChange(() => {
+      const selection = term.getSelection();
+      if (selection) {
+        navigator.clipboard.writeText(selection);
+      }
+    });
 
     // Theme updates
     window.api.getTheme().then((colors) => {

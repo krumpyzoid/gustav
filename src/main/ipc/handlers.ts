@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron';
+import { ipcMain, dialog, BrowserWindow } from 'electron';
 import { Channels } from './channels';
 import type { WorktreeService } from '../services/worktree.service';
 import type { SessionService } from '../services/session.service';
@@ -129,7 +129,27 @@ export function registerHandlers(deps: {
     }
   });
 
-  ipcMain.handle(Channels.REMOVE_REPO, async (_event, repoName: string) => {
+  ipcMain.handle(Channels.PIN_PROJECTS, async () => {
+    try {
+      const win = BrowserWindow.getFocusedWindow();
+      if (!win) return ok([]);
+      const result = await dialog.showOpenDialog(win, {
+        properties: ['openDirectory'],
+        title: 'Select a project folder',
+      });
+      if (result.canceled || result.filePaths.length === 0) return ok([]);
+      const folderPath = result.filePaths[0];
+      const repos = registryService.discoverGitRepos(folderPath, 3);
+      if (repos.length > 0) {
+        await registryService.pinMany(repos);
+      }
+      return ok(repos);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
+  ipcMain.handle(Channels.UNPIN_PROJECT, async (_event, repoName: string) => {
     try {
       await registryService.remove(repoName);
       return ok(undefined);

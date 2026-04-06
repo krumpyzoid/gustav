@@ -1,19 +1,12 @@
 import { useMemo } from 'react';
-import { useAppStore } from '../../hooks/use-app-state';
+import { Plus } from 'lucide-react';
+import { useAppStore, refreshState } from '../../hooks/use-app-state';
+import { groupByCategory } from '../../lib/group-by-category';
 import { RepoGroup } from './RepoGroup';
+import { SessionEntry } from './SessionEntry';
+import { AccordionCategory } from './AccordionCategory';
 import { ActionBar } from './ActionBar';
 import type { SessionEntry as SessionEntryType } from '../../../main/domain/types';
-
-function sortEntries(entries: SessionEntryType[]): SessionEntryType[] {
-  return [...entries].sort((a, b) => {
-    if (a.repo === 'standalone' && b.repo !== 'standalone') return 1;
-    if (a.repo !== 'standalone' && b.repo === 'standalone') return -1;
-    if (a.repo !== b.repo) return a.repo.localeCompare(b.repo);
-    if (a.isMainWorktree && !b.isMainWorktree) return -1;
-    if (!a.isMainWorktree && b.isMainWorktree) return 1;
-    return a.branch.localeCompare(b.branch);
-  });
-}
 
 interface Props {
   onNewWorktree: (repo: string, repoRoot: string) => void;
@@ -25,35 +18,83 @@ interface Props {
 export function Sidebar({ onNewWorktree, onRemoveWorktree, onNewSession, onClean }: Props) {
   const { entries, repos } = useAppStore();
 
-  const groups = useMemo(() => {
-    const sorted = sortEntries(entries);
-    const map = new Map<string, SessionEntryType[]>();
-    for (const entry of sorted) {
-      const group = map.get(entry.repo) ?? [];
-      group.push(entry);
-      map.set(entry.repo, group);
-    }
-    return map;
-  }, [entries]);
+  const categories = useMemo(() => groupByCategory(entries, repos), [entries, repos]);
+
+  async function handlePin() {
+    await window.api.pinProjects();
+    refreshState();
+  }
+
+  const standaloneCount = categories.standalone.length;
+  const activeRepos = [...categories.active.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const idleRepos = categories.idle;
 
   return (
     <>
-      <div className="flex-1 overflow-y-auto">
-        {[...groups.entries()].map(([repo, repoEntries]) => (
-          <div key={repo} className="group/repo">
-            <RepoGroup
-              repo={repo}
-              entries={repoEntries}
-              repoRoot={repos.get(repo)}
-              onNewWorktree={() => {
-                const root = repos.get(repo);
-                if (root) onNewWorktree(repo, root);
-              }}
-              onRemoveWorktree={onRemoveWorktree}
-            />
-          </div>
-        ))}
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-c0">
+        <span className="text-xs font-bold tracking-wider uppercase text-c5">Projects</span>
+        <button
+          onClick={handlePin}
+          className="bg-transparent border-none text-c5 hover:text-accent cursor-pointer p-0.5 transition-colors"
+          title="Pin a project"
+        >
+          <Plus size={14} />
+        </button>
       </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {standaloneCount > 0 && (
+          <AccordionCategory label="Standalone" count={standaloneCount}>
+            {categories.standalone.map((entry) => (
+              <div key={entry.tmuxSession ?? `orphan-${entry.branch}`} className="group/entry">
+                <SessionEntry entry={entry} />
+              </div>
+            ))}
+          </AccordionCategory>
+        )}
+
+        {activeRepos.length > 0 && (
+          <AccordionCategory label="Active" count={activeRepos.length}>
+            {activeRepos.map(([repo, repoEntries]) => (
+              <div key={repo} className="group/repo">
+                <RepoGroup
+                  repo={repo}
+                  entries={repoEntries}
+                  repoRoot={repos.get(repo)}
+                  onNewWorktree={() => {
+                    const root = repos.get(repo);
+                    if (root) onNewWorktree(repo, root);
+                  }}
+                  onRemoveWorktree={onRemoveWorktree}
+                />
+              </div>
+            ))}
+          </AccordionCategory>
+        )}
+
+        {idleRepos.length > 0 && (
+          <AccordionCategory label="Idle" count={idleRepos.length} defaultExpanded={false}>
+            {idleRepos.map((repo) => {
+              const repoEntries = entries.filter((e) => e.repo === repo);
+              return (
+                <div key={repo} className="group/repo">
+                  <RepoGroup
+                    repo={repo}
+                    entries={repoEntries}
+                    repoRoot={repos.get(repo)}
+                    onNewWorktree={() => {
+                      const root = repos.get(repo);
+                      if (root) onNewWorktree(repo, root);
+                    }}
+                    onRemoveWorktree={onRemoveWorktree}
+                  />
+                </div>
+              );
+            })}
+          </AccordionCategory>
+        )}
+      </div>
+
       <ActionBar onNewSession={onNewSession} onClean={onClean} />
     </>
   );

@@ -27,7 +27,8 @@ interface ElectronAPI {
   createWorktree: (params: CreateWorktreeParams) => Promise<Result<void>>;
   removeWorktree: (repoRoot: string, branch: string, deleteBranch: boolean) => Promise<Result<void>>;
   cleanWorktrees: (items: CleanTarget[]) => Promise<Result<CleanReport>>;
-  removeRepo: (repoName: string) => Promise<Result<void>>;
+  pinProjects: () => Promise<Result<string[]>>;
+  unpinProject: (repoName: string) => Promise<Result<void>>;
   getBranches: (repoRoot: string) => Promise<BranchInfo[]>;
   getCleanCandidates: () => Promise<CleanCandidate[]>;
 

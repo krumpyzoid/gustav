@@ -27,7 +27,8 @@ contextBridge.exposeInMainWorld('api', {
   removeWorktree: (repoRoot: string, branch: string, deleteBranch: boolean) =>
     ipcRenderer.invoke('remove-worktree', repoRoot, branch, deleteBranch),
   cleanWorktrees: (items: any[]) => ipcRenderer.invoke('clean-worktrees', items),
-  removeRepo: (repoName: string) => ipcRenderer.invoke('remove-repo', repoName),
+  pinProjects: () => ipcRenderer.invoke('pin-projects'),
+  unpinProject: (repoName: string) => ipcRenderer.invoke('unpin-project', repoName),
   getBranches: (repoRoot: string) => ipcRenderer.invoke('get-branches', repoRoot),
   getCleanCandidates: () => ipcRenderer.invoke('get-clean-candidates'),
 

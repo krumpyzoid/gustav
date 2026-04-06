@@ -1,6 +1,8 @@
 import type { SessionEntry as SessionEntryType, ClaudeStatus } from '../../../main/domain/types';
 import { StatusDot } from './StatusDot';
 import { useAppStore, refreshState } from '../../hooks/use-app-state';
+import { Button } from '../ui/button'
+import { Moon } from 'lucide-react';
 
 function statusLabel(status: ClaudeStatus): string {
   if (status === 'action') return 'needs input';
@@ -51,48 +53,55 @@ export function SessionEntry({ entry, repoRoot, onRequestRemove }: Props) {
   return (
     <div
       onClick={handleClick}
-      className={`flex items-center gap-1.5 px-3 py-[3px] cursor-pointer border-l-2 transition-colors
+      className={`flex items-center gap-1.5 px-3 py-1 cursor-pointer border-l-2 transition-colors
         ${isActive ? 'border-l-accent bg-c0' : 'border-l-transparent'}
-        ${isOrphan ? 'opacity-50 hover:opacity-80' : 'hover:bg-c0'}`}
+        ${isOrphan ? 'opacity-80 hover:opacity-100' : 'hover:bg-c0'}`}
     >
-      {entry.repo !== 'standalone' && <StatusDot status={entry.status} />}
+      {entry.repo !== 'standalone' && <div className="w-5 flex justify-center">
+        {isOrphan ? <Moon className="size-5" /> : <StatusDot status={entry.status} />}
+      </div>
+      }
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1">
-          <span className="truncate text-sm">
+          <span className="truncate">
             {entry.branch}
           </span>
           {entry.isMainWorktree && (
-            <span className="text-xs text-accent/60 shrink-0">(dir)</span>
+            <span className="text-accent/90 shrink-0">(dir)</span>
           )}
         </div>
         {entry.repo !== 'standalone' && (
-          <div className="text-xs text-fg/30 truncate pl-px">
+          <div className="text-fg/50 truncate pl-px">
             origin/{entry.branch}
           </div>
         )}
       </div>
 
       {label && entry.tmuxSession && (
-        <span className={`text-xs shrink-0 ${statusLabelColors[entry.status]}`}>
+        <span className={`text-sm shrink-0 ${statusLabelColors[entry.status]}`}>
           {label}
         </span>
       )}
 
       <div className="hidden group-hover/entry:flex gap-0.5 shrink-0 ml-auto">
         {entry.tmuxSession && (
-          <button
+          <Button
             onClick={handleKill}
-            className="bg-transparent border-none text-c0 hover:text-c1 cursor-pointer text-xs px-[3px] rounded"
+            className="size-5"
             title="Kill tmux session"
-          >✕</button>
+            variant="destructive"
+            size="icon"
+          >✕</Button>
         )}
         {entry.repo !== 'standalone' && !entry.isMainWorktree && onRequestRemove && (
-          <button
+          <Button
             onClick={(e) => { e.stopPropagation(); onRequestRemove(); }}
-            className="bg-transparent border-none text-c0 hover:text-c1 cursor-pointer text-xs px-[3px] rounded"
+            className="size-5"
+            variant="destructive"
             title="Remove worktree"
-          >🗑</button>
+            size="icon"
+          >🗑</Button>
         )}
       </div>
     </div>
