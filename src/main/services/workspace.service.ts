@@ -57,6 +57,17 @@ export class WorkspaceService {
     await this.persist(workspaces);
   }
 
+  async reorder(ids: string[]): Promise<void> {
+    const workspaces = this.list();
+    const byId = new Map(workspaces.map((w) => [w.id, w]));
+    const reordered = ids.map((id) => byId.get(id)).filter(Boolean) as Workspace[];
+    // Append any workspaces not in the ids list (safety net)
+    for (const w of workspaces) {
+      if (!ids.includes(w.id)) reordered.push(w);
+    }
+    await this.persist(reordered);
+  }
+
   findByDirectory(directory: string): Workspace | undefined {
     return this.list().find((w) => w.directory === directory);
   }

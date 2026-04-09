@@ -1,7 +1,8 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Plus, ChevronDown } from 'lucide-react';
-import { useAppStore } from '../../hooks/use-app-state';
+import { useAppStore, refreshState } from '../../hooks/use-app-state';
 import { WorkspaceAccordion } from './WorkspaceAccordion';
+import { DraggableWorkspace } from './DraggableWorkspace';
 import type { SessionTab as SessionTabType } from '../../../main/domain/types';
 
 interface Props {
@@ -17,6 +18,25 @@ export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onEditW
   const { defaultWorkspace, workspaces } = useAppStore();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const handleReorder = useCallback(async (draggedId: string, targetId: string, edge: 'top' | 'bottom') => {
+    const ids = workspaces.map((ws) => ws.workspace!.id);
+    const fromIdx = ids.indexOf(draggedId);
+    if (fromIdx === -1) return;
+
+    // Remove dragged item
+    ids.splice(fromIdx, 1);
+
+    // Find target position after removal
+    let toIdx = ids.indexOf(targetId);
+    if (toIdx === -1) return;
+    if (edge === 'bottom') toIdx += 1;
+
+    ids.splice(toIdx, 0, draggedId);
+
+    await window.api.reorderWorkspaces(ids);
+    refreshState();
+  }, [workspaces]);
 
   useEffect(() => {
     if (!dropdownOpen) return;
@@ -71,13 +91,18 @@ export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onEditW
 
         {/* Named workspaces */}
         {workspaces.map((ws) => (
-          <WorkspaceAccordion
+          <DraggableWorkspace
             key={ws.workspace!.id}
-            state={ws}
-            onAddSession={() => onNewSession(ws.workspace!.id)}
-            onEdit={() => onEditWorkspace(ws.workspace!.id)}
-            onRemoveWorktree={onRemoveWorktree}
-          />
+            workspaceId={ws.workspace!.id}
+            onReorder={handleReorder}
+          >
+            <WorkspaceAccordion
+              state={ws}
+              onAddSession={() => onNewSession(ws.workspace!.id)}
+              onEdit={() => onEditWorkspace(ws.workspace!.id)}
+              onRemoveWorktree={onRemoveWorktree}
+            />
+          </DraggableWorkspace>
         ))}
       </div>
 

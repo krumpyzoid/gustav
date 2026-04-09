@@ -36,7 +36,7 @@ export function App() {
 
   return (
     <div className="flex h-screen">
-      <aside ref={sidebarRef} onMouseDown={(e) => e.preventDefault()} className="w-[220px] min-w-[220px] bg-bg flex flex-col py-2">
+      <aside ref={sidebarRef} onMouseDown={(e) => { if (!(e.target as HTMLElement).closest('[draggable="true"]')) e.preventDefault(); }} className="w-[220px] min-w-[220px] bg-bg flex flex-col py-2 select-none">
         <Sidebar
           onNewWorkspace={() => setNewWorkspaceOpen(true)}
           onNewStandalone={() => setNewStandaloneOpen(true)}
