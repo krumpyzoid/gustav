@@ -29,15 +29,19 @@ export function useAppStateSubscription() {
 
   useEffect(() => {
     // Initial fetch
-    window.api.getState().then((state) => {
+    window.api.getState().then(async (state) => {
       setRepos(state.repos);
       setEntries(state.entries);
       setWindows(state.windows ?? []);
 
-      // Set initial active session
+      // Set initial active session and sync to main process
       const first = state.entries.find((e) => e.tmuxSession && e.repo !== 'standalone');
       if (first?.tmuxSession) {
         useAppStore.getState().setActiveSession(first.tmuxSession);
+        const result = await window.api.switchSession(first.tmuxSession);
+        if (result.success) {
+          useAppStore.getState().setWindows(result.data);
+        }
       }
     });
 

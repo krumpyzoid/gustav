@@ -13,4 +13,5 @@ export interface TmuxPort {
   capturePaneContent(paneId: string): Promise<string>;
   displayMessage(target: string, format: string): Promise<string>;
   listWindows(session: string): Promise<{ index: number; name: string; active: boolean }[]>;
+  listClients(): Promise<{ tty: string; pid: number }[]>;
 }

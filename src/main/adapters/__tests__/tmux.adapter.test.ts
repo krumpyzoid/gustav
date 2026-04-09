@@ -63,6 +63,36 @@ describe('TmuxAdapter.killWindow', () => {
   });
 });
 
+describe('TmuxAdapter.listClients', () => {
+  it('parses list-clients output into tty/pid pairs', async () => {
+    const shell = makeMockShell();
+    vi.mocked(shell.exec).mockResolvedValue(
+      '/dev/ttys001 12345\n/dev/ttys002 67890'
+    );
+
+    const adapter = new TmuxAdapter(shell);
+    const clients = await adapter.listClients();
+
+    expect(clients).toEqual([
+      { tty: '/dev/ttys001', pid: 12345 },
+      { tty: '/dev/ttys002', pid: 67890 },
+    ]);
+    expect(shell.exec).toHaveBeenCalledWith(
+      "tmux list-clients -F '#{client_tty} #{client_pid}'"
+    );
+  });
+
+  it('returns empty array when no clients connected', async () => {
+    const shell = makeMockShell();
+    vi.mocked(shell.exec).mockRejectedValue(new Error('no clients'));
+
+    const adapter = new TmuxAdapter(shell);
+    const clients = await adapter.listClients();
+
+    expect(clients).toEqual([]);
+  });
+});
+
 describe('TmuxAdapter.sendKeys', () => {
   it('quotes multi-word commands to preserve spaces', async () => {
     const shell = makeMockShell();

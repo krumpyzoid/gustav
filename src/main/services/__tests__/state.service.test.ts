@@ -33,6 +33,7 @@ function makeMockTmux(): TmuxPort {
     capturePaneContent: vi.fn(),
     sendKeys: vi.fn(),
     listWindows: vi.fn().mockResolvedValue([]),
+    listClients: vi.fn().mockResolvedValue([]),
   } as unknown as TmuxPort;
 }
 

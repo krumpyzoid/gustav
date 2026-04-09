@@ -67,6 +67,18 @@ export class TmuxAdapter implements TmuxPort {
     return this.exec(`display-message -t '${target}' -p '${format}'`);
   }
 
+  async listClients(): Promise<{ tty: string; pid: number }[]> {
+    const raw = await this.exec("list-clients -F '#{client_tty} #{client_pid}'");
+    if (!raw) return [];
+    return raw.split('\n').filter(Boolean).map((line) => {
+      const spaceIdx = line.lastIndexOf(' ');
+      return {
+        tty: line.slice(0, spaceIdx),
+        pid: Number(line.slice(spaceIdx + 1)),
+      };
+    });
+  }
+
   async listWindows(session: string): Promise<{ index: number; name: string; active: boolean }[]> {
     const raw = await this.exec(`list-windows -t '${session}' -F '#{window_index}\t#{window_name}\t#{window_active}'`);
     if (!raw) return [];

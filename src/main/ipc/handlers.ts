@@ -27,7 +27,7 @@ export function registerHandlers(deps: {
   configService: ConfigService;
   tmux: TmuxPort;
   git: GitPort;
-  getPtyClientTty: () => string | null;
+  getPtyClientTty: () => Promise<string | null>;
   getActiveSession: () => string | null;
   setActiveSession: (session: string) => void;
 }): void {
@@ -53,7 +53,7 @@ export function registerHandlers(deps: {
   // ── Commands ─────────────────────────────────────────────────
   ipcMain.handle(Channels.SWITCH_SESSION, async (_event, session: string) => {
     try {
-      const tty = getPtyClientTty();
+      const tty = await getPtyClientTty();
       if (!tty) return err('No PTY client TTY available');
       await sessionService.switchTo(session, tty);
       setActiveSession(session);
@@ -76,7 +76,7 @@ export function registerHandlers(deps: {
   ipcMain.handle(Channels.CREATE_SESSION, async (_event, name: string) => {
     try {
       await tmux.newSession(name, { windowName: 'Shell', cwd: process.env.HOME! });
-      const tty = getPtyClientTty();
+      const tty = await getPtyClientTty();
       if (tty) {
         await sessionService.switchTo(name, tty);
         setActiveSession(name);
@@ -101,7 +101,7 @@ export function registerHandlers(deps: {
       const config = await configService.parse(repoRoot);
       await sessionService.launch(repoRoot, branch, workdir, config);
 
-      const tty = getPtyClientTty();
+      const tty = await getPtyClientTty();
       if (tty) {
         await sessionService.switchTo(session, tty);
         setActiveSession(session);

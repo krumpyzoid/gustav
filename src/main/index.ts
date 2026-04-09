@@ -38,10 +38,21 @@ const worktreeService = new WorktreeService(
 );
 
 // ── PTY ───────────────────────────────────────────────────────────
-function getPtyClientTty(): string | null {
+async function getPtyClientTty(): Promise<string | null> {
   if (!ptyProcess) return null;
+
+  // Fast path: Linux /proc
   try {
     return fsAdapter.readlink(`/proc/${ptyProcess.pid}/fd/0`);
+  } catch {
+    // Not on Linux or /proc unavailable — fall through
+  }
+
+  // Cross-platform: ask tmux for client TTY matching our PTY pid
+  try {
+    const clients = await tmuxAdapter.listClients();
+    const match = clients.find((c) => c.pid === ptyProcess!.pid);
+    return match?.tty ?? clients[0]?.tty ?? null;
   } catch {
     return null;
   }
