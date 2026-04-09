@@ -34,6 +34,7 @@ interface ElectronAPI {
   killSession: (session: string) => Promise<Result<void>>;
   createWorkspaceSession: (workspaceName: string, workspaceDir: string, label?: string) => Promise<Result<string>>;
   createRepoSession: (workspaceName: string, repoRoot: string, mode: string, branch?: string, base?: string, install?: boolean) => Promise<Result<string>>;
+  launchWorktreeSession: (workspaceName: string, repoRoot: string, branch: string, worktreePath: string) => Promise<Result<string>>;
   createStandaloneSession: (label: string, dir: string) => Promise<Result<string>>;
   selectDirectory: () => Promise<Result<string | null>>;
 

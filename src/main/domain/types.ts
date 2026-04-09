@@ -93,6 +93,7 @@ export type SessionTab = {
   branch: string | null;
   worktreePath: string | null;
   status: ClaudeStatus;
+  active: boolean;
 };
 
 // ── Workspace state (new model) ──────────────────────────────────

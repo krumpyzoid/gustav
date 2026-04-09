@@ -96,14 +96,14 @@ export class StateService {
           // Standalone: _standalone/label
           if (tmuxSession.startsWith('_standalone/')) {
             const label = tmuxSession.slice('_standalone/'.length);
-            return { workspaceId: null, type: 'workspace', tmuxSession, repoName: null, branch: null, worktreePath: null, status };
+            return { workspaceId: null, type: 'workspace', tmuxSession, repoName: null, branch: null, worktreePath: null, status, active: true };
           }
 
           // Find matching workspace by prefix
           const firstSlash = tmuxSession.indexOf('/');
           if (firstSlash === -1) {
             // No slash → standalone-like
-            return { workspaceId: null, type: 'workspace', tmuxSession, repoName: null, branch: null, worktreePath: null, status };
+            return { workspaceId: null, type: 'workspace', tmuxSession, repoName: null, branch: null, worktreePath: null, status, active: true };
           }
 
           const prefix = tmuxSession.slice(0, firstSlash);
@@ -114,14 +114,14 @@ export class StateService {
 
           if (rest === '_ws') {
             // Workspace session
-            return { workspaceId: ws?.id ?? null, type: 'workspace', tmuxSession, repoName: null, branch: null, worktreePath: null, status };
+            return { workspaceId: ws?.id ?? null, type: 'workspace', tmuxSession, repoName: null, branch: null, worktreePath: null, status, active: true };
           }
 
           // rest could be "repoName/_dir" or "repoName/branch"
           const secondSlash = rest.indexOf('/');
           if (secondSlash === -1) {
             // Single segment after prefix — legacy or unknown
-            return { workspaceId: ws?.id ?? null, type: 'workspace', tmuxSession, repoName: null, branch: null, worktreePath: null, status };
+            return { workspaceId: ws?.id ?? null, type: 'workspace', tmuxSession, repoName: null, branch: null, worktreePath: null, status, active: true };
           }
 
           const repoName = rest.slice(0, secondSlash);
@@ -133,10 +133,10 @@ export class StateService {
               const cwd = (await this.tmux.displayMessage(`${tmuxSession}:0`, '#{pane_current_path}')).trim();
               if (cwd) branch = await this.git.getCurrentBranch(cwd);
             } catch {}
-            return { workspaceId: ws?.id ?? null, type: 'directory', tmuxSession, repoName, branch, worktreePath: null, status };
+            return { workspaceId: ws?.id ?? null, type: 'directory', tmuxSession, repoName, branch, worktreePath: null, status, active: true };
           }
 
-          return { workspaceId: ws?.id ?? null, type: 'worktree', tmuxSession, repoName, branch: branchOrDir, worktreePath: null, status };
+          return { workspaceId: ws?.id ?? null, type: 'worktree', tmuxSession, repoName, branch: branchOrDir, worktreePath: null, status, active: true };
         }),
     );
 
@@ -163,7 +163,7 @@ export class StateService {
     }
 
     // Build workspace states
-    const workspaceStates: WorkspaceState[] = workspaces.map((ws) => {
+    const workspaceStates: WorkspaceState[] = await Promise.all(workspaces.map(async (ws) => {
       const allTabs = wsSessionMap.get(ws.id) ?? [];
       const wsSessions = allTabs.filter((t) => t.type === 'workspace');
       const repoTabs = allTabs.filter((t) => t.type !== 'workspace');
@@ -179,21 +179,57 @@ export class StateService {
 
       const ord = ws.ordering;
 
-      const repoGroups: RepoGroupState[] = [...repoMap.entries()].map(([repoName, tabs]) => ({
-        repoName,
-        repoRoot: '',
-        sessions: applyOrder(
-          tabs,
-          ord?.repoSessions?.[repoName],
-          (t) => t.tmuxSession,
-          // Default sort: directory first, then worktrees alphabetically
-          (a, b) => {
-            if (a.type === 'directory' && b.type !== 'directory') return -1;
-            if (a.type !== 'directory' && b.type === 'directory') return 1;
-            return (a.branch ?? '').localeCompare(b.branch ?? '');
-          },
-        ),
-      }));
+      // Discover inactive worktrees for each repo group
+      const repoGroups: RepoGroupState[] = await Promise.all(
+        [...repoMap.entries()].map(async ([repoName, tabs]) => {
+          // Find repo root from directory session's pane cwd
+          let repoRoot = '';
+          const dirSession = tabs.find((t) => t.type === 'directory');
+          if (dirSession) {
+            try {
+              repoRoot = (await this.tmux.displayMessage(`${dirSession.tmuxSession}:0`, '#{pane_current_path}')).trim();
+            } catch {}
+          }
+
+          // Discover worktrees and add inactive entries for ones without tmux sessions
+          if (repoRoot) {
+            try {
+              const wtDir = this.git.getWorktreeDir(repoRoot);
+              const worktrees = await this.git.listWorktrees(repoRoot, wtDir);
+              const activeBranches = new Set(tabs.filter((t) => t.type === 'worktree').map((t) => t.branch));
+              for (const wt of worktrees) {
+                if (wt.branch && !activeBranches.has(wt.branch)) {
+                  tabs.push({
+                    workspaceId: ws.id,
+                    type: 'worktree',
+                    tmuxSession: `${ws.name}/${repoName}/${wt.branch}`,
+                    repoName,
+                    branch: wt.branch,
+                    worktreePath: wt.path,
+                    status: 'none',
+                    active: false,
+                  });
+                }
+              }
+            } catch {}
+          }
+
+          return {
+            repoName,
+            repoRoot,
+            sessions: applyOrder(
+              tabs,
+              ord?.repoSessions?.[repoName],
+              (t) => t.tmuxSession,
+              (a, b) => {
+                if (a.type === 'directory' && b.type !== 'directory') return -1;
+                if (a.type !== 'directory' && b.type === 'directory') return 1;
+                return (a.branch ?? '').localeCompare(b.branch ?? '');
+              },
+            ),
+          };
+        }),
+      );
 
       const allStatuses = allTabs.map((t) => t.status);
       return {
@@ -202,7 +238,7 @@ export class StateService {
         repoGroups: applyOrder(repoGroups, ord?.repos, (rg) => rg.repoName),
         status: worstStatus(allStatuses),
       };
-    });
+    }));
 
     const defaultAllStatuses = defaultSessions.map((t) => t.status);
     const defaultWorkspace: WorkspaceState = {

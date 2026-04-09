@@ -18,6 +18,7 @@ export const Channels = {
   KILL_SESSION: 'kill-session',
   CREATE_WORKSPACE_SESSION: 'create-workspace-session',
   CREATE_REPO_SESSION: 'create-repo-session',
+  LAUNCH_WORKTREE_SESSION: 'launch-worktree-session',
   CREATE_STANDALONE_SESSION: 'create-standalone-session',
   SELECT_DIRECTORY: 'select-directory',
 

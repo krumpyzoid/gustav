@@ -34,6 +34,8 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('create-workspace-session', workspaceName, workspaceDir, label),
   createRepoSession: (workspaceName: string, repoRoot: string, mode: string, branch?: string, base?: string, install?: boolean) =>
     ipcRenderer.invoke('create-repo-session', workspaceName, repoRoot, mode, branch, base, install),
+  launchWorktreeSession: (workspaceName: string, repoRoot: string, branch: string, worktreePath: string) =>
+    ipcRenderer.invoke('launch-worktree-session', workspaceName, repoRoot, branch, worktreePath),
   createStandaloneSession: (label: string, dir: string) =>
     ipcRenderer.invoke('create-standalone-session', label, dir),
   selectDirectory: () => ipcRenderer.invoke('select-directory'),

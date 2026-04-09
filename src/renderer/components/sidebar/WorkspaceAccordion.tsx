@@ -17,13 +17,15 @@ function reorderList(ids: string[], draggedId: string, targetId: string, edge: '
 
 interface RepoGroupProps {
   repoName: string;
+  repoRoot: string;
+  workspaceName: string;
   sessions: SessionTabType[];
   workspaceId: string;
   onRemoveWorktree?: (tab: SessionTabType) => void;
   onReorderRepoSession: (repoName: string, newOrder: string[]) => void;
 }
 
-function RepoGroup({ repoName, sessions, workspaceId, onRemoveWorktree, onReorderRepoSession }: RepoGroupProps) {
+function RepoGroup({ repoName, repoRoot, workspaceName, sessions, workspaceId, onRemoveWorktree, onReorderRepoSession }: RepoGroupProps) {
   const headerRef = useRef<HTMLDivElement>(null);
   const scope = `${workspaceId}:${repoName}`;
 
@@ -51,6 +53,8 @@ function RepoGroup({ repoName, sessions, workspaceId, onRemoveWorktree, onReorde
         >
           <SessionTab
             tab={tab}
+            workspaceName={workspaceName}
+            repoRoot={repoRoot}
             onRequestRemove={
               tab.type === 'worktree' ? () => onRemoveWorktree?.(tab) : undefined
             }
@@ -172,6 +176,8 @@ export function WorkspaceAccordion({ state, headerRef, onAddSession, onEdit, onR
             >
               <RepoGroup
                 repoName={rg.repoName}
+                repoRoot={rg.repoRoot}
+                workspaceName={state.workspace?.name ?? ''}
                 sessions={rg.sessions}
                 workspaceId={workspaceId}
                 onRemoveWorktree={onRemoveWorktree}

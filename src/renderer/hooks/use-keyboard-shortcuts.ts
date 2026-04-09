@@ -7,9 +7,9 @@ function flatSessionOrder(defaultWorkspace: WorkspaceState, workspaces: Workspac
   const result: string[] = [];
 
   function addWorkspace(ws: WorkspaceState) {
-    for (const s of ws.sessions) result.push(s.tmuxSession);
+    for (const s of ws.sessions) if (s.active) result.push(s.tmuxSession);
     for (const rg of ws.repoGroups) {
-      for (const s of rg.sessions) result.push(s.tmuxSession);
+      for (const s of rg.sessions) if (s.active) result.push(s.tmuxSession);
     }
   }
 

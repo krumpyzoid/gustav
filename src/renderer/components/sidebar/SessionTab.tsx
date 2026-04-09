@@ -47,16 +47,29 @@ function sessionDisplayName(tab: SessionTabType): string {
 
 interface Props {
   tab: SessionTabType;
+  workspaceName?: string;
+  repoRoot?: string;
   onRequestRemove?: () => void;
 }
 
-export function SessionTab({ tab, onRequestRemove }: Props) {
+export function SessionTab({ tab, workspaceName, repoRoot, onRequestRemove }: Props) {
   const { activeSession, setActiveSession, setWindows } = useAppStore();
-  const isActive = tab.tmuxSession === activeSession;
-  const isOrphan = false; // TODO: orphan detection once worktree scanning is in collectWorkspaces
+  const isSelected = tab.tmuxSession === activeSession;
+  const isInactive = !tab.active;
   const label = statusLabel(tab.status);
 
   async function handleClick() {
+    if (isInactive && tab.type === 'worktree' && workspaceName && repoRoot && tab.branch && tab.worktreePath) {
+      const result = await window.api.launchWorktreeSession(workspaceName, repoRoot, tab.branch, tab.worktreePath);
+      if (result.success) {
+        setActiveSession(result.data);
+        const switchResult = await window.api.switchSession(result.data);
+        if (switchResult.success) setWindows(switchResult.data as WindowInfo[]);
+        refreshState();
+      }
+      return;
+    }
+    if (isInactive) return;
     setActiveSession(tab.tmuxSession);
     const result = await window.api.switchSession(tab.tmuxSession);
     if (result.success) setWindows(result.data as WindowInfo[]);
@@ -71,15 +84,15 @@ export function SessionTab({ tab, onRequestRemove }: Props) {
   return (
     <div
       onClick={handleClick}
-      className={`flex items-center gap-1.5 px-3 py-1 cursor-pointer border-l-2 transition-colors group/entry
-        ${isActive ? 'border-l-accent bg-muted' : 'border-l-transparent'}
-        ${isOrphan ? 'opacity-80 hover:opacity-100' : 'hover:bg-muted'}`}
+      className={`flex items-center gap-1.5 px-3 py-1 border-l-2 transition-colors group/entry
+        ${isSelected ? 'border-l-accent bg-muted' : 'border-l-transparent'}
+        ${isInactive ? 'opacity-40 cursor-pointer hover:opacity-60' : 'cursor-pointer hover:bg-muted'}`}
     >
       <div className="w-5 flex justify-center shrink-0">
         <StatusIcon status={tab.status} />
       </div>
 
-      <TypeIcon type={tab.type} isOrphan={isOrphan} />
+      <TypeIcon type={tab.type} isOrphan={isInactive} />
 
       <span className="truncate flex-1 min-w-0">
         {sessionDisplayName(tab)}
@@ -92,13 +105,15 @@ export function SessionTab({ tab, onRequestRemove }: Props) {
       )}
 
       <div className="hidden group-hover/entry:flex gap-0.5 shrink-0 ml-auto">
-        <Button
-          onClick={handleKill}
-          className="size-5"
-          title="Kill session"
-          variant="destructive"
-          size="icon"
-        >✕</Button>
+        {!isInactive && (
+          <Button
+            onClick={handleKill}
+            className="size-5"
+            title="Kill session"
+            variant="destructive"
+            size="icon"
+          >✕</Button>
+        )}
         {tab.type === 'worktree' && onRequestRemove && (
           <Button
             onClick={(e) => { e.stopPropagation(); onRequestRemove(); }}

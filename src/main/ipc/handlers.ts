@@ -183,6 +183,27 @@ export function registerHandlers(deps: {
     }
   });
 
+  ipcMain.handle(Channels.LAUNCH_WORKTREE_SESSION, async (
+    _event,
+    workspaceName: string,
+    repoRoot: string,
+    branch: string,
+    worktreePath: string,
+  ) => {
+    try {
+      const config = await configService.parse(repoRoot);
+      const session = await sessionService.launchWorktreeSession(workspaceName, repoRoot, branch, worktreePath, config);
+      const tty = await getPtyClientTty();
+      if (tty) {
+        await sessionService.switchTo(session, tty);
+        setActiveSession(session);
+      }
+      return ok(session);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
   ipcMain.handle(Channels.CREATE_STANDALONE_SESSION, async (_event, label: string, dir: string) => {
     try {
       const session = await sessionService.launchStandaloneSession(label, dir);
