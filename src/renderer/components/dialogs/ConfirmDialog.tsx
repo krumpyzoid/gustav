@@ -21,16 +21,16 @@ interface Props {
 export function ConfirmDialog({ open, onClose, onConfirm, title, description, confirmLabel = 'Confirm', destructive }: Props) {
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="bg-bg border-c0 text-fg">
+      <DialogContent className="bg-background border-border text-foreground">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription className="text-fg/60">{description}</DialogDescription>
+          <DialogDescription className="text-foreground/60">{description}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} className="text-fg/60">Cancel</Button>
+          <Button variant="ghost" onClick={onClose} className="text-foreground/60">Cancel</Button>
           <Button
             onClick={() => { onConfirm(); onClose(); }}
-            className={destructive ? 'bg-c1 text-bg hover:bg-c1/80' : 'bg-accent text-bg hover:bg-accent/80'}
+            className={destructive ? 'bg-c1 text-primary-foreground hover:bg-c1/80' : 'bg-accent text-primary-foreground hover:bg-accent/80'}
           >
             {confirmLabel}
           </Button>

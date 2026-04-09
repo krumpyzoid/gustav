@@ -31,11 +31,11 @@ export function Sidebar({ onNewWorktree, onRemoveWorktree, onNewSession, onClean
 
   return (
     <>
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-c0">
-        <span className="text-xs font-bold tracking-wider uppercase text-c5">Projects</span>
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border">
+        <span className="text-sm font-bold tracking-wider uppercase text-foreground/60">Projects</span>
         <button
           onClick={handlePin}
-          className="bg-transparent border-none text-c5 hover:text-accent cursor-pointer p-0.5 transition-colors"
+          className="bg-transparent border-none text-foreground/60 hover:text-foreground cursor-pointer p-0.5 transition-colors"
           title="Pin a project"
         >
           <Plus size={14} />

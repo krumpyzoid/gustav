@@ -59,8 +59,8 @@ export function SessionEntry({ entry, repoRoot, onRequestRemove }: Props) {
     <div
       onClick={handleClick}
       className={`flex items-center gap-1.5 px-3 py-1 cursor-pointer border-l-2 transition-colors
-        ${isActive ? 'border-l-accent bg-c0' : 'border-l-transparent'}
-        ${isOrphan ? 'opacity-80 hover:opacity-100' : 'hover:bg-c0'}`}
+        ${isActive ? 'border-l-accent bg-muted' : 'border-l-transparent'}
+        ${isOrphan ? 'opacity-80 hover:opacity-100' : 'hover:bg-muted'}`}
     >
       {entry.repo !== 'standalone' && <div className="w-5 flex justify-center">
         {isOrphan ? <Moon className="size-5" /> : <StatusDot status={entry.status} />}
@@ -77,7 +77,7 @@ export function SessionEntry({ entry, repoRoot, onRequestRemove }: Props) {
           </span>
         </div>
         {entry.upstream && (
-          <div className="text-fg/50 truncate pl-px">
+          <div className="text-foreground/50 truncate pl-px">
             {entry.upstream}
           </div>
         )}

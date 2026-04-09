@@ -42,7 +42,7 @@ export function TabBar() {
   }
 
   return (
-    <div className="flex bg-bg border-b border-c0 px-2 gap-0.5 shrink-0">
+    <div className="flex bg-background border-b border-border px-2 gap-0.5 shrink-0">
       {windows.map((w) => (
         <button
           key={w.index}
@@ -50,15 +50,15 @@ export function TabBar() {
           onClick={() => handleClick(w.name)}
           className={`group/tab relative px-4 py-3.5 text-sm transition-colors border-b-2
             ${w.active
-              ? 'border-b-accent text-fg'
-              : 'border-b-transparent text-fg/60 hover:text-fg hover:bg-c0'
+              ? 'border-b-accent text-foreground'
+              : 'border-b-transparent text-foreground/60 hover:text-foreground hover:bg-muted'
             }`}
         >
           {w.name}
           <span
             onMouseDown={(e) => e.preventDefault()}
             onClick={(e) => handleClose(e, w.index)}
-            className="absolute top-1 right-0.5 w-4 h-4 flex items-center justify-center rounded text-xs leading-none text-fg/40 hover:text-fg hover:bg-c0 opacity-0 group-hover/tab:opacity-100 transition-opacity"
+            className="absolute top-1 right-0.5 w-4 h-4 flex items-center justify-center rounded text-xs leading-none text-foreground/40 hover:text-foreground hover:bg-muted opacity-0 group-hover/tab:opacity-100 transition-opacity"
           >
             ×
           </span>
@@ -68,7 +68,7 @@ export function TabBar() {
       {isAdding ? (
         <input
           autoFocus
-          className="px-4 py-3.5 text-sm bg-transparent text-fg border-b-2 border-b-accent outline-none w-32"
+          className="px-4 py-3.5 text-sm bg-transparent text-foreground border-b-2 border-b-accent outline-none w-32"
           placeholder="Tab name…"
           onKeyDown={(e) => {
             if (e.key === 'Enter') handleAdd(e.currentTarget.value);
@@ -80,7 +80,7 @@ export function TabBar() {
         <button
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => setIsAdding(true)}
-          className="px-4 py-3.5 text-sm text-fg/40 hover:text-fg transition-colors border-b-2 border-b-transparent"
+          className="px-4 py-3.5 text-sm text-foreground/40 hover:text-foreground transition-colors border-b-2 border-b-transparent"
         >
           +
         </button>

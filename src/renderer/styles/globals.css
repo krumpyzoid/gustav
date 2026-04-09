@@ -26,6 +26,25 @@
   --color-c6: var(--c6, #89b482);
   --color-c7: var(--c7, #d4be98);
   --color-destructive: var(--c1, #d4be98);
+  --color-destructive-foreground: var(--bg, #282828);
+
+  /* shadcn semantic tokens — mapped to dynamic Omarchy theme variables */
+  --color-background: var(--bg, #282828);
+  --color-foreground: var(--fg, #d4be98);
+  --color-primary: var(--accent, #7daea3);
+  --color-primary-foreground: var(--bg, #282828);
+  --color-secondary: var(--c7, #d4be98);
+  --color-secondary-foreground: var(--bg, #282828);
+  --color-muted: var(--c0, #3c3836);
+  --color-muted-foreground: var(--fg, #d4be98);
+  --color-accent-foreground: var(--bg, #282828);
+  --color-popover: var(--bg, #282828);
+  --color-popover-foreground: var(--fg, #d4be98);
+  --color-card: var(--bg, #282828);
+  --color-card-foreground: var(--fg, #d4be98);
+  --color-border: var(--c0, #3c3836);
+  --color-input: var(--c0, #3c3836);
+  --color-ring: var(--accent, #7daea3);
 }
 
 @layer base {
@@ -36,7 +55,7 @@
 }
 
 html {
-  font-size: 13px;
+  font-size: 81.25%;
 }
 
 body {

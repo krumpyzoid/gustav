@@ -70,38 +70,38 @@ export function CleanWorktreesDialog({ open, onClose }: Props) {
 
   const reasonBadge = (reason: CleanCandidate['reason']) => {
     if (reason === 'merged') {
-      return <span className="text-[10px] text-c2 bg-c2/10 px-1.5 py-0.5 rounded">merged to staging</span>;
+      return <span className="text-xs text-c2 bg-c2/10 px-1.5 py-0.5 rounded">merged to staging</span>;
     }
-    return <span className="text-[10px] text-c3 bg-c3/10 px-1.5 py-0.5 rounded">remote deleted</span>;
+    return <span className="text-xs text-c3 bg-c3/10 px-1.5 py-0.5 rounded">remote deleted</span>;
   };
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="bg-bg border-c0 text-fg max-w-lg">
+      <DialogContent className="bg-background border-border text-foreground max-w-lg">
         <DialogHeader>
           <DialogTitle>Clean Stale Worktrees</DialogTitle>
-          <DialogDescription className="text-fg/60">
+          <DialogDescription className="text-foreground/60">
             Worktrees that are merged or have deleted remote branches
           </DialogDescription>
         </DialogHeader>
 
         {fetching ? (
-          <div className="text-fg/50 text-sm py-4 text-center">Scanning repos...</div>
+          <div className="text-foreground/50 text-sm py-4 text-center">Scanning repos...</div>
         ) : candidates.length === 0 ? (
-          <div className="text-fg/50 text-sm py-4 text-center">No stale worktrees found.</div>
+          <div className="text-foreground/50 text-sm py-4 text-center">No stale worktrees found.</div>
         ) : (
           <div className="space-y-4 max-h-[400px] overflow-y-auto">
             {[...groups.entries()].map(([repo, items]) => (
               <div key={repo}>
-                <div className="text-[11px] text-accent font-bold uppercase tracking-wider mb-2">{repo}</div>
+                <div className="text-xs text-accent font-bold uppercase tracking-wider mb-2">{repo}</div>
                 {items.map((c) => {
                   const key = `${c.repoRoot}:${c.branch}`;
                   return (
                     <div
                       key={key}
                       onClick={() => toggleCandidate(key)}
-                      className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-c0/50
-                        ${selected.has(key) ? 'bg-c0/30' : ''}`}
+                      className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-muted/50
+                        ${selected.has(key) ? 'bg-muted/30' : ''}`}
                     >
                       <Checkbox checked={selected.has(key)} />
                       <span className="text-sm flex-1">{c.branch}</span>
@@ -115,13 +115,13 @@ export function CleanWorktreesDialog({ open, onClose }: Props) {
         )}
 
         <DialogFooter className="flex items-center justify-between">
-          <span className="text-fg/60 text-xs">{selected.size} selected</span>
+          <span className="text-foreground/60 text-xs">{selected.size} selected</span>
           <div className="flex gap-2">
-            <Button variant="ghost" onClick={onClose} className="text-fg/60">Cancel</Button>
+            <Button variant="ghost" onClick={onClose} className="text-foreground/60">Cancel</Button>
             <Button
               onClick={handleClean}
               disabled={selected.size === 0 || loading}
-              className="bg-c1 text-bg hover:bg-c1/80"
+              className="bg-c1 text-primary-foreground hover:bg-c1/80"
             >
               {loading ? 'Cleaning...' : `Clean ${selected.size} worktree${selected.size !== 1 ? 's' : ''}`}
             </Button>

@@ -66,38 +66,38 @@ export function NewWorktreeDialog({ open, onClose, repo, repoRoot }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="bg-bg border-c0 text-fg">
+      <DialogContent className="bg-background border-border text-foreground">
         <DialogHeader>
           <DialogTitle>New Worktree</DialogTitle>
-          <DialogDescription className="text-fg/60">
+          <DialogDescription className="text-foreground/60">
             Create a new git worktree and launch a tmux session
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div>
-            <Label className="text-fg/60 text-xs uppercase tracking-wider">Repository</Label>
-            <div className="bg-bg border border-c0 rounded-md px-3 py-2 text-accent text-sm mt-1">{repo}</div>
+            <Label className="text-foreground/60 text-xs uppercase tracking-wider">Repository</Label>
+            <div className="bg-background border border-border rounded-md px-3 py-2 text-accent text-sm mt-1">{repo}</div>
           </div>
 
           <div>
-            <Label className="text-fg/60 text-xs uppercase tracking-wider">Branch name</Label>
+            <Label className="text-foreground/60 text-xs uppercase tracking-wider">Branch name</Label>
             <Input
               value={branch}
               onChange={(e) => setBranch(e.target.value)}
               placeholder="feat-my-feature"
-              className="bg-bg border-c0 text-fg mt-1"
+              className="bg-background border-border text-foreground mt-1"
               autoFocus
             />
           </div>
 
           <div>
-            <Label className="text-fg/60 text-xs uppercase tracking-wider">Base ref</Label>
+            <Label className="text-foreground/60 text-xs uppercase tracking-wider">Base ref</Label>
             <Select value={base} onValueChange={setBase}>
-              <SelectTrigger className="bg-bg border-c0 text-fg mt-1">
+              <SelectTrigger className="bg-background border-border text-foreground mt-1">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-bg border-c0 text-fg">
+              <SelectContent className="bg-background border-border text-foreground">
                 <SelectItem value="origin/main">origin/main (default)</SelectItem>
                 {branches.map((b) => (
                   <SelectItem key={b.name} value={b.isRemote ? `origin/${b.name}` : b.name}>
@@ -123,11 +123,11 @@ export function NewWorktreeDialog({ open, onClose, repo, repoRoot }: Props) {
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} className="text-fg/60">Cancel</Button>
+          <Button variant="ghost" onClick={onClose} className="text-foreground/60">Cancel</Button>
           <Button
             onClick={handleCreate}
             disabled={!branch.trim() || loading}
-            className="bg-accent text-bg hover:bg-accent/80"
+            className="bg-accent text-primary-foreground hover:bg-accent/80"
           >
             {loading ? 'Creating...' : 'Create'}
           </Button>

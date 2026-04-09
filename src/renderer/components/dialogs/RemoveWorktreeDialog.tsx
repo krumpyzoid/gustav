@@ -48,21 +48,21 @@ export function RemoveWorktreeDialog({ open, onClose, entry }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="bg-bg border-c0 text-fg">
+      <DialogContent className="bg-background border-border text-foreground">
         <DialogHeader>
           <DialogTitle>Remove Worktree</DialogTitle>
-          <DialogDescription className="text-fg/60">
+          <DialogDescription className="text-foreground/60">
             This will remove the worktree directory, kill the tmux session, and optionally delete the branch.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="bg-c0/50 rounded-md p-3 text-sm space-y-1">
+        <div className="bg-muted/50 rounded-md p-3 text-sm space-y-1">
           <div className="flex justify-between">
-            <span className="text-fg/60">Repo</span>
+            <span className="text-foreground/60">Repo</span>
             <span className="text-accent">{entry.repo}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-fg/60">Branch</span>
+            <span className="text-foreground/60">Branch</span>
             <span>{entry.branch}</span>
           </div>
         </div>
@@ -81,11 +81,11 @@ export function RemoveWorktreeDialog({ open, onClose, entry }: Props) {
         )}
 
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} className="text-fg/60">Cancel</Button>
+          <Button variant="ghost" onClick={onClose} className="text-foreground/60">Cancel</Button>
           <Button
             onClick={handleRemove}
             disabled={loading}
-            className="bg-c1 text-bg hover:bg-c1/80"
+            className="bg-c1 text-primary-foreground hover:bg-c1/80"
           >
             {loading ? 'Removing...' : 'Remove'}
           </Button>

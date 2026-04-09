@@ -11,7 +11,7 @@ export function TerminalView() {
       <TabBar />
       <div
         ref={containerRef}
-        className="flex-1 bg-bg overflow-hidden [&_.xterm]:h-full [&_.xterm]:p-4 [&_.xterm-viewport]:!scrollbar-none"
+        className="flex-1 bg-background overflow-hidden [&_.xterm]:h-full [&_.xterm]:p-4 [&_.xterm-viewport]:!scrollbar-none"
       />
     </div>
   );

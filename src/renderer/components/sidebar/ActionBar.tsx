@@ -5,16 +5,16 @@ interface Props {
 
 export function ActionBar({ onNewSession, onClean }: Props) {
   return (
-    <div className="px-3 py-2 border-t border-c0 flex gap-1.5">
+    <div className="px-3 py-2 border-t border-border flex gap-1.5">
       <button
         onClick={onNewSession}
-        className="bg-c0 text-accent border-none px-2.5 py-1 rounded text-xs font-inherit cursor-pointer hover:opacity-80 transition-opacity"
+        className="bg-muted text-foreground/70 border-none px-2.5 py-1 rounded text-xs font-inherit cursor-pointer hover:text-foreground transition-colors"
       >
         + session
       </button>
       <button
         onClick={onClean}
-        className="bg-c0 text-c5 border-none px-2.5 py-1 rounded text-xs font-inherit cursor-pointer hover:opacity-80 transition-opacity ml-auto"
+        className="bg-muted text-foreground/70 border-none px-2.5 py-1 rounded text-xs font-inherit cursor-pointer hover:text-foreground transition-colors ml-auto"
       >
         🗑 clean
       </button>

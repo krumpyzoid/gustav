@@ -15,7 +15,7 @@ export function AccordionCategory({ label, count, defaultExpanded = true, childr
     <div>
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-1.5 w-full px-3 py-1.5 text-[11px] font-bold tracking-widest uppercase text-c3 bg-transparent border-t border-b border-c0/50 cursor-pointer hover:text-c5 transition-colors"
+        className="flex items-center gap-1.5 w-full px-3 py-1.5 text-sm font-bold tracking-widest uppercase text-foreground/60 bg-transparent border-t border-b border-border/50 cursor-pointer hover:text-foreground transition-colors"
       >
         <ChevronRight
           size={10}
