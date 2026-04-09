@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { xtermTheme } from './use-theme';
+import { navigateSession, navigateWindow } from './use-keyboard-shortcuts';
 
 export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>) {
   const termRef = useRef<Terminal | null>(null);
@@ -36,11 +37,18 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     // PTY data
     const cleanupPty = window.api.onPtyData((data) => term.write(data));
 
-    // Custom key handler: Shift+Enter, Ctrl+/-, Ctrl+0
+    // Custom key handler: Shift+Enter, Alt+Arrows, Ctrl+/-, Ctrl+0
     term.attachCustomKeyEventHandler((event) => {
       if (event.key === 'Enter' && event.shiftKey) {
         if (event.type === 'keydown') window.api.sendPtyInput('\x1b[13;2u');
         return false;
+      }
+      // Alt+Arrow: global navigation shortcuts
+      if (event.altKey && event.type === 'keydown') {
+        if (event.key === 'ArrowDown') { navigateSession(1); return false; }
+        if (event.key === 'ArrowUp') { navigateSession(-1); return false; }
+        if (event.key === 'ArrowRight') { navigateWindow(1); return false; }
+        if (event.key === 'ArrowLeft') { navigateWindow(-1); return false; }
       }
       if (event.ctrlKey && event.type === 'keydown') {
         const current = term.options.fontSize ?? 13;

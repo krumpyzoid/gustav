@@ -10,12 +10,14 @@ import { NewWorktreeDialog } from './components/dialogs/NewWorktreeDialog';
 import { RemoveWorktreeDialog } from './components/dialogs/RemoveWorktreeDialog';
 import { CleanWorktreesDialog } from './components/dialogs/CleanWorktreesDialog';
 import { useAppStateSubscription } from './hooks/use-app-state';
+import { useKeyboardShortcuts } from './hooks/use-keyboard-shortcuts';
 import { useTheme } from './hooks/use-theme';
 import type { SessionTab } from '../main/domain/types';
 
 export function App() {
   useAppStateSubscription();
   useTheme();
+  useKeyboardShortcuts();
 
   const sidebarRef = useRef<HTMLElement>(null);
 
