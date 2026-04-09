@@ -5,6 +5,33 @@ import { WorkspaceAccordion } from './WorkspaceAccordion';
 import { DraggableWorkspace } from './DraggableWorkspace';
 import type { SessionTab as SessionTabType } from '../../../main/domain/types';
 
+import type { WorkspaceState } from '../../../main/domain/types';
+
+function DraggableWorkspaceItem({ ws, onReorder, onAddSession, onEditWorkspace, onRemoveWorktree }: {
+  ws: WorkspaceState;
+  onReorder: (draggedId: string, targetId: string, edge: 'top' | 'bottom') => void;
+  onAddSession: (wsId: string) => void;
+  onEditWorkspace: (wsId: string) => void;
+  onRemoveWorktree: (tab: SessionTabType) => void;
+}) {
+  const headerRef = useRef<HTMLButtonElement>(null);
+  return (
+    <DraggableWorkspace
+      workspaceId={ws.workspace!.id}
+      dragHandleRef={headerRef}
+      onReorder={onReorder}
+    >
+      <WorkspaceAccordion
+        state={ws}
+        headerRef={headerRef}
+        onAddSession={() => onAddSession(ws.workspace!.id)}
+        onEdit={() => onEditWorkspace(ws.workspace!.id)}
+        onRemoveWorktree={onRemoveWorktree}
+      />
+    </DraggableWorkspace>
+  );
+}
+
 interface Props {
   onNewWorkspace: () => void;
   onNewStandalone: () => void;
@@ -91,18 +118,14 @@ export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onEditW
 
         {/* Named workspaces */}
         {workspaces.map((ws) => (
-          <DraggableWorkspace
+          <DraggableWorkspaceItem
             key={ws.workspace!.id}
-            workspaceId={ws.workspace!.id}
+            ws={ws}
             onReorder={handleReorder}
-          >
-            <WorkspaceAccordion
-              state={ws}
-              onAddSession={() => onNewSession(ws.workspace!.id)}
-              onEdit={() => onEditWorkspace(ws.workspace!.id)}
-              onRemoveWorktree={onRemoveWorktree}
-            />
-          </DraggableWorkspace>
+            onAddSession={onNewSession}
+            onEditWorkspace={onEditWorkspace}
+            onRemoveWorktree={onRemoveWorktree}
+          />
         ))}
       </div>
 

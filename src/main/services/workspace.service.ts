@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { FileSystemPort } from '../ports/filesystem.port';
-import type { Workspace } from '../domain/types';
+import type { Workspace, WorkspaceOrdering } from '../domain/types';
 
 const DEFAULT_STORAGE_DIR = join(homedir(), '.local', 'share', 'gustav');
 
@@ -54,6 +54,14 @@ export class WorkspaceService {
 
   async remove(id: string): Promise<void> {
     const workspaces = this.list().filter((w) => w.id !== id);
+    await this.persist(workspaces);
+  }
+
+  async updateOrdering(id: string, ordering: WorkspaceOrdering): Promise<void> {
+    const workspaces = this.list();
+    const ws = workspaces.find((w) => w.id === id);
+    if (!ws) throw new Error(`Workspace "${id}" not found`);
+    ws.ordering = ordering;
     await this.persist(workspaces);
   }
 

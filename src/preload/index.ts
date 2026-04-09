@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('api', {
   renameWorkspace: (id: string, newName: string) => ipcRenderer.invoke('rename-workspace', id, newName),
   removeWorkspace: (id: string) => ipcRenderer.invoke('remove-workspace', id),
   reorderWorkspaces: (ids: string[]) => ipcRenderer.invoke('reorder-workspaces', ids),
+  reorderWithinWorkspace: (workspaceId: string, ordering: Record<string, unknown>) =>
+    ipcRenderer.invoke('reorder-within-workspace', workspaceId, ordering),
   discoverRepos: (directory: string) => ipcRenderer.invoke('discover-repos', directory),
 
   // Sessions

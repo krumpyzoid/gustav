@@ -11,6 +11,7 @@ export const Channels = {
   RENAME_WORKSPACE: 'rename-workspace',
   REMOVE_WORKSPACE: 'remove-workspace',
   REORDER_WORKSPACES: 'reorder-workspaces',
+  REORDER_WITHIN_WORKSPACE: 'reorder-within-workspace',
 
   // Session commands
   SWITCH_SESSION: 'switch-session',

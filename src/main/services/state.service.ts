@@ -4,6 +4,31 @@ import type { WorkspaceService } from './workspace.service';
 import type { ClaudeStatus, WorkspaceAppState, WorkspaceState, SessionTab, RepoGroupState } from '../domain/types';
 import { worstStatus } from '../domain/types';
 
+/** Sort items by a persisted key order. Items not in the order list are appended, optionally with a fallback sort. */
+function applyOrder<T>(
+  items: T[],
+  order: string[] | undefined,
+  keyFn: (item: T) => string,
+  fallbackSort?: (a: T, b: T) => number,
+): T[] {
+  if (!order || order.length === 0) {
+    return fallbackSort ? [...items].sort(fallbackSort) : items;
+  }
+  const keyIndex = new Map(order.map((k, i) => [k, i]));
+  const ordered: T[] = [];
+  const rest: T[] = [];
+  for (const item of items) {
+    if (keyIndex.has(keyFn(item))) {
+      ordered.push(item);
+    } else {
+      rest.push(item);
+    }
+  }
+  ordered.sort((a, b) => keyIndex.get(keyFn(a))! - keyIndex.get(keyFn(b))!);
+  if (fallbackSort) rest.sort(fallbackSort);
+  return [...ordered, ...rest];
+}
+
 export type RawStatus = 'busy' | 'action' | null;
 
 export function parseRawStatus(content: string): RawStatus {
@@ -149,22 +174,29 @@ export class StateService {
         repoMap.set(tab.repoName, group);
       }
 
+      const ord = ws.ordering;
+
       const repoGroups: RepoGroupState[] = [...repoMap.entries()].map(([repoName, tabs]) => ({
         repoName,
-        repoRoot: '', // Will be resolved when needed
-        sessions: tabs.sort((a, b) => {
-          // directory first, then worktrees alphabetically
-          if (a.type === 'directory' && b.type !== 'directory') return -1;
-          if (a.type !== 'directory' && b.type === 'directory') return 1;
-          return (a.branch ?? '').localeCompare(b.branch ?? '');
-        }),
+        repoRoot: '',
+        sessions: applyOrder(
+          tabs,
+          ord?.repoSessions?.[repoName],
+          (t) => t.tmuxSession,
+          // Default sort: directory first, then worktrees alphabetically
+          (a, b) => {
+            if (a.type === 'directory' && b.type !== 'directory') return -1;
+            if (a.type !== 'directory' && b.type === 'directory') return 1;
+            return (a.branch ?? '').localeCompare(b.branch ?? '');
+          },
+        ),
       }));
 
       const allStatuses = allTabs.map((t) => t.status);
       return {
         workspace: ws,
-        sessions: wsSessions,
-        repoGroups,
+        sessions: applyOrder(wsSessions, ord?.sessions, (t) => t.tmuxSession),
+        repoGroups: applyOrder(repoGroups, ord?.repos, (rg) => rg.repoName),
         status: worstStatus(allStatuses),
       };
     });

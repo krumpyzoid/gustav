@@ -96,6 +96,15 @@ export function registerHandlers(deps: {
     }
   });
 
+  ipcMain.handle(Channels.REORDER_WITHIN_WORKSPACE, async (_event, workspaceId: string, ordering: Record<string, unknown>) => {
+    try {
+      await workspaceService.updateOrdering(workspaceId, ordering);
+      return ok(undefined);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
   // ── Session commands ────────────────────────────────────────
   ipcMain.handle(Channels.SWITCH_SESSION, async (_event, session: string) => {
     try {

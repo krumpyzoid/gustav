@@ -8,6 +8,7 @@ import type { Workspace } from '../../domain/types';
 function makeMockGit(): GitPort {
   return {
     getRepoRoot: vi.fn(),
+    getCurrentBranch: vi.fn().mockResolvedValue('main'),
     getWorktreeDir: vi.fn().mockReturnValue('/tmp/wt'),
     listWorktrees: vi.fn(),
     branchExists: vi.fn(),
@@ -259,6 +260,73 @@ describe('StateService.collectWorkspaces', () => {
     const state = await svc.collectWorkspaces();
 
     expect(state.windows).toEqual([]);
+  });
+
+  it('applies persisted ordering to sessions, repos, and repo sessions', async () => {
+    const git = makeMockGit();
+    const tmux = makeMockTmux();
+    const wsService = makeMockWorkspaceService([
+      {
+        id: 'ws1',
+        name: 'Dev',
+        directory: '/home/user/dev',
+        ordering: {
+          sessions: ['Dev/debug', 'Dev/_ws'],
+          repos: ['frontend', 'api'],
+          repoSessions: { api: ['Dev/api/feat-auth', 'Dev/api/_dir'] },
+        },
+      },
+    ]);
+
+    vi.mocked(tmux.listSessions).mockResolvedValue([
+      'Dev/_ws',
+      'Dev/debug',
+      'Dev/api/_dir',
+      'Dev/api/feat-auth',
+      'Dev/frontend/_dir',
+    ]);
+    vi.mocked(tmux.listPanes).mockResolvedValue('');
+
+    const svc = new StateService(git, tmux, wsService);
+    const state = await svc.collectWorkspaces();
+
+    const ws = state.workspaces[0];
+    // Workspace sessions ordered: debug before _ws
+    expect(ws.sessions.map((s) => s.tmuxSession)).toEqual(['Dev/debug', 'Dev/_ws']);
+    // Repo groups ordered: frontend before api
+    expect(ws.repoGroups.map((rg) => rg.repoName)).toEqual(['frontend', 'api']);
+    // Repo sessions ordered: feat-auth before _dir
+    const apiGroup = ws.repoGroups.find((rg) => rg.repoName === 'api')!;
+    expect(apiGroup.sessions.map((s) => s.tmuxSession)).toEqual(['Dev/api/feat-auth', 'Dev/api/_dir']);
+  });
+
+  it('appends items not in ordering at the end', async () => {
+    const git = makeMockGit();
+    const tmux = makeMockTmux();
+    const wsService = makeMockWorkspaceService([
+      {
+        id: 'ws1',
+        name: 'Dev',
+        directory: '/home/user/dev',
+        ordering: { repos: ['api'] },
+      },
+    ]);
+
+    vi.mocked(tmux.listSessions).mockResolvedValue([
+      'Dev/api/_dir',
+      'Dev/frontend/_dir',
+      'Dev/shared/_dir',
+    ]);
+    vi.mocked(tmux.listPanes).mockResolvedValue('');
+
+    const svc = new StateService(git, tmux, wsService);
+    const state = await svc.collectWorkspaces();
+
+    const repos = state.workspaces[0].repoGroups.map((rg) => rg.repoName);
+    expect(repos[0]).toBe('api');
+    // frontend and shared not in ordering, appended in whatever order
+    expect(repos).toContain('frontend');
+    expect(repos).toContain('shared');
   });
 });
 

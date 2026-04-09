@@ -98,6 +98,26 @@ describe('WorkspaceService', () => {
     expect(svc.findByDirectory('/nonexistent')).toBeUndefined();
   });
 
+  it('updates ordering for a workspace', async () => {
+    const svc = new WorkspaceService(makeFsPort(), storageDir);
+    const ws = await svc.create('Dev', '/path/dev');
+
+    const ordering = {
+      sessions: ['dev/debug', 'dev/_ws'],
+      repos: ['frontend', 'api'],
+      repoSessions: { api: ['api/_dir', 'api/feat-auth'] },
+    };
+    await svc.updateOrdering(ws.id, ordering);
+
+    const all = svc.list();
+    expect(all[0].ordering).toEqual(ordering);
+  });
+
+  it('updateOrdering throws for unknown workspace', async () => {
+    const svc = new WorkspaceService(makeFsPort(), storageDir);
+    await expect(svc.updateOrdering('nonexistent', {})).rejects.toThrow(/not found/i);
+  });
+
   describe('discoverGitRepos', () => {
     it('finds nested git repos recursively', () => {
       const repoA = join(tmp, 'a');

@@ -26,6 +26,7 @@ interface ElectronAPI {
   renameWorkspace: (id: string, newName: string) => Promise<Result<void>>;
   removeWorkspace: (id: string) => Promise<Result<void>>;
   reorderWorkspaces: (ids: string[]) => Promise<Result<void>>;
+  reorderWithinWorkspace: (workspaceId: string, ordering: Record<string, unknown>) => Promise<Result<void>>;
   discoverRepos: (directory: string) => Promise<Result<string[]>>;
 
   // Sessions

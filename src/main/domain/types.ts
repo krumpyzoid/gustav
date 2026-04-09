@@ -70,10 +70,17 @@ export type CleanReport = {
 };
 
 // ── Workspace ────────────────────────────────────────────────────
+export type WorkspaceOrdering = {
+  sessions?: string[];
+  repos?: string[];
+  repoSessions?: Record<string, string[]>;
+};
+
 export type Workspace = {
   id: string;
   name: string;
   directory: string;
+  ordering?: WorkspaceOrdering;
 };
 
 export type SessionType = 'workspace' | 'directory' | 'worktree';
