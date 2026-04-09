@@ -4,7 +4,8 @@ import type { FileSystemPort } from '../ports/filesystem.port';
 import type { ShellPort } from '../ports/shell.port';
 import type { ConfigService } from './config.service';
 import type { SessionService } from './session.service';
-import type { RegistryService } from './registry.service';
+import type { WorkspaceService } from './workspace.service';
+import { basename } from 'node:path';
 import type {
   CreateWorktreeParams,
   CleanCandidate,
@@ -19,7 +20,7 @@ export class WorktreeService {
     private shell: ShellPort,
     private config: ConfigService,
     private session: SessionService,
-    private registry: RegistryService,
+    private workspaces: WorkspaceService,
   ) {}
 
   async create(params: CreateWorktreeParams): Promise<void> {
@@ -115,9 +116,17 @@ export class WorktreeService {
 
   async getCleanCandidates(): Promise<CleanCandidate[]> {
     const candidates: CleanCandidate[] = [];
-    const registry = this.registry.load();
 
-    for (const [repoName, repoRoot] of Object.entries(registry)) {
+    // Discover repos from all workspaces
+    const repoSet = new Map<string, string>();
+    for (const ws of this.workspaces.list()) {
+      if (!this.fs.exists(ws.directory)) continue;
+      for (const repoPath of this.workspaces.discoverGitRepos(ws.directory, 3)) {
+        repoSet.set(basename(repoPath), repoPath);
+      }
+    }
+
+    for (const [repoName, repoRoot] of repoSet) {
       if (!this.fs.exists(repoRoot)) continue;
 
       try {

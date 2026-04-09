@@ -1,60 +1,107 @@
 import { basename } from 'node:path';
 import type { TmuxPort } from '../ports/tmux.port';
-import type { WtConfig } from '../domain/types';
+import type { GustavConfig } from '../domain/types';
+
+export type SessionNameOpts =
+  | { type: 'workspace'; label?: string }
+  | { type: 'directory'; repoName: string }
+  | { type: 'worktree'; repoName: string; branch: string };
 
 export class SessionService {
   constructor(private tmux: TmuxPort) {}
 
-  getSessionName(repoRoot: string, branch: string, isMainWorktree = false): string {
-    const repo = basename(repoRoot);
-    return isMainWorktree ? `${repo}/_dir` : `${repo}/${branch}`;
+  /** Build the tmux session name for any session type. */
+  getSessionName(workspaceName: string | null, opts: SessionNameOpts): string {
+    const prefix = workspaceName ?? '_standalone';
+
+    switch (opts.type) {
+      case 'workspace':
+        return workspaceName
+          ? `${prefix}/_ws`
+          : `${prefix}/${opts.label ?? 'session'}`;
+      case 'directory':
+        return `${prefix}/${opts.repoName}/_dir`;
+      case 'worktree':
+        return `${prefix}/${opts.repoName}/${opts.branch}`;
+    }
   }
 
-  async launch(
-    repoRoot: string,
-    branch: string,
-    workdir: string,
-    config: WtConfig,
+  /** Workspace session: claude + shell + .gustav custom windows. No Git window. */
+  async launchWorkspaceSession(
+    workspaceName: string,
+    workspaceDir: string,
+    config: GustavConfig,
   ): Promise<string> {
-    const session = this.getSessionName(repoRoot, branch);
+    const session = this.getSessionName(workspaceName, { type: 'workspace' });
+    if (await this.tmux.hasSession(session)) return session;
 
-    if (await this.tmux.hasSession(session)) {
-      return session;
-    }
-
-    // Create session with Claude Code window
-    await this.tmux.newSession(session, { windowName: 'Claude Code', cwd: workdir });
-    // Gustav owns navigation — hide tmux chrome for this session only
-    await this.tmux.exec(`set-option -t '${session}' status off`);
-    await this.tmux.exec(`set-option -t '${session}' prefix None`);
+    await this.createBaseSession(session, workspaceDir);
     await this.tmux.sendKeys(`${session}:Claude Code`, 'claude');
-
-    // Default windows
-    await this.tmux.newWindow(session, 'Git', workdir);
-    await this.tmux.sendKeys(`${session}:Git`, 'lazygit');
-
-    await this.tmux.newWindow(session, 'Shell', workdir);
-
-    // Custom windows from .wt [tmux] config
-    for (const entry of config.tmux) {
-      const colonIdx = entry.indexOf(':');
-      const name = colonIdx > -1 ? entry.slice(0, colonIdx) : entry;
-      const cmd = colonIdx > -1 ? entry.slice(colonIdx + 1) : '';
-
-      await this.tmux.newWindow(session, name, workdir);
-      if (cmd) {
-        await this.tmux.sendKeys(`${session}:${name}`, cmd);
-      }
-    }
-
-    // Select first window
+    await this.tmux.newWindow(session, 'Shell', workspaceDir);
+    await this.addCustomWindows(session, workspaceDir, config);
     await this.tmux.selectWindow(session, 'Claude Code');
 
     return session;
   }
 
-  async kill(repoRoot: string, branch: string, isMainWorktree = false): Promise<void> {
-    const session = this.getSessionName(repoRoot, branch, isMainWorktree);
+  /** Directory session (repo root): claude + git + shell + .gustav custom windows. */
+  async launchDirectorySession(
+    workspaceName: string,
+    repoRoot: string,
+    config: GustavConfig,
+  ): Promise<string> {
+    const repoName = basename(repoRoot);
+    const session = this.getSessionName(workspaceName, { type: 'directory', repoName });
+    if (await this.tmux.hasSession(session)) return session;
+
+    await this.createBaseSession(session, repoRoot);
+    await this.tmux.sendKeys(`${session}:Claude Code`, 'claude');
+    await this.tmux.newWindow(session, 'Git', repoRoot);
+    await this.tmux.sendKeys(`${session}:Git`, 'lazygit');
+    await this.tmux.newWindow(session, 'Shell', repoRoot);
+    await this.addCustomWindows(session, repoRoot, config);
+    await this.tmux.selectWindow(session, 'Claude Code');
+
+    return session;
+  }
+
+  /** Worktree session: same layout as directory session, in worktree path. */
+  async launchWorktreeSession(
+    workspaceName: string,
+    repoRoot: string,
+    branch: string,
+    workdir: string,
+    config: GustavConfig,
+  ): Promise<string> {
+    const repoName = basename(repoRoot);
+    const session = this.getSessionName(workspaceName, { type: 'worktree', repoName, branch });
+    if (await this.tmux.hasSession(session)) return session;
+
+    await this.createBaseSession(session, workdir);
+    await this.tmux.sendKeys(`${session}:Claude Code`, 'claude');
+    await this.tmux.newWindow(session, 'Git', workdir);
+    await this.tmux.sendKeys(`${session}:Git`, 'lazygit');
+    await this.tmux.newWindow(session, 'Shell', workdir);
+    await this.addCustomWindows(session, workdir, config);
+    await this.tmux.selectWindow(session, 'Claude Code');
+
+    return session;
+  }
+
+  /** Standalone session: claude + shell only, no config. */
+  async launchStandaloneSession(label: string, dir: string): Promise<string> {
+    const session = this.getSessionName(null, { type: 'workspace', label });
+    if (await this.tmux.hasSession(session)) return session;
+
+    await this.createBaseSession(session, dir);
+    await this.tmux.sendKeys(`${session}:Claude Code`, 'claude');
+    await this.tmux.newWindow(session, 'Shell', dir);
+    await this.tmux.selectWindow(session, 'Claude Code');
+
+    return session;
+  }
+
+  async kill(session: string): Promise<void> {
     if (await this.tmux.hasSession(session)) {
       await this.tmux.killSession(session);
     }
@@ -62,5 +109,64 @@ export class SessionService {
 
   async switchTo(session: string, tty: string): Promise<void> {
     await this.tmux.switchClient(tty, session);
+  }
+
+  // ── Legacy support (used by worktree.service until it's updated) ──
+  /** @deprecated Use getSessionName with opts instead */
+  getLegacySessionName(repoRoot: string, branch: string, isMainWorktree = false): string {
+    const repo = basename(repoRoot);
+    return isMainWorktree ? `${repo}/_dir` : `${repo}/${branch}`;
+  }
+
+  /** @deprecated Use type-specific launch methods instead */
+  async launch(
+    repoRoot: string,
+    branch: string,
+    workdir: string,
+    config: GustavConfig,
+  ): Promise<string> {
+    const session = this.getLegacySessionName(repoRoot, branch);
+    if (await this.tmux.hasSession(session)) return session;
+
+    await this.createBaseSession(session, workdir);
+    await this.tmux.sendKeys(`${session}:Claude Code`, 'claude');
+    await this.tmux.newWindow(session, 'Git', workdir);
+    await this.tmux.sendKeys(`${session}:Git`, 'lazygit');
+    await this.tmux.newWindow(session, 'Shell', workdir);
+    await this.addCustomWindows(session, workdir, config);
+    await this.tmux.selectWindow(session, 'Claude Code');
+
+    return session;
+  }
+
+  /** @deprecated Use kill(session) instead */
+  async killLegacy(repoRoot: string, branch: string, isMainWorktree = false): Promise<void> {
+    const session = this.getLegacySessionName(repoRoot, branch, isMainWorktree);
+    await this.kill(session);
+  }
+
+  // ── Private ──
+
+  private async createBaseSession(session: string, cwd: string): Promise<void> {
+    await this.tmux.newSession(session, { windowName: 'Claude Code', cwd });
+    await this.tmux.exec(`set-option -t '${session}' status off`);
+    await this.tmux.exec(`set-option -t '${session}' prefix None`);
+  }
+
+  private async addCustomWindows(
+    session: string,
+    cwd: string,
+    config: GustavConfig,
+  ): Promise<void> {
+    for (const entry of config.tmux) {
+      const colonIdx = entry.indexOf(':');
+      const name = colonIdx > -1 ? entry.slice(0, colonIdx) : entry;
+      const cmd = colonIdx > -1 ? entry.slice(colonIdx + 1) : '';
+
+      await this.tmux.newWindow(session, name, cwd);
+      if (cmd) {
+        await this.tmux.sendKeys(`${session}:${name}`, cmd);
+      }
+    }
   }
 }

@@ -1,7 +1,8 @@
 import type { GitPort } from '../ports/git.port';
 import type { TmuxPort } from '../ports/tmux.port';
-import type { RegistryService } from './registry.service';
-import type { AppState, SessionEntry, ClaudeStatus } from '../domain/types';
+import type { WorkspaceService } from './workspace.service';
+import type { ClaudeStatus, WorkspaceAppState, WorkspaceState, SessionTab, RepoGroupState } from '../domain/types';
+import { worstStatus } from '../domain/types';
 
 export type RawStatus = 'busy' | 'action' | null;
 
@@ -24,17 +25,17 @@ export function parseRawStatus(content: string): RawStatus {
 
 export class StateService {
   private dirtySessions = new Set<string>();
-  private listener: ((state: AppState) => void) | null = null;
+  private listener: ((state: WorkspaceAppState) => void) | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private polling = false;
 
   constructor(
     private git: GitPort,
     private tmux: TmuxPort,
-    private registry: RegistryService,
+    private workspaceService: WorkspaceService,
   ) {}
 
-  onChange(listener: (state: AppState) => void): void {
+  onChange(listener: (state: WorkspaceAppState) => void): void {
     this.listener = listener;
   }
 
@@ -43,7 +44,7 @@ export class StateService {
       if (this.polling) return;
       this.polling = true;
       try {
-        const state = await this.collect(getActiveSession?.() ?? undefined);
+        const state = await this.collectWorkspaces(getActiveSession?.() ?? undefined);
         this.listener?.(state);
       } finally {
         this.polling = false;
@@ -55,145 +56,163 @@ export class StateService {
     if (this.timer) clearInterval(this.timer);
   }
 
-  async collect(activeSession?: string): Promise<AppState> {
-    const entries: SessionEntry[] = [];
-    const repoSet = new Map<string, string>();
-
-    // Load persisted repos from registry
-    const registry = this.registry.load();
-    for (const [name, rootPath] of Object.entries(registry)) {
-      const { existsSync } = require('node:fs');
-      if (existsSync(rootPath)) {
-        repoSet.set(name, rootPath);
-      }
-    }
-
-    // Discover repos from active tmux sessions
+  async collectWorkspaces(activeSession?: string): Promise<WorkspaceAppState> {
+    const workspaces = this.workspaceService?.list() ?? [];
     const sessions = await this.tmux.listSessions();
+    const wsNameSet = new Set(workspaces.map((w) => w.name));
 
-    const sessionPromises = sessions
-      .filter((s) => !s.startsWith('_wt_'))
-      .map(async (trimmed): Promise<SessionEntry> => {
-        const slashIdx = trimmed.indexOf('/');
-        if (slashIdx === -1) {
-          return { repo: 'standalone', branch: trimmed, tmuxSession: trimmed, status: 'none', worktreePath: null, isMainWorktree: false, upstream: null };
-        }
-        const repo = trimmed.slice(0, slashIdx);
-        const branch = trimmed.slice(slashIdx + 1);
-        const isDir = branch === '_dir';
-        const status = await this.detectClaudeStatus(trimmed);
-        return { repo, branch: isDir ? '' : branch, tmuxSession: trimmed, status, worktreePath: null, isMainWorktree: isDir, upstream: null };
-      });
+    // Parse each tmux session into a SessionTab
+    const sessionTabs = await Promise.all(
+      sessions
+        .filter((s) => !s.startsWith('_wt_'))
+        .map(async (tmuxSession): Promise<SessionTab> => {
+          const status = await this.detectClaudeStatus(tmuxSession);
 
-    entries.push(...await Promise.all(sessionPromises));
-
-    // Find orphaned worktrees (including main worktree)
-    const activeNames = new Set(entries.map((e) => e.tmuxSession));
-    const upstreamsByRepo = new Map<string, Map<string, string>>();
-
-    for (const [repoName, repoRoot] of repoSet) {
-      try {
-        const upstreams = await this.git.getUpstreams(repoRoot);
-        upstreamsByRepo.set(repoName, upstreams);
-
-        const wtDir = this.git.getWorktreeDir(repoRoot);
-        const raw = await this.git.worktreeListPorcelain(repoRoot);
-        let curPath = '';
-        let curBranch: string | null = null;
-
-        for (const line of (raw + '\n').split('\n')) {
-          if (line.startsWith('worktree ')) {
-            curPath = line.slice(9);
-            curBranch = null;
-          } else if (line.startsWith('branch refs/heads/')) {
-            curBranch = line.slice(18);
-          } else if (line === '' && curPath) {
-            const isMain = curPath === repoRoot;
-            const isUnderWtDir = curPath.startsWith(wtDir);
-            if ((isUnderWtDir || isMain) && curBranch) {
-              // _dir sessions match main worktree; branch sessions match by name
-              const dirSessionName = `${repoName}/_dir`;
-              const branchSessionName = `${repoName}/${curBranch}`;
-
-              if (isMain && activeNames.has(dirSessionName)) {
-                // Main worktree with active _dir session — resolve branch dynamically
-                const entry = entries.find((e) => e.tmuxSession === dirSessionName);
-                if (entry) {
-                  entry.branch = curBranch;
-                  entry.worktreePath = curPath;
-                  entry.upstream = upstreams.get(curBranch) ?? null;
-                }
-              } else if (activeNames.has(branchSessionName)) {
-                const entry = entries.find((e) => e.tmuxSession === branchSessionName);
-                if (entry) {
-                  entry.worktreePath = curPath;
-                  entry.isMainWorktree = isMain;
-                  entry.upstream = upstreams.get(curBranch) ?? null;
-                }
-              } else {
-                entries.push({
-                  repo: repoName,
-                  branch: curBranch,
-                  tmuxSession: null,
-                  status: 'none',
-                  worktreePath: curPath,
-                  isMainWorktree: isMain,
-                  upstream: upstreams.get(curBranch) ?? null,
-                });
-              }
-            }
-            curPath = '';
-            curBranch = null;
+          // Standalone: _standalone/label
+          if (tmuxSession.startsWith('_standalone/')) {
+            const label = tmuxSession.slice('_standalone/'.length);
+            return { workspaceId: null, type: 'workspace', tmuxSession, repoName: null, branch: null, worktreePath: null, status };
           }
-        }
-      } catch {}
-    }
 
-    // Set upstream for tmux-only entries (no worktree match)
-    for (const entry of entries) {
-      if (entry.repo !== 'standalone' && entry.upstream === null) {
-        const upstreams = upstreamsByRepo.get(entry.repo);
-        if (upstreams) {
-          entry.upstream = upstreams.get(entry.branch) ?? null;
-        }
-      }
-    }
+          // Find matching workspace by prefix
+          const firstSlash = tmuxSession.indexOf('/');
+          if (firstSlash === -1) {
+            // No slash → standalone-like
+            return { workspaceId: null, type: 'workspace', tmuxSession, repoName: null, branch: null, worktreePath: null, status };
+          }
 
-    // Prune dirty tracking for sessions that no longer exist
+          const prefix = tmuxSession.slice(0, firstSlash);
+          const rest = tmuxSession.slice(firstSlash + 1);
+
+          // Check if prefix matches a workspace name
+          const ws = workspaces.find((w) => w.name === prefix);
+
+          if (rest === '_ws') {
+            // Workspace session
+            return { workspaceId: ws?.id ?? null, type: 'workspace', tmuxSession, repoName: null, branch: null, worktreePath: null, status };
+          }
+
+          // rest could be "repoName/_dir" or "repoName/branch"
+          const secondSlash = rest.indexOf('/');
+          if (secondSlash === -1) {
+            // Single segment after prefix — legacy or unknown
+            return { workspaceId: ws?.id ?? null, type: 'workspace', tmuxSession, repoName: null, branch: null, worktreePath: null, status };
+          }
+
+          const repoName = rest.slice(0, secondSlash);
+          const branchOrDir = rest.slice(secondSlash + 1);
+
+          if (branchOrDir === '_dir') {
+            return { workspaceId: ws?.id ?? null, type: 'directory', tmuxSession, repoName, branch: null, worktreePath: null, status };
+          }
+
+          return { workspaceId: ws?.id ?? null, type: 'worktree', tmuxSession, repoName, branch: branchOrDir, worktreePath: null, status };
+        }),
+    );
+
+    // Prune dirty tracking
     const activeSessions = new Set(sessions);
     for (const s of this.dirtySessions) {
       if (!activeSessions.has(s)) this.dirtySessions.delete(s);
     }
 
+    // Group into workspace buckets
+    const defaultSessions: SessionTab[] = [];
+    const wsSessionMap = new Map<string, SessionTab[]>();
+
+    for (const ws of workspaces) {
+      wsSessionMap.set(ws.id, []);
+    }
+
+    for (const tab of sessionTabs) {
+      if (tab.workspaceId && wsSessionMap.has(tab.workspaceId)) {
+        wsSessionMap.get(tab.workspaceId)!.push(tab);
+      } else {
+        defaultSessions.push(tab);
+      }
+    }
+
+    // Build workspace states
+    const workspaceStates: WorkspaceState[] = workspaces.map((ws) => {
+      const allTabs = wsSessionMap.get(ws.id) ?? [];
+      const wsSessions = allTabs.filter((t) => t.type === 'workspace');
+      const repoTabs = allTabs.filter((t) => t.type !== 'workspace');
+
+      // Group repo tabs by repoName
+      const repoMap = new Map<string, SessionTab[]>();
+      for (const tab of repoTabs) {
+        if (!tab.repoName) continue;
+        const group = repoMap.get(tab.repoName) ?? [];
+        group.push(tab);
+        repoMap.set(tab.repoName, group);
+      }
+
+      const repoGroups: RepoGroupState[] = [...repoMap.entries()].map(([repoName, tabs]) => ({
+        repoName,
+        repoRoot: '', // Will be resolved when needed
+        sessions: tabs.sort((a, b) => {
+          // directory first, then worktrees alphabetically
+          if (a.type === 'directory' && b.type !== 'directory') return -1;
+          if (a.type !== 'directory' && b.type === 'directory') return 1;
+          return (a.branch ?? '').localeCompare(b.branch ?? '');
+        }),
+      }));
+
+      const allStatuses = allTabs.map((t) => t.status);
+      return {
+        workspace: ws,
+        sessions: wsSessions,
+        repoGroups,
+        status: worstStatus(allStatuses),
+      };
+    });
+
+    const defaultAllStatuses = defaultSessions.map((t) => t.status);
+    const defaultWorkspace: WorkspaceState = {
+      workspace: null,
+      sessions: defaultSessions,
+      repoGroups: [],
+      status: worstStatus(defaultAllStatuses),
+    };
+
     const windows = activeSession
       ? await this.tmux.listWindows(activeSession)
       : [];
 
-    return { entries, repos: [...repoSet.entries()], windows };
+    return { defaultWorkspace, workspaces: workspaceStates, windows };
   }
 
   private async detectClaudeStatus(session: string): Promise<ClaudeStatus> {
     const panes = await this.tmux.listPanes(session);
     if (!panes) return 'none';
 
-    let claudePaneId: string | null = null;
+    // Find all panes running the claude command (by pane_current_command, not window name)
+    const claudePaneIds: string[] = [];
     for (const line of panes.split('\n')) {
-      const [id, winName] = line.split('\t');
-      if (winName === 'Claude Code') {
-        claudePaneId = id;
-        break;
+      if (!line.trim()) continue;
+      const [id, , command] = line.split('\t');
+      if (command === 'claude') {
+        claudePaneIds.push(id);
       }
     }
-    if (!claudePaneId) return 'none';
+    if (claudePaneIds.length === 0) return 'none';
 
-    const content = await this.tmux.capturePaneContent(claudePaneId);
-    const raw = parseRawStatus(content);
+    // Capture content from all claude panes and compute per-pane status
+    const paneStatuses = await Promise.all(
+      claudePaneIds.map(async (paneId): Promise<ClaudeStatus> => {
+        const content = await this.tmux.capturePaneContent(paneId);
+        const raw = parseRawStatus(content);
 
-    if (raw) {
-      this.dirtySessions.add(session);
-      return raw;
-    }
+        if (raw) {
+          this.dirtySessions.add(session);
+          return raw;
+        }
 
-    return this.dirtySessions.has(session) ? 'done' : 'new';
+        return this.dirtySessions.has(session) ? 'done' : 'new';
+      }),
+    );
+
+    // Return the worst status across all claude panes
+    return worstStatus(paneStatuses);
   }
 }

@@ -4,7 +4,7 @@ import type { WorktreeService } from '../services/worktree.service';
 import type { SessionService } from '../services/session.service';
 import type { StateService } from '../services/state.service';
 import type { ThemeService } from '../services/theme.service';
-import type { RegistryService } from '../services/registry.service';
+import type { WorkspaceService } from '../services/workspace.service';
 import type { ConfigService } from '../services/config.service';
 import type { GitPort } from '../ports/git.port';
 import type { TmuxPort } from '../ports/tmux.port';
@@ -23,7 +23,7 @@ export function registerHandlers(deps: {
   sessionService: SessionService;
   stateService: StateService;
   themeService: ThemeService;
-  registryService: RegistryService;
+  workspaceService: WorkspaceService;
   configService: ConfigService;
   tmux: TmuxPort;
   git: GitPort;
@@ -31,11 +31,11 @@ export function registerHandlers(deps: {
   getActiveSession: () => string | null;
   setActiveSession: (session: string) => void;
 }): void {
-  const { worktreeService, sessionService, stateService, themeService, registryService, configService, tmux, git, getPtyClientTty, getActiveSession, setActiveSession } = deps;
+  const { worktreeService, sessionService, stateService, themeService, workspaceService, configService, tmux, git, getPtyClientTty, getActiveSession, setActiveSession } = deps;
 
   // ── Queries ──────────────────────────────────────────────────
   ipcMain.handle(Channels.GET_STATE, async () => {
-    return stateService.collect(getActiveSession() ?? undefined);
+    return stateService.collectWorkspaces(getActiveSession() ?? undefined);
   });
 
   ipcMain.handle(Channels.GET_THEME, () => {
@@ -50,7 +50,44 @@ export function registerHandlers(deps: {
     return worktreeService.getCleanCandidates();
   });
 
-  // ── Commands ─────────────────────────────────────────────────
+  ipcMain.handle(Channels.DISCOVER_REPOS, async (_event, directory: string) => {
+    try {
+      const repos = workspaceService.discoverGitRepos(directory, 3);
+      return ok(repos);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
+  // ── Workspace commands ──────────────────────────────────────
+  ipcMain.handle(Channels.CREATE_WORKSPACE, async (_event, name: string, directory: string) => {
+    try {
+      const ws = await workspaceService.create(name, directory);
+      return ok(ws);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
+  ipcMain.handle(Channels.RENAME_WORKSPACE, async (_event, id: string, newName: string) => {
+    try {
+      await workspaceService.rename(id, newName);
+      return ok(undefined);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
+  ipcMain.handle(Channels.REMOVE_WORKSPACE, async (_event, id: string) => {
+    try {
+      await workspaceService.remove(id);
+      return ok(undefined);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
+  // ── Session commands ────────────────────────────────────────
   ipcMain.handle(Channels.SWITCH_SESSION, async (_event, session: string) => {
     try {
       const tty = await getPtyClientTty();
@@ -73,45 +110,93 @@ export function registerHandlers(deps: {
     }
   });
 
-  ipcMain.handle(Channels.CREATE_SESSION, async (_event, name: string) => {
+  ipcMain.handle(Channels.CREATE_WORKSPACE_SESSION, async (_event, workspaceName: string, workspaceDir: string) => {
     try {
-      await tmux.newSession(name, { windowName: 'Shell', cwd: process.env.HOME! });
+      const config = await configService.parse(workspaceDir);
+      const session = await sessionService.launchWorkspaceSession(workspaceName, workspaceDir, config);
       const tty = await getPtyClientTty();
       if (tty) {
-        await sessionService.switchTo(name, tty);
-        setActiveSession(name);
+        await sessionService.switchTo(session, tty);
+        setActiveSession(session);
       }
-      return ok(undefined);
+      return ok(session);
     } catch (e) {
       return err((e as Error).message);
     }
   });
 
-  ipcMain.handle(Channels.START_SESSION, async (_event, session: string, workdir: string) => {
+  ipcMain.handle(Channels.CREATE_REPO_SESSION, async (
+    _event,
+    workspaceName: string,
+    repoRoot: string,
+    mode: 'directory' | 'worktree',
+    branch?: string,
+    base?: string,
+    install?: boolean,
+  ) => {
     try {
-      const slashIdx = session.indexOf('/');
-      if (slashIdx === -1) return err('Invalid session name');
-      const repo = session.slice(0, slashIdx);
-      const branch = session.slice(slashIdx + 1);
-
-      const registry = registryService.load();
-      const repoRoot = registry[repo];
-      if (!repoRoot) return err(`Repo '${repo}' not found in registry`);
-
       const config = await configService.parse(repoRoot);
-      await sessionService.launch(repoRoot, branch, workdir, config);
+      let session: string;
+
+      if (mode === 'directory') {
+        session = await sessionService.launchDirectorySession(workspaceName, repoRoot, config);
+      } else {
+        if (!branch) return err('Branch name required for worktree session');
+        // Create worktree first
+        await worktreeService.create({
+          repo: require('node:path').basename(repoRoot),
+          repoRoot,
+          branch,
+          base: base ?? config.base ?? 'origin/main',
+          install: install ?? false,
+        });
+        const wtPath = require('node:path').join(git.getWorktreeDir(repoRoot), branch);
+        session = await sessionService.launchWorktreeSession(workspaceName, repoRoot, branch, wtPath, config);
+      }
 
       const tty = await getPtyClientTty();
       if (tty) {
         await sessionService.switchTo(session, tty);
         setActiveSession(session);
       }
-      return ok(undefined);
+      return ok(session);
     } catch (e) {
       return err((e as Error).message);
     }
   });
 
+  ipcMain.handle(Channels.CREATE_STANDALONE_SESSION, async (_event, label: string, dir: string) => {
+    try {
+      const session = await sessionService.launchStandaloneSession(label, dir);
+      const tty = await getPtyClientTty();
+      if (tty) {
+        await sessionService.switchTo(session, tty);
+        setActiveSession(session);
+      }
+      return ok(session);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
+  ipcMain.handle(Channels.SELECT_DIRECTORY, async () => {
+    try {
+      const win = BrowserWindow.getFocusedWindow();
+      if (!win) return ok(null);
+      const result = await dialog.showOpenDialog(win, {
+        properties: ['openDirectory'],
+        title: 'Select a directory',
+      });
+      if (result.canceled || result.filePaths.length === 0) return ok(null);
+      return ok(result.filePaths[0]);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
+  // (Legacy CREATE_SESSION and START_SESSION removed — use workspace/repo/standalone session handlers)
+
+  // ── Worktree commands ───────────────────────────────────────
   ipcMain.handle(Channels.CREATE_WORKTREE, async (_event, params: CreateWorktreeParams) => {
     try {
       await worktreeService.create(params);
@@ -139,35 +224,7 @@ export function registerHandlers(deps: {
     }
   });
 
-  ipcMain.handle(Channels.PIN_PROJECTS, async () => {
-    try {
-      const win = BrowserWindow.getFocusedWindow();
-      if (!win) return ok([]);
-      const result = await dialog.showOpenDialog(win, {
-        properties: ['openDirectory'],
-        title: 'Select a project folder',
-      });
-      if (result.canceled || result.filePaths.length === 0) return ok([]);
-      const folderPath = result.filePaths[0];
-      const repos = registryService.discoverGitRepos(folderPath, 3);
-      if (repos.length > 0) {
-        await registryService.pinMany(repos);
-      }
-      return ok(repos);
-    } catch (e) {
-      return err((e as Error).message);
-    }
-  });
-
-  ipcMain.handle(Channels.UNPIN_PROJECT, async (_event, repoName: string) => {
-    try {
-      await registryService.remove(repoName);
-      return ok(undefined);
-    } catch (e) {
-      return err((e as Error).message);
-    }
-  });
-
+  // ── Window commands ─────────────────────────────────────────
   ipcMain.handle(Channels.SELECT_WINDOW, async (_event, session: string, window: string) => {
     try {
       await tmux.selectWindow(session, window);

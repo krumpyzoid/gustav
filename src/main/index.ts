@@ -8,7 +8,7 @@ import { GitAdapter } from './adapters/git.adapter';
 import { TmuxAdapter } from './adapters/tmux.adapter';
 
 import { ConfigService } from './services/config.service';
-import { RegistryService } from './services/registry.service';
+import { WorkspaceService } from './services/workspace.service';
 import { SessionService } from './services/session.service';
 import { ThemeService } from './services/theme.service';
 import { StateService } from './services/state.service';
@@ -29,12 +29,12 @@ const tmuxAdapter = new TmuxAdapter(shellAdapter);
 
 // ── Services ──────────────────────────────────────────────────────
 const configService = new ConfigService(fsAdapter);
-const registryService = new RegistryService(fsAdapter);
+const workspaceService = new WorkspaceService(fsAdapter);
 const sessionService = new SessionService(tmuxAdapter);
 const themeService = new ThemeService(fsAdapter);
-const stateService = new StateService(gitAdapter, tmuxAdapter, registryService);
+const stateService = new StateService(gitAdapter, tmuxAdapter, workspaceService);
 const worktreeService = new WorktreeService(
-  gitAdapter, fsAdapter, shellAdapter, configService, sessionService, registryService,
+  gitAdapter, fsAdapter, shellAdapter, configService, sessionService, workspaceService,
 );
 
 // ── PTY ───────────────────────────────────────────────────────────
@@ -126,7 +126,7 @@ app.on('ready', () => {
     sessionService,
     stateService,
     themeService,
-    registryService,
+    workspaceService,
     configService,
     tmux: tmuxAdapter,
     git: gitAdapter,

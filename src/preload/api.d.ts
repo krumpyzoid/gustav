@@ -1,5 +1,6 @@
 import type {
-  AppState,
+  WorkspaceAppState,
+  Workspace,
   ThemeColors,
   BranchInfo,
   CreateWorktreeParams,
@@ -7,6 +8,7 @@ import type {
   CleanTarget,
   CleanReport,
   Result,
+  WindowInfo,
 } from '../main/domain/types';
 
 interface ElectronAPI {
@@ -16,21 +18,32 @@ interface ElectronAPI {
   sendPtyResize: (cols: number, rows: number) => void;
 
   // State
-  getState: () => Promise<AppState>;
-  onStateUpdate: (cb: (state: AppState) => void) => () => void;
+  getState: () => Promise<WorkspaceAppState>;
+  onStateUpdate: (cb: (state: WorkspaceAppState) => void) => () => void;
 
-  // Actions
-  switchSession: (session: string) => Promise<Result<void>>;
+  // Workspace
+  createWorkspace: (name: string, directory: string) => Promise<Result<Workspace>>;
+  renameWorkspace: (id: string, newName: string) => Promise<Result<void>>;
+  removeWorkspace: (id: string) => Promise<Result<void>>;
+  discoverRepos: (directory: string) => Promise<Result<string[]>>;
+
+  // Sessions
+  switchSession: (session: string) => Promise<Result<WindowInfo[]>>;
   killSession: (session: string) => Promise<Result<void>>;
+  createWorkspaceSession: (workspaceName: string, workspaceDir: string) => Promise<Result<string>>;
+  createRepoSession: (workspaceName: string, repoRoot: string, mode: string, branch?: string, base?: string, install?: boolean) => Promise<Result<string>>;
+  createStandaloneSession: (label: string, dir: string) => Promise<Result<string>>;
+  selectDirectory: () => Promise<Result<string | null>>;
+
+  // Windows
+  selectWindow: (session: string, window: string) => Promise<Result<void>>;
   newWindow: (session: string, name: string) => Promise<Result<void>>;
   killWindow: (session: string, windowIndex: number) => Promise<Result<void>>;
-  createSession: (name: string) => Promise<Result<void>>;
-  startSession: (session: string, workdir: string) => Promise<Result<void>>;
+
+  // Worktrees
   createWorktree: (params: CreateWorktreeParams) => Promise<Result<void>>;
   removeWorktree: (repoRoot: string, branch: string, deleteBranch: boolean) => Promise<Result<void>>;
   cleanWorktrees: (items: CleanTarget[]) => Promise<Result<CleanReport>>;
-  pinProjects: () => Promise<Result<string[]>>;
-  unpinProject: (repoName: string) => Promise<Result<void>>;
   getBranches: (repoRoot: string) => Promise<BranchInfo[]>;
   getCleanCandidates: () => Promise<CleanCandidate[]>;
 

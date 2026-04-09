@@ -69,8 +69,65 @@ export type CleanReport = {
   errors: string[];
 };
 
+// ── Workspace ────────────────────────────────────────────────────
+export type Workspace = {
+  id: string;
+  name: string;
+  directory: string;
+};
+
+export type SessionType = 'workspace' | 'directory' | 'worktree';
+
+export type SessionTab = {
+  workspaceId: string | null;
+  type: SessionType;
+  tmuxSession: string;
+  repoName: string | null;
+  branch: string | null;
+  worktreePath: string | null;
+  status: ClaudeStatus;
+};
+
+// ── Workspace state (new model) ──────────────────────────────────
+export type RepoGroupState = {
+  repoName: string;
+  repoRoot: string;
+  sessions: SessionTab[];
+};
+
+export type WorkspaceState = {
+  workspace: Workspace | null; // null = default/standalone workspace
+  sessions: SessionTab[];      // workspace-type sessions (non-repo)
+  repoGroups: RepoGroupState[];
+  status: ClaudeStatus;
+};
+
+export type WorkspaceAppState = {
+  defaultWorkspace: WorkspaceState;
+  workspaces: WorkspaceState[];
+  windows: WindowInfo[];
+};
+
+// ── Status ranking ───────────────────────────────────────────────
+const STATUS_RANK: Record<ClaudeStatus, number> = {
+  action: 4,
+  busy: 3,
+  done: 2,
+  new: 1,
+  none: 0,
+};
+
+export function worstStatus(statuses: ClaudeStatus[]): ClaudeStatus {
+  if (statuses.length === 0) return 'none';
+  let worst: ClaudeStatus = 'none';
+  for (const s of statuses) {
+    if (STATUS_RANK[s] > STATUS_RANK[worst]) worst = s;
+  }
+  return worst;
+}
+
 // ── .wt config ────────────────────────────────────────────────────
-export type WtConfig = {
+export type GustavConfig = {
   env: Record<string, string>;
   copy: string[];
   install: string;

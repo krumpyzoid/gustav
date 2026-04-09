@@ -1,41 +1,59 @@
 import { create } from 'zustand';
 import { useEffect } from 'react';
-import type { SessionEntry, WindowInfo } from '../../main/domain/types';
+import type { WorkspaceAppState, WorkspaceState, WindowInfo } from '../../main/domain/types';
+import { groupByWorkspace } from '../lib/group-by-workspace';
+
+const emptyWorkspace: WorkspaceState = {
+  workspace: null,
+  sessions: [],
+  repoGroups: [],
+  status: 'none',
+};
 
 interface AppStore {
-  entries: SessionEntry[];
-  repos: Map<string, string>;
+  defaultWorkspace: WorkspaceState;
+  workspaces: WorkspaceState[];
   activeSession: string | null;
   windows: WindowInfo[];
-  setEntries: (entries: SessionEntry[]) => void;
-  setRepos: (repos: [string, string][]) => void;
+  setFromState: (state: WorkspaceAppState) => void;
   setActiveSession: (session: string | null) => void;
   setWindows: (windows: WindowInfo[]) => void;
 }
 
 export const useAppStore = create<AppStore>((set) => ({
-  entries: [],
-  repos: new Map(),
+  defaultWorkspace: emptyWorkspace,
+  workspaces: [],
   activeSession: null,
   windows: [],
-  setEntries: (entries) => set({ entries }),
-  setRepos: (repos) => set({ repos: new Map(repos) }),
+  setFromState: (state) => {
+    const grouped = groupByWorkspace(state);
+    set({
+      defaultWorkspace: grouped.defaultWorkspace,
+      workspaces: grouped.workspaces,
+      windows: grouped.windows,
+    });
+  },
   setActiveSession: (activeSession) => set({ activeSession }),
   setWindows: (windows) => set({ windows }),
 }));
 
 export function useAppStateSubscription() {
-  const { setEntries, setRepos, setWindows } = useAppStore();
+  const { setFromState, setWindows } = useAppStore();
 
   useEffect(() => {
     // Initial fetch
-    window.api.getState().then(async (state) => {
-      setRepos(state.repos);
-      setEntries(state.entries);
-      setWindows(state.windows ?? []);
+    window.api.getState().then(async (state: WorkspaceAppState) => {
+      setFromState(state);
 
-      // Set initial active session and sync to main process
-      const first = state.entries.find((e) => e.tmuxSession && e.repo !== 'standalone');
+      // Set initial active session — find first active session across all workspaces
+      const allSessions = [
+        ...state.defaultWorkspace.sessions,
+        ...state.workspaces.flatMap((ws) => [
+          ...ws.sessions,
+          ...ws.repoGroups.flatMap((rg) => rg.sessions),
+        ]),
+      ];
+      const first = allSessions.find((s) => s.tmuxSession);
       if (first?.tmuxSession) {
         useAppStore.getState().setActiveSession(first.tmuxSession);
         const result = await window.api.switchSession(first.tmuxSession);
@@ -46,19 +64,15 @@ export function useAppStateSubscription() {
     });
 
     // Subscribe to updates
-    const cleanup = window.api.onStateUpdate((state) => {
-      setRepos(state.repos);
-      setEntries(state.entries);
-      setWindows(state.windows ?? []);
+    const cleanup = window.api.onStateUpdate((state: WorkspaceAppState) => {
+      setFromState(state);
     });
 
     return cleanup;
-  }, [setEntries, setRepos, setWindows]);
+  }, [setFromState, setWindows]);
 }
 
 export async function refreshState() {
-  const state = await window.api.getState();
-  useAppStore.getState().setRepos(state.repos);
-  useAppStore.getState().setEntries(state.entries);
-  useAppStore.getState().setWindows(state.windows ?? []);
+  const state: WorkspaceAppState = await window.api.getState();
+  useAppStore.getState().setFromState(state);
 }

@@ -4,17 +4,27 @@ export const Channels = {
   GET_THEME: 'get-theme',
   GET_BRANCHES: 'get-branches',
   GET_CLEAN_CANDIDATES: 'get-clean-candidates',
+  DISCOVER_REPOS: 'discover-repos',
 
-  // Commands
+  // Workspace commands
+  CREATE_WORKSPACE: 'create-workspace',
+  RENAME_WORKSPACE: 'rename-workspace',
+  REMOVE_WORKSPACE: 'remove-workspace',
+
+  // Session commands
   SWITCH_SESSION: 'switch-session',
   KILL_SESSION: 'kill-session',
-  CREATE_SESSION: 'create-session',
-  START_SESSION: 'start-session',
+  CREATE_WORKSPACE_SESSION: 'create-workspace-session',
+  CREATE_REPO_SESSION: 'create-repo-session',
+  CREATE_STANDALONE_SESSION: 'create-standalone-session',
+  SELECT_DIRECTORY: 'select-directory',
+
+  // Worktree commands
   CREATE_WORKTREE: 'create-worktree',
   REMOVE_WORKTREE: 'remove-worktree',
   CLEAN_WORKTREES: 'clean-worktrees',
-  PIN_PROJECTS: 'pin-projects',
-  UNPIN_PROJECT: 'unpin-project',
+
+  // Window commands
   SELECT_WINDOW: 'select-window',
   NEW_WINDOW: 'new-window',
   KILL_WINDOW: 'kill-window',

@@ -1,101 +1,95 @@
-import { useMemo } from 'react';
-import { Plus } from 'lucide-react';
-import { useAppStore, refreshState } from '../../hooks/use-app-state';
-import { groupByCategory } from '../../lib/group-by-category';
-import { RepoGroup } from './RepoGroup';
-import { SessionEntry } from './SessionEntry';
-import { AccordionCategory } from './AccordionCategory';
-import { ActionBar } from './ActionBar';
-import type { SessionEntry as SessionEntryType } from '../../../main/domain/types';
+import { useState, useRef, useEffect } from 'react';
+import { Plus, ChevronDown } from 'lucide-react';
+import { useAppStore } from '../../hooks/use-app-state';
+import { WorkspaceAccordion } from './WorkspaceAccordion';
+import type { SessionTab as SessionTabType } from '../../../main/domain/types';
 
 interface Props {
-  onNewWorktree: (repo: string, repoRoot: string) => void;
-  onRemoveWorktree: (entry: SessionEntryType) => void;
-  onNewSession: () => void;
+  onNewWorkspace: () => void;
+  onNewStandalone: () => void;
+  onNewSession: (workspaceId: string) => void;
+  onEditWorkspace: (workspaceId: string) => void;
+  onRemoveWorktree: (tab: SessionTabType) => void;
   onClean: () => void;
 }
 
-export function Sidebar({ onNewWorktree, onRemoveWorktree, onNewSession, onClean }: Props) {
-  const { entries, repos } = useAppStore();
+export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onEditWorkspace, onRemoveWorktree, onClean }: Props) {
+  const { defaultWorkspace, workspaces } = useAppStore();
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const categories = useMemo(() => groupByCategory(entries, repos), [entries, repos]);
-
-  async function handlePin() {
-    await window.api.pinProjects();
-    refreshState();
-  }
-
-  const standaloneCount = categories.standalone.length;
-  const activeRepos = [...categories.active.entries()].sort(([a], [b]) => a.localeCompare(b));
-  const idleRepos = categories.idle;
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [dropdownOpen]);
 
   return (
     <>
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-border">
-        <span className="text-sm font-bold tracking-wider uppercase text-foreground/60">Projects</span>
-        <button
-          onClick={handlePin}
-          className="bg-transparent border-none text-foreground/60 hover:text-foreground cursor-pointer p-0.5 transition-colors"
-          title="Pin a project"
-        >
-          <Plus size={14} />
-        </button>
+        <span className="text-sm font-bold tracking-wider uppercase text-foreground/60">
+          Workspaces
+        </span>
+        <div className="relative" ref={dropdownRef}>
+          <button
+            onClick={() => setDropdownOpen((v) => !v)}
+            className="bg-transparent border-none text-foreground/60 hover:text-foreground cursor-pointer p-0.5 transition-colors flex items-center gap-0.5"
+            title="Add workspace or session"
+          >
+            <Plus size={14} />
+            <ChevronDown size={10} />
+          </button>
+          {dropdownOpen && (
+            <div className="absolute right-0 top-full mt-1 bg-popover text-popover-foreground border border-border rounded-md shadow-md z-50 min-w-[10rem]">
+              <button
+                onClick={() => { setDropdownOpen(false); onNewWorkspace(); }}
+                className="w-full px-3 py-1.5 text-sm text-left hover:bg-muted cursor-pointer bg-transparent border-none text-popover-foreground"
+              >
+                New Workspace
+              </button>
+              <button
+                onClick={() => { setDropdownOpen(false); onNewStandalone(); }}
+                className="w-full px-3 py-1.5 text-sm text-left hover:bg-muted cursor-pointer bg-transparent border-none text-popover-foreground"
+              >
+                New Standalone Session
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {standaloneCount > 0 && (
-          <AccordionCategory label="Standalone" count={standaloneCount}>
-            {categories.standalone.map((entry) => (
-              <div key={entry.tmuxSession ?? `orphan-${entry.branch}`} className="group/entry">
-                <SessionEntry entry={entry} />
-              </div>
-            ))}
-          </AccordionCategory>
-        )}
+        {/* Default workspace (standalone sessions) at top */}
+        <WorkspaceAccordion
+          state={defaultWorkspace}
+        />
 
-        {activeRepos.length > 0 && (
-          <AccordionCategory label="Active" count={activeRepos.length}>
-            {activeRepos.map(([repo, repoEntries]) => (
-              <div key={repo} className="group/repo">
-                <RepoGroup
-                  repo={repo}
-                  entries={repoEntries}
-                  repoRoot={repos.get(repo)}
-                  onNewWorktree={() => {
-                    const root = repos.get(repo);
-                    if (root) onNewWorktree(repo, root);
-                  }}
-                  onRemoveWorktree={onRemoveWorktree}
-                />
-              </div>
-            ))}
-          </AccordionCategory>
-        )}
-
-        {idleRepos.length > 0 && (
-          <AccordionCategory label="Idle" count={idleRepos.length} defaultExpanded={false}>
-            {idleRepos.map((repo) => {
-              const repoEntries = entries.filter((e) => e.repo === repo);
-              return (
-                <div key={repo} className="group/repo">
-                  <RepoGroup
-                    repo={repo}
-                    entries={repoEntries}
-                    repoRoot={repos.get(repo)}
-                    onNewWorktree={() => {
-                      const root = repos.get(repo);
-                      if (root) onNewWorktree(repo, root);
-                    }}
-                    onRemoveWorktree={onRemoveWorktree}
-                  />
-                </div>
-              );
-            })}
-          </AccordionCategory>
-        )}
+        {/* Named workspaces */}
+        {workspaces.map((ws) => (
+          <WorkspaceAccordion
+            key={ws.workspace!.id}
+            state={ws}
+            onAddSession={() => onNewSession(ws.workspace!.id)}
+            onEdit={() => onEditWorkspace(ws.workspace!.id)}
+            onRemoveWorktree={onRemoveWorktree}
+          />
+        ))}
       </div>
 
-      <ActionBar onNewSession={onNewSession} onClean={onClean} />
+      {/* Bottom action bar */}
+      <div className="px-3 py-1.5 border-t border-border">
+        <button
+          onClick={onClean}
+          className="text-sm text-muted-foreground hover:text-foreground bg-transparent border-none cursor-pointer transition-colors"
+        >
+          Clean worktrees
+        </button>
+      </div>
     </>
   );
 }

@@ -1,8 +1,8 @@
 import { join } from 'node:path';
 import type { FileSystemPort } from '../ports/filesystem.port';
-import type { WtConfig } from '../domain/types';
+import type { GustavConfig } from '../domain/types';
 
-function emptyConfig(): WtConfig {
+function emptyConfig(): GustavConfig {
   return {
     env: {},
     copy: [],
@@ -17,8 +17,8 @@ function emptyConfig(): WtConfig {
 export class ConfigService {
   constructor(private fs: FileSystemPort) {}
 
-  async parse(repoRoot: string): Promise<WtConfig> {
-    const configPath = join(repoRoot, '.wt');
+  async parse(repoRoot: string): Promise<GustavConfig> {
+    const configPath = join(repoRoot, '.gustav');
     const config = emptyConfig();
 
     let content: string;
