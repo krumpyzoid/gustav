@@ -5,6 +5,12 @@ import '@xterm/xterm/css/xterm.css';
 import { xtermTheme } from './use-theme';
 import { navigateSession, navigateWindow } from './use-keyboard-shortcuts';
 
+let globalTermRef: Terminal | null = null;
+
+export function focusTerminal() {
+  globalTermRef?.focus();
+}
+
 export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>) {
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -24,6 +30,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     termRef.current = term;
     fitRef.current = fitAddon;
+    globalTermRef = term;
 
     function fit() {
       fitAddon.fit();
@@ -113,6 +120,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     term.focus();
 
     return () => {
+      globalTermRef = null;
       document.removeEventListener('keydown', handleKeyDown);
       cleanupPty();
       cleanupTheme();

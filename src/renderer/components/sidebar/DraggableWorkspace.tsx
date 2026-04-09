@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from 'react';
 import { draggable, dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import { combine } from '@atlaskit/pragmatic-drag-and-drop/combine';
+import { focusTerminal } from '../../hooks/use-terminal';
 
 interface Props {
   workspaceId: string;
@@ -21,7 +22,7 @@ export function DraggableWorkspace({ workspaceId, children, onReorder }: Props) 
         element: el,
         getInitialData: () => ({ workspaceId }),
         onDragStart: () => setDragState('dragging'),
-        onDrop: () => setDragState('idle'),
+        onDrop: () => { setDragState('idle'); focusTerminal(); },
       }),
       dropTargetForElements({
         element: el,

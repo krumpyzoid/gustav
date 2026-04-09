@@ -11,6 +11,7 @@ import { RemoveWorktreeDialog } from './components/dialogs/RemoveWorktreeDialog'
 import { CleanWorktreesDialog } from './components/dialogs/CleanWorktreesDialog';
 import { useAppStateSubscription } from './hooks/use-app-state';
 import { useKeyboardShortcuts } from './hooks/use-keyboard-shortcuts';
+import { focusTerminal } from './hooks/use-terminal';
 import { useTheme } from './hooks/use-theme';
 import type { SessionTab } from '../main/domain/types';
 
@@ -36,7 +37,7 @@ export function App() {
 
   return (
     <div className="flex h-screen">
-      <aside ref={sidebarRef} onMouseDown={(e) => { if (!(e.target as HTMLElement).closest('[draggable="true"]')) e.preventDefault(); }} className="w-[220px] min-w-[220px] bg-bg flex flex-col py-2 select-none">
+      <aside ref={sidebarRef} onMouseUp={() => focusTerminal()} className="w-[220px] min-w-[220px] bg-bg flex flex-col py-2 select-none">
         <Sidebar
           onNewWorkspace={() => setNewWorkspaceOpen(true)}
           onNewStandalone={() => setNewStandaloneOpen(true)}
