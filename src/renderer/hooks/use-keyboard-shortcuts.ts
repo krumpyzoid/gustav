@@ -55,6 +55,9 @@ export function useKeyboardShortcuts() {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (!e.altKey) return;
+      // Skip if xterm already handled this (terminal has focus)
+      const target = e.target as HTMLElement;
+      if (target.closest('.xterm')) return;
       switch (e.key) {
         case 'ArrowDown':  e.preventDefault(); navigateSession(1); break;
         case 'ArrowUp':    e.preventDefault(); navigateSession(-1); break;
