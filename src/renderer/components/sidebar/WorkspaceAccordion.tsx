@@ -13,7 +13,7 @@ interface RepoGroupProps {
 function RepoGroup({ repoName, sessions, onRemoveWorktree }: RepoGroupProps) {
   return (
     <div className="mb-1">
-      <div className="flex items-center justify-between px-3 pt-1.5 pb-0.5 font-bold tracking-wider uppercase text-accent">
+      <div className="flex items-center justify-between px-3 pl-7 pt-1.5 pb-0.5 text-sm font-normal text-foreground/60">
         {repoName}
       </div>
       {sessions.map((tab) => (
@@ -51,7 +51,7 @@ export function WorkspaceAccordion({ state, onAddSession, onEdit, onRemoveWorktr
     <div>
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-1.5 w-full px-3 py-1.5 text-sm font-bold tracking-widest uppercase text-foreground/60 bg-transparent border-t border-b border-border/50 cursor-pointer hover:text-foreground transition-colors"
+        className="flex items-center gap-1.5 w-full px-3 py-1.5 text-sm font-bold tracking-widest uppercase text-foreground bg-transparent border-t border-b border-border/50 cursor-pointer hover:text-foreground transition-colors"
       >
         <ChevronRight
           size={10}
@@ -61,7 +61,6 @@ export function WorkspaceAccordion({ state, onAddSession, onEdit, onRemoveWorktr
           <StatusIcon status={state.status} />
         </div>
         <span className="truncate">{name}</span>
-        <span className="text-muted-foreground ml-0.5 font-normal">{totalSessions}</span>
 
         {!isDefault && (
           <div className="ml-auto flex gap-1 shrink-0">
@@ -88,7 +87,7 @@ export function WorkspaceAccordion({ state, onAddSession, onEdit, onRemoveWorktr
       </button>
 
       {expanded && (
-        <div>
+        <div className="pl-4">
           {/* Workspace sessions first */}
           {state.sessions.map((tab) => (
             <SessionTab key={tab.tmuxSession} tab={tab} />

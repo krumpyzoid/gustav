@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAppStore, refreshState } from '../../hooks/use-app-state';
 
-type Step = 'choose-type' | 'choose-repo' | 'choose-mode' | 'worktree-branch';
+type Step = 'choose-type' | 'ws-name' | 'choose-repo' | 'choose-mode' | 'worktree-branch';
 
 interface Props {
   open: boolean;
@@ -31,8 +31,18 @@ export function NewSessionDialog({ open, onClose, workspaceId }: Props) {
   const [repos, setRepos] = useState<string[]>([]);
   const [selectedRepo, setSelectedRepo] = useState('');
   const [branch, setBranch] = useState('');
+  const [wsLabel, setWsLabel] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Existing workspace session names for collision detection
+  const wsState = workspaces.find((w) => w.workspace?.id === workspaceId);
+  const existingWsLabels = new Set(
+    (wsState?.sessions ?? []).map((s) => {
+      const parts = s.tmuxSession.split('/');
+      return parts[parts.length - 1];
+    }),
+  );
 
   useEffect(() => {
     if (open) {
@@ -40,14 +50,28 @@ export function NewSessionDialog({ open, onClose, workspaceId }: Props) {
       setRepos([]);
       setSelectedRepo('');
       setBranch('');
+      setWsLabel('');
       setError('');
     }
   }, [open]);
 
-  async function handleWorkspaceSession() {
-    if (!ws) return;
+  function handleGoToWsName() {
+    setWsLabel('');
     setError('');
-    const result = await window.api.createWorkspaceSession(ws.name, ws.directory);
+    setStep('ws-name');
+  }
+
+  async function handleCreateWorkspaceSession(e: React.FormEvent) {
+    e.preventDefault();
+    if (!ws) return;
+    const label = wsLabel.trim() || undefined;
+    const key = label ?? '_ws';
+    if (existingWsLabels.has(key)) {
+      setError(`Session "${label ?? 'default'}" already exists in this workspace`);
+      return;
+    }
+    setError('');
+    const result = await window.api.createWorkspaceSession(ws.name, ws.directory, label);
     if (result.success) {
       refreshState();
       onClose();
@@ -113,7 +137,7 @@ export function NewSessionDialog({ open, onClose, workspaceId }: Props) {
           <div className="flex flex-col gap-2">
             <Button
               variant="outline"
-              onClick={handleWorkspaceSession}
+              onClick={handleGoToWsName}
               className="w-full justify-start h-auto py-2 flex-col items-start"
             >
               <span className="font-medium">Workspace Session</span>
@@ -132,6 +156,31 @@ export function NewSessionDialog({ open, onClose, workspaceId }: Props) {
             </Button>
             {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
+        )}
+
+        {step === 'ws-name' && (
+          <form onSubmit={handleCreateWorkspaceSession} className="flex flex-col gap-3">
+            <div>
+              <Label className="text-foreground/60 text-xs uppercase tracking-wider">Session name</Label>
+              <Input
+                value={wsLabel}
+                onChange={(e) => setWsLabel(e.target.value)}
+                placeholder="e.g. refactor, debug, docs"
+                className="bg-background border-border text-foreground mt-1"
+                autoFocus
+              />
+              <p className="text-xs text-muted-foreground mt-1">Leave empty for default workspace session</p>
+            </div>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <div className="flex justify-between">
+              <Button type="button" variant="ghost" onClick={() => setStep('choose-type')} className="text-muted-foreground">
+                ← Back
+              </Button>
+              <Button type="submit" className="bg-accent text-primary-foreground hover:bg-accent/80">
+                Create
+              </Button>
+            </div>
+          </form>
         )}
 
         {step === 'choose-repo' && (

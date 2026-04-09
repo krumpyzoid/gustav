@@ -2,6 +2,7 @@ import type { WorktreeEntry, BranchExistence, BranchInfo } from '../domain/types
 
 export interface GitPort {
   getRepoRoot(cwd: string): Promise<string>;
+  getCurrentBranch(repoRoot: string): Promise<string | null>;
   getWorktreeDir(repoRoot: string): string;
   listWorktrees(repoRoot: string, wtDir: string, opts?: { includeMain?: boolean }): Promise<WorktreeEntry[]>;
   branchExists(repoRoot: string, branch: string): Promise<BranchExistence>;

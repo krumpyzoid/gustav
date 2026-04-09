@@ -3,7 +3,7 @@ import { StatusIcon } from './StatusIcon';
 import { useAppStore, refreshState } from '../../hooks/use-app-state';
 import type { WindowInfo } from '../../../main/domain/types';
 import { Button } from '../ui/button';
-import { Folder, GitBranch, GitMerge, Moon } from 'lucide-react';
+import { Folder, GitBranch, Moon, Terminal } from 'lucide-react';
 
 function statusLabel(status: ClaudeStatus): string {
   if (status === 'action') return 'needs input';
@@ -24,11 +24,11 @@ function TypeIcon({ type, isOrphan }: { type: SessionTabType['type']; isOrphan: 
   if (isOrphan) return <Moon className="size-3.5 text-muted-foreground" />;
   switch (type) {
     case 'workspace':
-      return <Folder className="size-3.5 text-muted-foreground" />;
+      return <Terminal className="size-4.5 text-muted-foreground" />;
     case 'directory':
-      return <GitBranch className="size-3.5 text-muted-foreground" />;
+      return <Folder className="size-4.5 text-muted-foreground" />;
     case 'worktree':
-      return <GitMerge className="size-3.5 text-muted-foreground" />;
+      return <GitBranch className="size-4.5 text-muted-foreground" />;
   }
 }
 
@@ -40,7 +40,7 @@ function sessionDisplayName(tab: SessionTabType): string {
     return last === '_ws' ? 'workspace' : last;
   }
   if (tab.type === 'directory') {
-    return tab.repoName ?? 'directory';
+    return tab.branch ?? tab.repoName ?? 'directory';
   }
   return tab.branch ?? tab.repoName ?? 'session';
 }

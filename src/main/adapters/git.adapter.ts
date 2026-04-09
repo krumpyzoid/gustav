@@ -15,6 +15,15 @@ export class GitAdapter implements GitPort {
     return dirname(gitCommon);
   }
 
+  async getCurrentBranch(repoRoot: string): Promise<string | null> {
+    try {
+      const branch = await this.shell.exec(`git -C '${repoRoot}' rev-parse --abbrev-ref HEAD`);
+      return branch.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
   getWorktreeDir(repoRoot: string): string {
     return join(repoRoot, '.worktrees');
   }

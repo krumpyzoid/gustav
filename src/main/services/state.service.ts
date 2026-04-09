@@ -103,7 +103,9 @@ export class StateService {
           const branchOrDir = rest.slice(secondSlash + 1);
 
           if (branchOrDir === '_dir') {
-            return { workspaceId: ws?.id ?? null, type: 'directory', tmuxSession, repoName, branch: null, worktreePath: null, status };
+            const repoRoot = ws ? `${ws.directory}/${repoName}` : null;
+            const branch = repoRoot ? await this.git.getCurrentBranch(repoRoot) : null;
+            return { workspaceId: ws?.id ?? null, type: 'directory', tmuxSession, repoName, branch, worktreePath: null, status };
           }
 
           return { workspaceId: ws?.id ?? null, type: 'worktree', tmuxSession, repoName, branch: branchOrDir, worktreePath: null, status };

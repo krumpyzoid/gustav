@@ -16,9 +16,8 @@ export class SessionService {
 
     switch (opts.type) {
       case 'workspace':
-        return workspaceName
-          ? `${prefix}/_ws`
-          : `${prefix}/${opts.label ?? 'session'}`;
+        if (!workspaceName) return `${prefix}/${opts.label ?? 'session'}`;
+        return opts.label ? `${prefix}/${opts.label}` : `${prefix}/_ws`;
       case 'directory':
         return `${prefix}/${opts.repoName}/_dir`;
       case 'worktree':
@@ -31,9 +30,12 @@ export class SessionService {
     workspaceName: string,
     workspaceDir: string,
     config: GustavConfig,
+    label?: string,
   ): Promise<string> {
-    const session = this.getSessionName(workspaceName, { type: 'workspace' });
-    if (await this.tmux.hasSession(session)) return session;
+    const session = this.getSessionName(workspaceName, { type: 'workspace', label });
+    if (await this.tmux.hasSession(session)) {
+      throw new Error(`Session "${label ?? '_ws'}" already exists in workspace "${workspaceName}"`);
+    }
 
     await this.createBaseSession(session, workspaceDir);
     await this.tmux.sendKeys(`${session}:Claude Code`, 'claude');

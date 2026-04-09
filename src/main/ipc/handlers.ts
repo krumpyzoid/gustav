@@ -110,10 +110,10 @@ export function registerHandlers(deps: {
     }
   });
 
-  ipcMain.handle(Channels.CREATE_WORKSPACE_SESSION, async (_event, workspaceName: string, workspaceDir: string) => {
+  ipcMain.handle(Channels.CREATE_WORKSPACE_SESSION, async (_event, workspaceName: string, workspaceDir: string, label?: string) => {
     try {
       const config = await configService.parse(workspaceDir);
-      const session = await sessionService.launchWorkspaceSession(workspaceName, workspaceDir, config);
+      const session = await sessionService.launchWorkspaceSession(workspaceName, workspaceDir, config, label);
       const tty = await getPtyClientTty();
       if (tty) {
         await sessionService.switchTo(session, tty);
