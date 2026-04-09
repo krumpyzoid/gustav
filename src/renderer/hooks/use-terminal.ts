@@ -13,7 +13,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     const term = new Terminal({
       cursorBlink: true,
-      fontFamily: '"CaskaydiaMono NF", "CaskaydiaMono Nerd Font", monospace',
+      fontFamily: '"GeistMono NF Mono", monospace',
       fontSize: 13,
       allowProposedApi: true,
     });

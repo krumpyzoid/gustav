@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+@font-face { font-family: 'GeistMono NF Mono'; src: url('../assets/fonts/GeistMonoNerdFontMono-Thin.otf') format('opentype'); font-weight: 100; font-display: swap; }
+@font-face { font-family: 'GeistMono NF Mono'; src: url('../assets/fonts/GeistMonoNerdFontMono-UltraLight.otf') format('opentype'); font-weight: 200; font-display: swap; }
+@font-face { font-family: 'GeistMono NF Mono'; src: url('../assets/fonts/GeistMonoNerdFontMono-Light.otf') format('opentype'); font-weight: 300; font-display: swap; }
+@font-face { font-family: 'GeistMono NF Mono'; src: url('../assets/fonts/GeistMonoNerdFontMono-Regular.otf') format('opentype'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'GeistMono NF Mono'; src: url('../assets/fonts/GeistMonoNerdFontMono-Medium.otf') format('opentype'); font-weight: 500; font-display: swap; }
+@font-face { font-family: 'GeistMono NF Mono'; src: url('../assets/fonts/GeistMonoNerdFontMono-SemiBold.otf') format('opentype'); font-weight: 600; font-display: swap; }
+@font-face { font-family: 'GeistMono NF Mono'; src: url('../assets/fonts/GeistMonoNerdFontMono-Bold.otf') format('opentype'); font-weight: 700; font-display: swap; }
+@font-face { font-family: 'GeistMono NF Mono'; src: url('../assets/fonts/GeistMonoNerdFontMono-Black.otf') format('opentype'); font-weight: 800; font-display: swap; }
+@font-face { font-family: 'GeistMono NF Mono'; src: url('../assets/fonts/GeistMonoNerdFontMono-UltraBlack.otf') format('opentype'); font-weight: 900; font-display: swap; }
+
 @theme {
   --color-bg: var(--bg, #282828);
   --color-fg: var(--fg, #d4be98);
@@ -32,7 +42,7 @@ html {
 body {
   background: var(--bg, #282828);
   color: var(--fg, #d4be98);
-  font-family: 'CaskaydiaMono NF';
+  font-family: 'GeistMono NF Mono', monospace;
   font-size: inherit;
   overflow: hidden;
   height: 100vh;
