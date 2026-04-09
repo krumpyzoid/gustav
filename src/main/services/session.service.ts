@@ -7,7 +7,7 @@ export class SessionService {
 
   getSessionName(repoRoot: string, branch: string, isMainWorktree = false): string {
     const repo = basename(repoRoot);
-    return isMainWorktree ? `${repo}/$dir` : `${repo}/${branch}`;
+    return isMainWorktree ? `${repo}/_dir` : `${repo}/${branch}`;
   }
 
   async launch(

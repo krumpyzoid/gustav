@@ -39,7 +39,7 @@ export function SessionEntry({ entry, repoRoot, onRequestRemove }: Props) {
       if (result.success) setWindows(result.data as WindowInfo[]);
     } else if (entry.worktreePath) {
       const session = entry.isMainWorktree
-        ? `${entry.repo}/$dir`
+        ? `${entry.repo}/_dir`
         : `${entry.repo}/${entry.branch}`;
       await window.api.startSession(session, entry.worktreePath);
       setActiveSession(session);

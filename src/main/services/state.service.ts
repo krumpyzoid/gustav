@@ -80,7 +80,7 @@ export class StateService {
         }
         const repo = trimmed.slice(0, slashIdx);
         const branch = trimmed.slice(slashIdx + 1);
-        const isDir = branch === '$dir';
+        const isDir = branch === '_dir';
         const status = await this.detectClaudeStatus(trimmed);
         return { repo, branch: isDir ? '' : branch, tmuxSession: trimmed, status, worktreePath: null, isMainWorktree: isDir, upstream: null };
       });
@@ -111,12 +111,12 @@ export class StateService {
             const isMain = curPath === repoRoot;
             const isUnderWtDir = curPath.startsWith(wtDir);
             if ((isUnderWtDir || isMain) && curBranch) {
-              // $dir sessions match main worktree; branch sessions match by name
-              const dirSessionName = `${repoName}/$dir`;
+              // _dir sessions match main worktree; branch sessions match by name
+              const dirSessionName = `${repoName}/_dir`;
               const branchSessionName = `${repoName}/${curBranch}`;
 
               if (isMain && activeNames.has(dirSessionName)) {
-                // Main worktree with active $dir session — resolve branch dynamically
+                // Main worktree with active _dir session — resolve branch dynamically
                 const entry = entries.find((e) => e.tmuxSession === dirSessionName);
                 if (entry) {
                   entry.branch = curBranch;
