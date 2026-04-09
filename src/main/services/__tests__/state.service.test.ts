@@ -30,7 +30,7 @@ function makeMockTmux(): TmuxPort {
     newSession: vi.fn(),
     killSession: vi.fn(),
     switchClient: vi.fn(),
-    displayMessage: vi.fn(),
+    displayMessage: vi.fn().mockResolvedValue(''),
     listPanes: vi.fn(),
     capturePaneContent: vi.fn(),
     sendKeys: vi.fn(),
