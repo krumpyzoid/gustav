@@ -74,16 +74,17 @@ function startPty(cols: number, rows: number): void {
   });
 
   ptyProcess.onExit(() => {
-    // Sync check for remaining sessions
+    // Sync check for remaining sessions — reattach if any exist,
+    // otherwise stay alive so the user can create new sessions from the sidebar
     try {
       const s = require('node:child_process').execSync('tmux list-sessions -F "#{session_name}"', { encoding: 'utf-8' });
       if (s.trim()) {
         startPty(cols, rows);
       } else {
-        app.quit();
+        ptyProcess = null;
       }
     } catch {
-      app.quit();
+      ptyProcess = null;
     }
   });
 }
@@ -133,6 +134,9 @@ app.on('ready', () => {
     getPtyClientTty,
     getActiveSession: () => activeSession,
     setActiveSession: (session: string) => { activeSession = session; },
+    ensurePty: () => {
+      if (!ptyProcess) startPty(80, 24);
+    },
   });
 
   // Prevent Electron's built-in zoom so Ctrl+/- reaches the renderer for terminal font sizing

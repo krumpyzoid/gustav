@@ -14,6 +14,10 @@ function ok<T>(data: T): Result<T> {
   return { success: true, data };
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 function err(message: string): Result<never> {
   return { success: false, error: message };
 }
@@ -30,8 +34,9 @@ export function registerHandlers(deps: {
   getPtyClientTty: () => Promise<string | null>;
   getActiveSession: () => string | null;
   setActiveSession: (session: string) => void;
+  ensurePty: () => void;
 }): void {
-  const { worktreeService, sessionService, stateService, themeService, workspaceService, configService, tmux, git, getPtyClientTty, getActiveSession, setActiveSession } = deps;
+  const { worktreeService, sessionService, stateService, themeService, workspaceService, configService, tmux, git, getPtyClientTty, getActiveSession, setActiveSession, ensurePty } = deps;
 
   // ── Queries ──────────────────────────────────────────────────
   ipcMain.handle(Channels.GET_STATE, async () => {
@@ -108,7 +113,10 @@ export function registerHandlers(deps: {
   // ── Session commands ────────────────────────────────────────
   ipcMain.handle(Channels.SWITCH_SESSION, async (_event, session: string) => {
     try {
-      const tty = await getPtyClientTty();
+      ensurePty();
+      // Brief wait for tmux client to register after PTY (re)start
+      let tty = await getPtyClientTty();
+      if (!tty) { await sleep(200); tty = await getPtyClientTty(); }
       if (!tty) return err('No PTY client TTY available');
       await sessionService.switchTo(session, tty);
       setActiveSession(session);
@@ -132,7 +140,9 @@ export function registerHandlers(deps: {
     try {
       const config = await configService.parse(workspaceDir);
       const session = await sessionService.launchWorkspaceSession(workspaceName, workspaceDir, config, label);
-      const tty = await getPtyClientTty();
+      ensurePty();
+      let tty = await getPtyClientTty();
+      if (!tty) { await sleep(200); tty = await getPtyClientTty(); }
       if (tty) {
         await sessionService.switchTo(session, tty);
         setActiveSession(session);
@@ -172,7 +182,9 @@ export function registerHandlers(deps: {
         session = await sessionService.launchWorktreeSession(workspaceName, repoRoot, branch, wtPath, config);
       }
 
-      const tty = await getPtyClientTty();
+      ensurePty();
+      let tty = await getPtyClientTty();
+      if (!tty) { await sleep(200); tty = await getPtyClientTty(); }
       if (tty) {
         await sessionService.switchTo(session, tty);
         setActiveSession(session);
@@ -193,7 +205,9 @@ export function registerHandlers(deps: {
     try {
       const config = await configService.parse(repoRoot);
       const session = await sessionService.launchWorktreeSession(workspaceName, repoRoot, branch, worktreePath, config);
-      const tty = await getPtyClientTty();
+      ensurePty();
+      let tty = await getPtyClientTty();
+      if (!tty) { await sleep(200); tty = await getPtyClientTty(); }
       if (tty) {
         await sessionService.switchTo(session, tty);
         setActiveSession(session);
@@ -207,7 +221,9 @@ export function registerHandlers(deps: {
   ipcMain.handle(Channels.CREATE_STANDALONE_SESSION, async (_event, label: string, dir: string) => {
     try {
       const session = await sessionService.launchStandaloneSession(label, dir);
-      const tty = await getPtyClientTty();
+      ensurePty();
+      let tty = await getPtyClientTty();
+      if (!tty) { await sleep(200); tty = await getPtyClientTty(); }
       if (tty) {
         await sessionService.switchTo(session, tty);
         setActiveSession(session);
