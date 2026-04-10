@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SessionService } from '../session.service';
 import type { TmuxPort } from '../../ports/tmux.port';
+import type { Workspace } from '../../domain/types';
 
 function makeMockTmux(): TmuxPort {
   return {
@@ -146,5 +147,79 @@ describe('SessionService.launchStandaloneSession', () => {
     });
     expect(tmux.sendKeys).toHaveBeenCalledWith('_standalone/scratch:Claude Code', 'claude');
     expect(tmux.newWindow).toHaveBeenCalledWith('_standalone/scratch', 'Shell', '/home/user/notes');
+  });
+});
+
+describe('SessionService.restoreSession', () => {
+  it('creates tmux session with correct windows for a missing session', async () => {
+    const tmux = makeMockTmux();
+    vi.mocked(tmux.hasSession).mockResolvedValue(false);
+    const svc = new SessionService(tmux);
+
+    await svc.restoreSession({
+      tmuxSession: 'Dev/api/_dir',
+      type: 'directory',
+      directory: '/home/user/api',
+      windows: ['Claude Code', 'Git', 'Shell'],
+    });
+
+    expect(tmux.newSession).toHaveBeenCalledWith('Dev/api/_dir', {
+      windowName: 'Claude Code',
+      cwd: '/home/user/api',
+    });
+    expect(tmux.newWindow).toHaveBeenCalledWith('Dev/api/_dir', 'Git', '/home/user/api');
+    expect(tmux.newWindow).toHaveBeenCalledWith('Dev/api/_dir', 'Shell', '/home/user/api');
+  });
+
+  it('skips session if it already exists in tmux', async () => {
+    const tmux = makeMockTmux();
+    vi.mocked(tmux.hasSession).mockResolvedValue(true);
+    const svc = new SessionService(tmux);
+
+    await svc.restoreSession({
+      tmuxSession: 'Dev/api/_dir',
+      type: 'directory',
+      directory: '/home/user/api',
+      windows: ['Claude Code', 'Git', 'Shell'],
+    });
+
+    expect(tmux.newSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('SessionService.restoreAll', () => {
+  it('restores sessions from all workspaces', async () => {
+    const tmux = makeMockTmux();
+    vi.mocked(tmux.hasSession).mockResolvedValue(false);
+    const svc = new SessionService(tmux);
+
+    const workspaces: Workspace[] = [
+      {
+        id: 'ws1',
+        name: 'Dev',
+        directory: '/home/user/dev',
+        sessions: [
+          { tmuxSession: 'Dev/_ws', type: 'workspace', directory: '/home/user/dev', windows: ['Claude Code', 'Shell'] },
+          { tmuxSession: 'Dev/api/_dir', type: 'directory', directory: '/home/user/dev/api', windows: ['Claude Code', 'Git', 'Shell'] },
+        ],
+      },
+    ];
+
+    await svc.restoreAll(workspaces);
+
+    expect(tmux.newSession).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips workspaces with no persisted sessions', async () => {
+    const tmux = makeMockTmux();
+    const svc = new SessionService(tmux);
+
+    const workspaces: Workspace[] = [
+      { id: 'ws1', name: 'Empty', directory: '/tmp' },
+    ];
+
+    await svc.restoreAll(workspaces);
+
+    expect(tmux.newSession).not.toHaveBeenCalled();
   });
 });

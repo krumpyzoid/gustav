@@ -55,7 +55,7 @@ describe('StateService.collectWorkspaces', () => {
     const git = makeMockGit();
     const tmux = makeMockTmux();
     const wsService = makeMockWorkspaceService([
-      { id: 'ws1', name: 'My Project', directory: '/home/user/myproject' },
+      { id: 'ws1', name: 'My Project', directory: '/home/user/myproject', pinnedRepos: [{ path: '/home/user/myproject/api', repoName: 'api' }] },
     ]);
 
     vi.mocked(tmux.listSessions).mockResolvedValue([
@@ -95,7 +95,7 @@ describe('StateService.collectWorkspaces', () => {
     const git = makeMockGit();
     const tmux = makeMockTmux();
     const wsService = makeMockWorkspaceService([
-      { id: 'ws1', name: 'Project', directory: '/home/user/proj' },
+      { id: 'ws1', name: 'Project', directory: '/home/user/proj', pinnedRepos: [{ path: '/home/user/proj/api', repoName: 'api' }] },
     ]);
 
     vi.mocked(tmux.listSessions).mockResolvedValue([
@@ -123,7 +123,7 @@ describe('StateService.collectWorkspaces', () => {
     const git = makeMockGit();
     const tmux = makeMockTmux();
     const wsService = makeMockWorkspaceService([
-      { id: 'ws1', name: 'Work', directory: '/home/user/work' },
+      { id: 'ws1', name: 'Work', directory: '/home/user/work', pinnedRepos: [{ path: '/home/user/work/api', repoName: 'api' }] },
     ]);
 
     vi.mocked(tmux.listSessions).mockResolvedValue([
@@ -207,7 +207,7 @@ describe('StateService.collectWorkspaces', () => {
     const git = makeMockGit();
     const tmux = makeMockTmux();
     const wsService = makeMockWorkspaceService([
-      { id: 'ws1', name: 'app', directory: '/home/user/app' },
+      { id: 'ws1', name: 'app', directory: '/home/user/app', pinnedRepos: [{ path: '/home/user/app/api', repoName: 'api' }] },
     ]);
 
     vi.mocked(tmux.listSessions).mockResolvedValue(['app/api/_dir', 'app/api/feat']);
@@ -270,6 +270,10 @@ describe('StateService.collectWorkspaces', () => {
         id: 'ws1',
         name: 'Dev',
         directory: '/home/user/dev',
+        pinnedRepos: [
+          { path: '/home/user/dev/frontend', repoName: 'frontend' },
+          { path: '/home/user/dev/api', repoName: 'api' },
+        ],
         ordering: {
           sessions: ['Dev/debug', 'Dev/_ws'],
           repos: ['frontend', 'api'],
@@ -308,6 +312,11 @@ describe('StateService.collectWorkspaces', () => {
         id: 'ws1',
         name: 'Dev',
         directory: '/home/user/dev',
+        pinnedRepos: [
+          { path: '/home/user/dev/api', repoName: 'api' },
+          { path: '/home/user/dev/frontend', repoName: 'frontend' },
+          { path: '/home/user/dev/shared', repoName: 'shared' },
+        ],
         ordering: { repos: ['api'] },
       },
     ]);
@@ -327,6 +336,148 @@ describe('StateService.collectWorkspaces', () => {
     // frontend and shared not in ordering, appended in whatever order
     expect(repos).toContain('frontend');
     expect(repos).toContain('shared');
+  });
+
+  it('shows pinned repo with inactive directory session when none is running', async () => {
+    const git = makeMockGit();
+    const tmux = makeMockTmux();
+    const wsService = makeMockWorkspaceService([
+      {
+        id: 'ws1',
+        name: 'Dev',
+        directory: '/home/user/dev',
+        pinnedRepos: [{ path: '/home/user/dev/api', repoName: 'api' }],
+      },
+    ]);
+
+    vi.mocked(tmux.listSessions).mockResolvedValue([]);
+    vi.mocked(git.getCurrentBranch).mockResolvedValue('main');
+    vi.mocked(git.listWorktrees).mockResolvedValue([]);
+
+    const svc = new StateService(git, tmux, wsService);
+    const state = await svc.collectWorkspaces();
+
+    expect(state.workspaces[0].repoGroups).toHaveLength(1);
+    const group = state.workspaces[0].repoGroups[0];
+    expect(group.repoName).toBe('api');
+    expect(group.repoRoot).toBe('/home/user/dev/api');
+    expect(group.currentBranch).toBe('main');
+    expect(group.sessions).toHaveLength(1);
+    expect(group.sessions[0].type).toBe('directory');
+    expect(group.sessions[0].active).toBe(false);
+    expect(group.sessions[0].branch).toBe('main');
+  });
+
+  it('merges tmux sessions into pinned repo groups', async () => {
+    const git = makeMockGit();
+    const tmux = makeMockTmux();
+    const wsService = makeMockWorkspaceService([
+      {
+        id: 'ws1',
+        name: 'Dev',
+        directory: '/home/user/dev',
+        pinnedRepos: [{ path: '/home/user/dev/api', repoName: 'api' }],
+      },
+    ]);
+
+    vi.mocked(tmux.listSessions).mockResolvedValue([
+      'Dev/api/_dir',
+      'Dev/api/feat-auth',
+    ]);
+    vi.mocked(tmux.listPanes).mockResolvedValue('');
+    vi.mocked(git.getCurrentBranch).mockResolvedValue('main');
+    vi.mocked(git.listWorktrees).mockResolvedValue([]);
+
+    const svc = new StateService(git, tmux, wsService);
+    const state = await svc.collectWorkspaces();
+
+    const apiGroup = state.workspaces[0].repoGroups[0];
+    expect(apiGroup.repoName).toBe('api');
+    expect(apiGroup.currentBranch).toBe('main');
+    expect(apiGroup.sessions).toHaveLength(2);
+  });
+
+  it('resolves currentBranch to null on git error', async () => {
+    const git = makeMockGit();
+    const tmux = makeMockTmux();
+    const wsService = makeMockWorkspaceService([
+      {
+        id: 'ws1',
+        name: 'Dev',
+        directory: '/home/user/dev',
+        pinnedRepos: [{ path: '/home/user/dev/api', repoName: 'api' }],
+      },
+    ]);
+
+    vi.mocked(tmux.listSessions).mockResolvedValue([]);
+    vi.mocked(git.getCurrentBranch).mockRejectedValue(new Error('not a git repo'));
+    vi.mocked(git.listWorktrees).mockResolvedValue([]);
+
+    const svc = new StateService(git, tmux, wsService);
+    const state = await svc.collectWorkspaces();
+
+    expect(state.workspaces[0].repoGroups[0].currentBranch).toBeNull();
+  });
+
+  it('does not show unpinned repos even with active sessions', async () => {
+    const git = makeMockGit();
+    const tmux = makeMockTmux();
+    const wsService = makeMockWorkspaceService([
+      {
+        id: 'ws1',
+        name: 'Dev',
+        directory: '/home/user/dev',
+        pinnedRepos: [{ path: '/home/user/dev/api', repoName: 'api' }],
+      },
+    ]);
+
+    // 'web' has a session but is NOT pinned
+    vi.mocked(tmux.listSessions).mockResolvedValue([
+      'Dev/api/_dir',
+      'Dev/web/_dir',
+    ]);
+    vi.mocked(tmux.listPanes).mockResolvedValue('');
+    vi.mocked(git.getCurrentBranch).mockResolvedValue('main');
+    vi.mocked(git.listWorktrees).mockResolvedValue([]);
+
+    const svc = new StateService(git, tmux, wsService);
+    const state = await svc.collectWorkspaces();
+
+    const repoNames = state.workspaces[0].repoGroups.map((rg) => rg.repoName);
+    expect(repoNames).toEqual(['api']);
+    expect(repoNames).not.toContain('web');
+  });
+
+  it('discovers orphan worktrees for pinned repos', async () => {
+    const git = makeMockGit();
+    const tmux = makeMockTmux();
+    const wsService = makeMockWorkspaceService([
+      {
+        id: 'ws1',
+        name: 'Dev',
+        directory: '/home/user/dev',
+        pinnedRepos: [{ path: '/home/user/dev/api', repoName: 'api' }],
+      },
+    ]);
+
+    vi.mocked(tmux.listSessions).mockResolvedValue([]);
+    vi.mocked(tmux.listPanes).mockResolvedValue('');
+    vi.mocked(git.getCurrentBranch).mockResolvedValue('main');
+    vi.mocked(git.getWorktreeDir).mockReturnValue('/home/user/dev/api/.worktrees');
+    vi.mocked(git.listWorktrees).mockResolvedValue([
+      { path: '/home/user/dev/api/.worktrees/fix-bug', branch: 'fix-bug', head: 'abc123' },
+    ]);
+
+    const svc = new StateService(git, tmux, wsService);
+    const state = await svc.collectWorkspaces();
+
+    const apiGroup = state.workspaces[0].repoGroups[0];
+    // Inactive directory session + orphan worktree
+    expect(apiGroup.sessions).toHaveLength(2);
+    expect(apiGroup.sessions[0].type).toBe('directory');
+    expect(apiGroup.sessions[0].active).toBe(false);
+    expect(apiGroup.sessions[1].branch).toBe('fix-bug');
+    expect(apiGroup.sessions[1].active).toBe(false);
   });
 });
 

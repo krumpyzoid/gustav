@@ -11,6 +11,7 @@ function tab(overrides: Partial<SessionTab> = {}): SessionTab {
     branch: null,
     worktreePath: null,
     status: 'none',
+    active: true,
     ...overrides,
   };
 }
@@ -34,6 +35,7 @@ describe('groupByWorkspace', () => {
         repoGroups: [{
           repoName: 'api',
           repoRoot: '/home/user/project/api',
+          currentBranch: null,
           sessions: [tab({ tmuxSession: 'Project/api/_dir', type: 'directory', repoName: 'api' })],
         }],
         status: 'none',
@@ -55,6 +57,7 @@ describe('groupByWorkspace', () => {
         repoGroups: [{
           repoName: 'api',
           repoRoot: '',
+          currentBranch: null,
           sessions: [
             tab({ type: 'worktree', repoName: 'api', branch: 'feat-z', tmuxSession: 'Project/api/feat-z' }),
             tab({ type: 'directory', repoName: 'api', tmuxSession: 'Project/api/_dir' }),
@@ -82,6 +85,7 @@ describe('groupByWorkspace', () => {
         repoGroups: [{
           repoName: 'api',
           repoRoot: '',
+          currentBranch: null,
           sessions: [tab({ status: 'action' as ClaudeStatus, type: 'directory', repoName: 'api' })],
         }],
         status: 'action', // pre-computed by backend

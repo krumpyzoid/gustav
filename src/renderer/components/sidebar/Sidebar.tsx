@@ -7,12 +7,15 @@ import type { SessionTab as SessionTabType } from '../../../main/domain/types';
 
 import type { WorkspaceState } from '../../../main/domain/types';
 
-function DraggableWorkspaceItem({ ws, onReorder, onAddSession, onEditWorkspace, onRemoveWorktree }: {
+function DraggableWorkspaceItem({ ws, onReorder, onAddSession, onPinRepos, onEditWorkspace, onRemoveWorktree, onAddWorktree, onUnpinRepo }: {
   ws: WorkspaceState;
   onReorder: (draggedId: string, targetId: string, edge: 'top' | 'bottom') => void;
   onAddSession: (wsId: string) => void;
+  onPinRepos: (wsId: string) => void;
   onEditWorkspace: (wsId: string) => void;
-  onRemoveWorktree: (tab: SessionTabType) => void;
+  onRemoveWorktree: (tab: SessionTabType, repoRoot: string) => void;
+  onAddWorktree: (repoName: string, repoRoot: string, workspaceName: string) => void;
+  onUnpinRepo: (workspaceId: string, repoPath: string) => void;
 }) {
   const headerRef = useRef<HTMLButtonElement>(null);
   return (
@@ -25,8 +28,11 @@ function DraggableWorkspaceItem({ ws, onReorder, onAddSession, onEditWorkspace, 
         state={ws}
         headerRef={headerRef}
         onAddSession={() => onAddSession(ws.workspace!.id)}
+        onPinRepos={() => onPinRepos(ws.workspace!.id)}
         onEdit={() => onEditWorkspace(ws.workspace!.id)}
         onRemoveWorktree={onRemoveWorktree}
+        onAddWorktree={onAddWorktree}
+        onUnpinRepo={onUnpinRepo}
       />
     </DraggableWorkspace>
   );
@@ -36,12 +42,15 @@ interface Props {
   onNewWorkspace: () => void;
   onNewStandalone: () => void;
   onNewSession: (workspaceId: string) => void;
+  onPinRepos: (workspaceId: string) => void;
   onEditWorkspace: (workspaceId: string) => void;
-  onRemoveWorktree: (tab: SessionTabType) => void;
+  onRemoveWorktree: (tab: SessionTabType, repoRoot: string) => void;
+  onAddWorktree: (repoName: string, repoRoot: string, workspaceName: string) => void;
+  onUnpinRepo: (workspaceId: string, repoPath: string) => void;
   onClean: () => void;
 }
 
-export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onEditWorkspace, onRemoveWorktree, onClean }: Props) {
+export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRepos, onEditWorkspace, onRemoveWorktree, onAddWorktree, onUnpinRepo, onClean }: Props) {
   const { defaultWorkspace, workspaces } = useAppStore();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -123,8 +132,11 @@ export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onEditW
             ws={ws}
             onReorder={handleReorder}
             onAddSession={onNewSession}
+            onPinRepos={onPinRepos}
             onEditWorkspace={onEditWorkspace}
             onRemoveWorktree={onRemoveWorktree}
+            onAddWorktree={onAddWorktree}
+            onUnpinRepo={onUnpinRepo}
           />
         ))}
       </div>

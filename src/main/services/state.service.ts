@@ -169,54 +169,70 @@ export class StateService {
       const repoTabs = allTabs.filter((t) => t.type !== 'workspace');
 
       // Group repo tabs by repoName
-      const repoMap = new Map<string, SessionTab[]>();
+      const repoTabMap = new Map<string, SessionTab[]>();
       for (const tab of repoTabs) {
         if (!tab.repoName) continue;
-        const group = repoMap.get(tab.repoName) ?? [];
+        const group = repoTabMap.get(tab.repoName) ?? [];
         group.push(tab);
-        repoMap.set(tab.repoName, group);
+        repoTabMap.set(tab.repoName, group);
       }
 
       const ord = ws.ordering;
+      const pinnedRepos = ws.pinnedRepos ?? [];
 
-      // Discover inactive worktrees for each repo group
+      // Build repo groups from pinned repos (pinned repos are the gate)
       const repoGroups: RepoGroupState[] = await Promise.all(
-        [...repoMap.entries()].map(async ([repoName, tabs]) => {
-          // Find repo root from directory session's pane cwd
-          let repoRoot = '';
-          const dirSession = tabs.find((t) => t.type === 'directory');
-          if (dirSession) {
-            try {
-              repoRoot = (await this.tmux.displayMessage(`${dirSession.tmuxSession}:0`, '#{pane_current_path}')).trim();
-            } catch {}
+        pinnedRepos.map(async (pinned) => {
+          const repoName = pinned.repoName;
+          const repoRoot = pinned.path;
+          const tabs = repoTabMap.get(repoName) ?? [];
+
+          // Resolve current branch from git
+          let currentBranch: string | null = null;
+          try {
+            currentBranch = await this.git.getCurrentBranch(repoRoot);
+          } catch {}
+
+          // Ensure a directory session entry always exists for pinned repos
+          const hasDirSession = tabs.some((t) => t.type === 'directory');
+          if (!hasDirSession) {
+            tabs.push({
+              workspaceId: ws.id,
+              type: 'directory',
+              tmuxSession: `${ws.name}/${repoName}/_dir`,
+              repoName,
+              branch: currentBranch,
+              worktreePath: null,
+              status: 'none',
+              active: false,
+            });
           }
 
           // Discover worktrees and add inactive entries for ones without tmux sessions
-          if (repoRoot) {
-            try {
-              const wtDir = this.git.getWorktreeDir(repoRoot);
-              const worktrees = await this.git.listWorktrees(repoRoot, wtDir);
-              const activeBranches = new Set(tabs.filter((t) => t.type === 'worktree').map((t) => t.branch));
-              for (const wt of worktrees) {
-                if (wt.branch && !activeBranches.has(wt.branch)) {
-                  tabs.push({
-                    workspaceId: ws.id,
-                    type: 'worktree',
-                    tmuxSession: `${ws.name}/${repoName}/${wt.branch}`,
-                    repoName,
-                    branch: wt.branch,
-                    worktreePath: wt.path,
-                    status: 'none',
-                    active: false,
-                  });
-                }
+          try {
+            const wtDir = this.git.getWorktreeDir(repoRoot);
+            const worktrees = await this.git.listWorktrees(repoRoot, wtDir);
+            const activeBranches = new Set(tabs.filter((t) => t.type === 'worktree').map((t) => t.branch));
+            for (const wt of worktrees) {
+              if (wt.branch && !activeBranches.has(wt.branch)) {
+                tabs.push({
+                  workspaceId: ws.id,
+                  type: 'worktree',
+                  tmuxSession: `${ws.name}/${repoName}/${wt.branch}`,
+                  repoName,
+                  branch: wt.branch,
+                  worktreePath: wt.path,
+                  status: 'none',
+                  active: false,
+                });
               }
-            } catch {}
-          }
+            }
+          } catch {}
 
           return {
             repoName,
             repoRoot,
+            currentBranch,
             sessions: applyOrder(
               tabs,
               ord?.repoSessions?.[repoName],

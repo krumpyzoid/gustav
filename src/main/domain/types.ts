@@ -76,11 +76,25 @@ export type WorkspaceOrdering = {
   repoSessions?: Record<string, string[]>;
 };
 
+export type PinnedRepo = {
+  path: string;
+  repoName: string;
+};
+
+export type PersistedSession = {
+  tmuxSession: string;
+  type: SessionType;
+  directory: string;
+  windows: string[];
+};
+
 export type Workspace = {
   id: string;
   name: string;
   directory: string;
   ordering?: WorkspaceOrdering;
+  pinnedRepos?: PinnedRepo[];
+  sessions?: PersistedSession[];
 };
 
 export type SessionType = 'workspace' | 'directory' | 'worktree';
@@ -100,6 +114,7 @@ export type SessionTab = {
 export type RepoGroupState = {
   repoName: string;
   repoRoot: string;
+  currentBranch: string | null;
   sessions: SessionTab[];
 };
 

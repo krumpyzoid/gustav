@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { FileSystemPort } from '../ports/filesystem.port';
-import type { Workspace, WorkspaceOrdering } from '../domain/types';
+import type { Workspace, WorkspaceOrdering, PinnedRepo, PersistedSession } from '../domain/types';
 
 const DEFAULT_STORAGE_DIR = join(homedir(), '.local', 'share', 'gustav');
 
@@ -74,6 +74,73 @@ export class WorkspaceService {
       if (!ids.includes(w.id)) reordered.push(w);
     }
     await this.persist(reordered);
+  }
+
+  async pinRepos(id: string, repoPaths: string[]): Promise<void> {
+    const workspaces = this.list();
+    const ws = workspaces.find((w) => w.id === id);
+    if (!ws) throw new Error(`Workspace "${id}" not found`);
+
+    const existing = ws.pinnedRepos ?? [];
+    const existingPaths = new Set(existing.map((r) => r.path));
+
+    for (const repoPath of repoPaths) {
+      if (!existingPaths.has(repoPath)) {
+        existing.push({ path: repoPath, repoName: basename(repoPath) });
+        existingPaths.add(repoPath);
+      }
+    }
+
+    ws.pinnedRepos = existing;
+    await this.persist(workspaces);
+  }
+
+  async unpinRepo(id: string, repoPath: string): Promise<void> {
+    const workspaces = this.list();
+    const ws = workspaces.find((w) => w.id === id);
+    if (!ws) throw new Error(`Workspace "${id}" not found`);
+
+    ws.pinnedRepos = (ws.pinnedRepos ?? []).filter((r) => r.path !== repoPath);
+    await this.persist(workspaces);
+  }
+
+  async persistSession(id: string, session: PersistedSession): Promise<void> {
+    const workspaces = this.list();
+    const ws = workspaces.find((w) => w.id === id);
+    if (!ws) throw new Error(`Workspace "${id}" not found`);
+
+    const sessions = ws.sessions ?? [];
+    const idx = sessions.findIndex((s) => s.tmuxSession === session.tmuxSession);
+    if (idx >= 0) {
+      sessions[idx] = session;
+    } else {
+      sessions.push(session);
+    }
+
+    ws.sessions = sessions;
+    await this.persist(workspaces);
+  }
+
+  async removeSession(id: string, tmuxSession: string): Promise<void> {
+    const workspaces = this.list();
+    const ws = workspaces.find((w) => w.id === id);
+    if (!ws) return;
+
+    ws.sessions = (ws.sessions ?? []).filter((s) => s.tmuxSession !== tmuxSession);
+    await this.persist(workspaces);
+  }
+
+  getPersistedSessions(id: string): PersistedSession[] {
+    const ws = this.list().find((w) => w.id === id);
+    return ws?.sessions ?? [];
+  }
+
+  findBySessionPrefix(tmuxSession: string): Workspace | undefined {
+    const workspaces = this.list();
+    const firstSlash = tmuxSession.indexOf('/');
+    if (firstSlash === -1) return undefined;
+    const prefix = tmuxSession.slice(0, firstSlash);
+    return workspaces.find((w) => w.name === prefix);
   }
 
   findByDirectory(directory: string): Workspace | undefined {

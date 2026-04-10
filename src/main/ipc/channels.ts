@@ -22,6 +22,10 @@ export const Channels = {
   CREATE_STANDALONE_SESSION: 'create-standalone-session',
   SELECT_DIRECTORY: 'select-directory',
 
+  // Pin/unpin repos
+  PIN_REPOS: 'pin-repos',
+  UNPIN_REPO: 'unpin-repo',
+
   // Worktree commands
   CREATE_WORKTREE: 'create-worktree',
   REMOVE_WORKTREE: 'remove-worktree',

@@ -1,5 +1,5 @@
-import { useState, useRef, useCallback } from 'react';
-import { ChevronRight, Plus, Settings } from 'lucide-react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { ChevronRight, ChevronDown, GitBranchPlus, Pin, PinOff, Plus, Settings } from 'lucide-react';
 import { StatusIcon } from './StatusIcon';
 import { SessionTab } from './SessionTab';
 import { SortableItem } from './SortableItem';
@@ -21,11 +21,13 @@ interface RepoGroupProps {
   workspaceName: string;
   sessions: SessionTabType[];
   workspaceId: string;
-  onRemoveWorktree?: (tab: SessionTabType) => void;
+  onRemoveWorktree?: (tab: SessionTabType, repoRoot: string) => void;
+  onAddWorktree?: (repoName: string, repoRoot: string, workspaceName: string) => void;
+  onUnpinRepo?: (repoPath: string) => void;
   onReorderRepoSession: (repoName: string, newOrder: string[]) => void;
 }
 
-function RepoGroup({ repoName, repoRoot, workspaceName, sessions, workspaceId, onRemoveWorktree, onReorderRepoSession }: RepoGroupProps) {
+function RepoGroup({ repoName, repoRoot, workspaceName, sessions, workspaceId, onRemoveWorktree, onAddWorktree, onUnpinRepo, onReorderRepoSession }: RepoGroupProps) {
   const headerRef = useRef<HTMLDivElement>(null);
   const scope = `${workspaceId}:${repoName}`;
 
@@ -39,9 +41,29 @@ function RepoGroup({ repoName, repoRoot, workspaceName, sessions, workspaceId, o
     <div className="mb-1">
       <div
         ref={headerRef}
-        className="flex items-center justify-between px-3 pl-7 pt-1.5 pb-0.5 text-sm font-normal text-foreground/60"
+        className="flex items-center justify-between px-3 pl-7 pt-1.5 pb-0.5 text-sm font-normal text-foreground/60 group/repo"
       >
-        {repoName}
+        <span className="truncate">{repoName}</span>
+        <div className="hidden group-hover/repo:flex gap-1.5 shrink-0 ml-1">
+          {onAddWorktree && (
+            <span
+              onClick={(e) => { e.stopPropagation(); onAddWorktree(repoName, repoRoot, workspaceName); }}
+              className="text-foreground/60 hover:text-foreground cursor-pointer transition-colors"
+              title="Add worktree"
+            >
+              <GitBranchPlus size={13} />
+            </span>
+          )}
+          {onUnpinRepo && (
+            <span
+              onClick={(e) => { e.stopPropagation(); onUnpinRepo(repoRoot); }}
+              className="text-foreground/60 hover:text-destructive cursor-pointer transition-colors"
+              title="Unpin repository"
+            >
+              <PinOff size={13} />
+            </span>
+          )}
+        </div>
       </div>
       {sessions.map((tab) => (
         <SortableItem
@@ -56,7 +78,7 @@ function RepoGroup({ repoName, repoRoot, workspaceName, sessions, workspaceId, o
             workspaceName={workspaceName}
             repoRoot={repoRoot}
             onRequestRemove={
-              tab.type === 'worktree' ? () => onRemoveWorktree?.(tab) : undefined
+              tab.type === 'worktree' ? () => onRemoveWorktree?.(tab, repoRoot) : undefined
             }
           />
         </SortableItem>
@@ -69,14 +91,30 @@ interface Props {
   state: WorkspaceState;
   headerRef?: React.RefObject<HTMLButtonElement | null>;
   onAddSession?: () => void;
+  onPinRepos?: () => void;
   onEdit?: () => void;
-  onRemoveWorktree?: (tab: SessionTabType) => void;
+  onRemoveWorktree?: (tab: SessionTabType, repoRoot: string) => void;
+  onAddWorktree?: (repoName: string, repoRoot: string, workspaceName: string) => void;
+  onUnpinRepo?: (workspaceId: string, repoPath: string) => void;
   defaultExpanded?: boolean;
 }
 
-export function WorkspaceAccordion({ state, headerRef, onAddSession, onEdit, onRemoveWorktree, defaultExpanded = true }: Props) {
+export function WorkspaceAccordion({ state, headerRef, onAddSession, onPinRepos, onEdit, onRemoveWorktree, onAddWorktree, onUnpinRepo, defaultExpanded = true }: Props) {
   const [expanded, setExpanded] = useState(defaultExpanded);
+  const [plusDropdownOpen, setPlusDropdownOpen] = useState(false);
+  const plusDropdownRef = useRef<HTMLDivElement>(null);
   const isDefault = state.workspace === null;
+
+  useEffect(() => {
+    if (!plusDropdownOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (plusDropdownRef.current && !plusDropdownRef.current.contains(e.target as Node)) {
+        setPlusDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [plusDropdownOpen]);
   const name = isDefault ? 'Standalone' : state.workspace!.name;
   const workspaceId = state.workspace?.id ?? '__default';
 
@@ -137,14 +175,37 @@ export function WorkspaceAccordion({ state, headerRef, onAddSession, onEdit, onR
                 <Settings size={12} />
               </span>
             )}
-            {onAddSession && (
-              <span
-                onClick={(e) => { e.stopPropagation(); onAddSession(); }}
-                className="text-muted-foreground hover:text-foreground transition-colors"
-                title="Add session"
-              >
-                <Plus size={14} />
-              </span>
+            {(onAddSession || onPinRepos) && (
+              <div className="relative" ref={plusDropdownRef}>
+                <span
+                  onClick={(e) => { e.stopPropagation(); setPlusDropdownOpen((v) => !v); }}
+                  className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer flex items-center"
+                  title="Add session or pin repos"
+                >
+                  <Plus size={14} />
+                  <ChevronDown size={8} />
+                </span>
+                {plusDropdownOpen && (
+                  <div className="absolute right-0 top-full mt-1 bg-popover text-popover-foreground border border-border rounded-md shadow-md z-50 min-w-[11rem]">
+                    {onAddSession && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setPlusDropdownOpen(false); onAddSession(); }}
+                        className="w-full px-3 py-1.5 text-sm text-left hover:bg-muted cursor-pointer bg-transparent border-none text-popover-foreground"
+                      >
+                        Create new session
+                      </button>
+                    )}
+                    {onPinRepos && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setPlusDropdownOpen(false); onPinRepos(); }}
+                        className="w-full px-3 py-1.5 text-sm text-left hover:bg-muted cursor-pointer bg-transparent border-none text-popover-foreground"
+                      >
+                        Pin repositories
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -181,6 +242,8 @@ export function WorkspaceAccordion({ state, headerRef, onAddSession, onEdit, onR
                 sessions={rg.sessions}
                 workspaceId={workspaceId}
                 onRemoveWorktree={onRemoveWorktree}
+                onAddWorktree={onAddWorktree}
+                onUnpinRepo={onUnpinRepo ? (repoPath) => onUnpinRepo(workspaceId, repoPath) : undefined}
                 onReorderRepoSession={handleReorderRepoSession}
               />
             </SortableItem>

@@ -69,6 +69,16 @@ export function SessionTab({ tab, workspaceName, repoRoot, onRequestRemove }: Pr
       }
       return;
     }
+    if (isInactive && tab.type === 'directory' && workspaceName && repoRoot) {
+      const result = await window.api.createRepoSession(workspaceName, repoRoot, 'directory');
+      if (result.success) {
+        setActiveSession(result.data);
+        const switchResult = await window.api.switchSession(result.data);
+        if (switchResult.success) setWindows(switchResult.data as WindowInfo[]);
+        refreshState();
+      }
+      return;
+    }
     if (isInactive) return;
     setActiveSession(tab.tmuxSession);
     const result = await window.api.switchSession(tab.tmuxSession);

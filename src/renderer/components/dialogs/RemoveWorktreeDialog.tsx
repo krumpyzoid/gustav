@@ -10,29 +10,27 @@ import {
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { refreshState, useAppStore } from '../../hooks/use-app-state';
-import type { SessionEntry } from '../../../main/domain/types';
+import { refreshState } from '../../hooks/use-app-state';
+import type { SessionTab } from '../../../main/domain/types';
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  entry: SessionEntry | null;
+  tab: SessionTab | null;
+  repoRoot: string | null;
 }
 
-export function RemoveWorktreeDialog({ open, onClose, entry }: Props) {
+export function RemoveWorktreeDialog({ open, onClose, tab, repoRoot }: Props) {
   const [deleteBranch, setDeleteBranch] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const repos = useAppStore((s) => s.repos);
 
   async function handleRemove() {
-    if (!entry) return;
-    const repoRoot = repos.get(entry.repo);
-    if (!repoRoot) return;
+    if (!tab || !repoRoot || !tab.branch) return;
 
     setLoading(true);
     setError('');
-    const result = await window.api.removeWorktree(repoRoot, entry.branch, deleteBranch);
+    const result = await window.api.removeWorktree(repoRoot, tab.branch, deleteBranch);
     setLoading(false);
 
     if (result.success) {
@@ -44,7 +42,7 @@ export function RemoveWorktreeDialog({ open, onClose, entry }: Props) {
     }
   }
 
-  if (!entry) return null;
+  if (!tab) return null;
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -59,11 +57,11 @@ export function RemoveWorktreeDialog({ open, onClose, entry }: Props) {
         <div className="bg-muted/50 rounded-md p-3 text-sm space-y-1">
           <div className="flex justify-between">
             <span className="text-foreground/60">Repo</span>
-            <span className="text-accent">{entry.repo}</span>
+            <span className="text-accent">{tab.repoName}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-foreground/60">Branch</span>
-            <span>{entry.branch}</span>
+            <span>{tab.branch}</span>
           </div>
         </div>
 

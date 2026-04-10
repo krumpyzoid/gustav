@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('api', {
   reorderWithinWorkspace: (workspaceId: string, ordering: Record<string, unknown>) =>
     ipcRenderer.invoke('reorder-within-workspace', workspaceId, ordering),
   discoverRepos: (directory: string) => ipcRenderer.invoke('discover-repos', directory),
+  pinRepos: (workspaceId: string, repoPaths: string[]) => ipcRenderer.invoke('pin-repos', workspaceId, repoPaths),
+  unpinRepo: (workspaceId: string, repoPath: string) => ipcRenderer.invoke('unpin-repo', workspaceId, repoPath),
 
   // Sessions
   switchSession: (session: string) => ipcRenderer.invoke('switch-session', session),

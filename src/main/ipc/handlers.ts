@@ -8,7 +8,7 @@ import type { WorkspaceService } from '../services/workspace.service';
 import type { ConfigService } from '../services/config.service';
 import type { GitPort } from '../ports/git.port';
 import type { TmuxPort } from '../ports/tmux.port';
-import type { CreateWorktreeParams, CleanTarget, Result } from '../domain/types';
+import type { CreateWorktreeParams, CleanTarget, Result, PersistedSession, SessionType } from '../domain/types';
 
 function ok<T>(data: T): Result<T> {
   return { success: true, data };
@@ -110,6 +110,51 @@ export function registerHandlers(deps: {
     }
   });
 
+  // ── Pin/unpin repos ─────────────────────────────────────────
+  ipcMain.handle(Channels.PIN_REPOS, async (_event, workspaceId: string, repoPaths: string[]) => {
+    try {
+      const ws = workspaceService.list().find((w) => w.id === workspaceId);
+      await workspaceService.pinRepos(workspaceId, repoPaths);
+      // Auto-create directory sessions for newly pinned repos
+      if (ws) {
+        for (const repoRoot of repoPaths) {
+          try {
+            const config = await configService.parse(repoRoot);
+            const session = await sessionService.launchDirectorySession(ws.name, repoRoot, config);
+            const windows = ['Claude Code', 'Git', 'Shell', ...config.tmux.map((e: string) => e.split(':')[0])];
+            await workspaceService.persistSession(ws.id, { tmuxSession: session, type: 'directory', directory: repoRoot, windows });
+          } catch {}
+        }
+        ensurePty();
+      }
+      return ok(undefined);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
+  ipcMain.handle(Channels.UNPIN_REPO, async (_event, workspaceId: string, repoPath: string) => {
+    try {
+      // Find workspace to build session name prefix
+      const ws = workspaceService.list().find((w) => w.id === workspaceId);
+      if (ws) {
+        const repoName = require('node:path').basename(repoPath);
+        const prefix = `${ws.name}/${repoName}/`;
+        // Kill all tmux sessions for this repo (directory + worktrees)
+        const sessions = await tmux.listSessions();
+        for (const s of sessions) {
+          if (s.startsWith(prefix) || s === `${ws.name}/${repoName}/_dir`) {
+            try { await tmux.killSession(s); } catch {}
+          }
+        }
+      }
+      await workspaceService.unpinRepo(workspaceId, repoPath);
+      return ok(undefined);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
   // ── Session commands ────────────────────────────────────────
   ipcMain.handle(Channels.SWITCH_SESSION, async (_event, session: string) => {
     try {
@@ -130,6 +175,11 @@ export function registerHandlers(deps: {
   ipcMain.handle(Channels.KILL_SESSION, async (_event, session: string) => {
     try {
       await tmux.killSession(session);
+      // Remove from persisted sessions
+      const ws = workspaceService.findBySessionPrefix(session);
+      if (ws) {
+        await workspaceService.removeSession(ws.id, session);
+      }
       return ok(undefined);
     } catch (e) {
       return err((e as Error).message);
@@ -140,6 +190,12 @@ export function registerHandlers(deps: {
     try {
       const config = await configService.parse(workspaceDir);
       const session = await sessionService.launchWorkspaceSession(workspaceName, workspaceDir, config, label);
+      // Persist session definition
+      const ws = workspaceService.findBySessionPrefix(session);
+      if (ws) {
+        const windows = ['Claude Code', 'Shell', ...config.tmux.map((e) => e.split(':')[0])];
+        await workspaceService.persistSession(ws.id, { tmuxSession: session, type: 'workspace', directory: workspaceDir, windows });
+      }
       ensurePty();
       let tty = await getPtyClientTty();
       if (!tty) { await sleep(200); tty = await getPtyClientTty(); }
@@ -166,8 +222,12 @@ export function registerHandlers(deps: {
       const config = await configService.parse(repoRoot);
       let session: string;
 
+      let sessionType: SessionType;
+      let sessionDir: string;
       if (mode === 'directory') {
         session = await sessionService.launchDirectorySession(workspaceName, repoRoot, config);
+        sessionType = 'directory';
+        sessionDir = repoRoot;
       } else {
         if (!branch) return err('Branch name required for worktree session');
         // Create worktree first
@@ -180,6 +240,15 @@ export function registerHandlers(deps: {
         });
         const wtPath = require('node:path').join(git.getWorktreeDir(repoRoot), branch);
         session = await sessionService.launchWorktreeSession(workspaceName, repoRoot, branch, wtPath, config);
+        sessionType = 'worktree';
+        sessionDir = wtPath;
+      }
+
+      // Persist session definition
+      const ws = workspaceService.findBySessionPrefix(session);
+      if (ws) {
+        const windows = ['Claude Code', 'Git', 'Shell', ...config.tmux.map((e) => e.split(':')[0])];
+        await workspaceService.persistSession(ws.id, { tmuxSession: session, type: sessionType, directory: sessionDir, windows });
       }
 
       ensurePty();
@@ -205,6 +274,12 @@ export function registerHandlers(deps: {
     try {
       const config = await configService.parse(repoRoot);
       const session = await sessionService.launchWorktreeSession(workspaceName, repoRoot, branch, worktreePath, config);
+      // Persist session definition
+      const ws = workspaceService.findBySessionPrefix(session);
+      if (ws) {
+        const windows = ['Claude Code', 'Git', 'Shell', ...config.tmux.map((e) => e.split(':')[0])];
+        await workspaceService.persistSession(ws.id, { tmuxSession: session, type: 'worktree', directory: worktreePath, windows });
+      }
       ensurePty();
       let tty = await getPtyClientTty();
       if (!tty) { await sleep(200); tty = await getPtyClientTty(); }
@@ -294,6 +369,15 @@ export function registerHandlers(deps: {
       const cwd = (await tmux.displayMessage(`${session}:0`, '#{pane_current_path}')).trim() || process.env.HOME!;
       await tmux.newWindow(session, name, cwd);
       await tmux.selectWindow(session, name);
+      // Update persisted window list
+      const ws = workspaceService.findBySessionPrefix(session);
+      if (ws) {
+        const updatedWindows = await tmux.listWindows(session);
+        const existing = workspaceService.getPersistedSessions(ws.id).find((s) => s.tmuxSession === session);
+        if (existing) {
+          await workspaceService.persistSession(ws.id, { ...existing, windows: updatedWindows.map((w) => w.name) });
+        }
+      }
       return ok(undefined);
     } catch (e) {
       return err((e as Error).message);
@@ -305,8 +389,19 @@ export function registerHandlers(deps: {
       const windows = await tmux.listWindows(session);
       if (windows.length <= 1) {
         await tmux.killSession(session);
+        const ws = workspaceService.findBySessionPrefix(session);
+        if (ws) await workspaceService.removeSession(ws.id, session);
       } else {
         await tmux.killWindow(session, windowIndex);
+        // Update persisted window list
+        const ws = workspaceService.findBySessionPrefix(session);
+        if (ws) {
+          const updatedWindows = await tmux.listWindows(session);
+          const existing = workspaceService.getPersistedSessions(ws.id).find((s) => s.tmuxSession === session);
+          if (existing) {
+            await workspaceService.persistSession(ws.id, { ...existing, windows: updatedWindows.map((w) => w.name) });
+          }
+        }
       }
       return ok(undefined);
     } catch (e) {

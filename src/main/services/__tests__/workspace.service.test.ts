@@ -148,4 +148,128 @@ describe('WorkspaceService', () => {
       expect(repos).toEqual([validRepo]);
     });
   });
+
+  describe('pinRepos', () => {
+    it('pins repos to a workspace and persists them', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      const ws = await svc.create('Dev', '/path/dev');
+
+      await svc.pinRepos(ws.id, ['/path/dev/api', '/path/dev/web']);
+
+      const updated = svc.list().find((w) => w.id === ws.id)!;
+      expect(updated.pinnedRepos).toHaveLength(2);
+      expect(updated.pinnedRepos![0]).toEqual({ path: '/path/dev/api', repoName: 'api' });
+      expect(updated.pinnedRepos![1]).toEqual({ path: '/path/dev/web', repoName: 'web' });
+    });
+
+    it('deduplicates by path', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      const ws = await svc.create('Dev', '/path/dev');
+
+      await svc.pinRepos(ws.id, ['/path/dev/api']);
+      await svc.pinRepos(ws.id, ['/path/dev/api', '/path/dev/web']);
+
+      const updated = svc.list().find((w) => w.id === ws.id)!;
+      expect(updated.pinnedRepos).toHaveLength(2);
+    });
+
+    it('throws for unknown workspace', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      await expect(svc.pinRepos('nonexistent', ['/path'])).rejects.toThrow(/not found/i);
+    });
+  });
+
+  describe('unpinRepo', () => {
+    it('removes a pinned repo and persists', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      const ws = await svc.create('Dev', '/path/dev');
+      await svc.pinRepos(ws.id, ['/path/dev/api', '/path/dev/web']);
+
+      await svc.unpinRepo(ws.id, '/path/dev/api');
+
+      const updated = svc.list().find((w) => w.id === ws.id)!;
+      expect(updated.pinnedRepos).toHaveLength(1);
+      expect(updated.pinnedRepos![0].repoName).toBe('web');
+    });
+
+    it('is a no-op if repo not pinned', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      const ws = await svc.create('Dev', '/path/dev');
+
+      await svc.unpinRepo(ws.id, '/nonexistent');
+
+      const updated = svc.list().find((w) => w.id === ws.id)!;
+      expect(updated.pinnedRepos ?? []).toHaveLength(0);
+    });
+  });
+
+  describe('session persistence', () => {
+    it('persists a session definition', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      const ws = await svc.create('Dev', '/path/dev');
+
+      await svc.persistSession(ws.id, {
+        tmuxSession: 'Dev/api/_dir',
+        type: 'directory',
+        directory: '/path/dev/api',
+        windows: ['Claude Code', 'Git', 'Shell'],
+      });
+
+      const sessions = svc.getPersistedSessions(ws.id);
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].tmuxSession).toBe('Dev/api/_dir');
+      expect(sessions[0].windows).toEqual(['Claude Code', 'Git', 'Shell']);
+    });
+
+    it('upserts by tmuxSession key', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      const ws = await svc.create('Dev', '/path/dev');
+
+      await svc.persistSession(ws.id, {
+        tmuxSession: 'Dev/api/_dir',
+        type: 'directory',
+        directory: '/path/dev/api',
+        windows: ['Claude Code', 'Shell'],
+      });
+      await svc.persistSession(ws.id, {
+        tmuxSession: 'Dev/api/_dir',
+        type: 'directory',
+        directory: '/path/dev/api',
+        windows: ['Claude Code', 'Git', 'Shell', 'Logs'],
+      });
+
+      const sessions = svc.getPersistedSessions(ws.id);
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].windows).toEqual(['Claude Code', 'Git', 'Shell', 'Logs']);
+    });
+
+    it('removes a session by tmuxSession name', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      const ws = await svc.create('Dev', '/path/dev');
+
+      await svc.persistSession(ws.id, {
+        tmuxSession: 'Dev/api/_dir',
+        type: 'directory',
+        directory: '/path/dev/api',
+        windows: ['Claude Code', 'Shell'],
+      });
+      await svc.persistSession(ws.id, {
+        tmuxSession: 'Dev/debug',
+        type: 'workspace',
+        directory: '/path/dev',
+        windows: ['Claude Code', 'Shell'],
+      });
+
+      await svc.removeSession(ws.id, 'Dev/api/_dir');
+
+      const sessions = svc.getPersistedSessions(ws.id);
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].tmuxSession).toBe('Dev/debug');
+    });
+
+    it('returns empty array for workspace with no sessions', () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      expect(svc.getPersistedSessions('nonexistent')).toEqual([]);
+    });
+  });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { worstStatus } from '../types';
-import type { ClaudeStatus } from '../types';
+import type { ClaudeStatus, PinnedRepo, PersistedSession, Workspace, RepoGroupState } from '../types';
 
 describe('worstStatus', () => {
   it('returns none for empty array', () => {
@@ -33,5 +33,58 @@ describe('worstStatus', () => {
 
   it('handles duplicates correctly', () => {
     expect(worstStatus(['busy', 'busy', 'done'])).toBe('busy');
+  });
+});
+
+describe('PinnedRepo type', () => {
+  it('has path and repoName fields', () => {
+    const repo: PinnedRepo = { path: '/home/user/project', repoName: 'project' };
+    expect(repo.path).toBe('/home/user/project');
+    expect(repo.repoName).toBe('project');
+  });
+});
+
+describe('PersistedSession type', () => {
+  it('has tmuxSession, type, directory, and windows fields', () => {
+    const session: PersistedSession = {
+      tmuxSession: 'Work/api/_dir',
+      type: 'directory',
+      directory: '/home/user/api',
+      windows: ['Claude Code', 'Git', 'Shell'],
+    };
+    expect(session.tmuxSession).toBe('Work/api/_dir');
+    expect(session.type).toBe('directory');
+    expect(session.windows).toHaveLength(3);
+  });
+});
+
+describe('Workspace type extensions', () => {
+  it('supports optional pinnedRepos and sessions fields', () => {
+    const ws: Workspace = {
+      id: '123',
+      name: 'Test',
+      directory: '/tmp',
+      pinnedRepos: [{ path: '/tmp/repo', repoName: 'repo' }],
+      sessions: [{
+        tmuxSession: 'Test/repo/_dir',
+        type: 'directory',
+        directory: '/tmp/repo',
+        windows: ['Claude Code', 'Shell'],
+      }],
+    };
+    expect(ws.pinnedRepos).toHaveLength(1);
+    expect(ws.sessions).toHaveLength(1);
+  });
+});
+
+describe('RepoGroupState type', () => {
+  it('includes currentBranch field', () => {
+    const rg: RepoGroupState = {
+      repoName: 'api',
+      repoRoot: '/home/user/api',
+      currentBranch: 'main',
+      sessions: [],
+    };
+    expect(rg.currentBranch).toBe('main');
   });
 });

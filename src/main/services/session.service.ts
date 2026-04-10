@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import type { TmuxPort } from '../ports/tmux.port';
-import type { GustavConfig } from '../domain/types';
+import type { GustavConfig, PersistedSession, Workspace } from '../domain/types';
 
 export type SessionNameOpts =
   | { type: 'workspace'; label?: string }
@@ -101,6 +101,33 @@ export class SessionService {
     await this.tmux.selectWindow(session, 'Claude Code');
 
     return session;
+  }
+
+  /** Restore a persisted session that is missing from tmux. */
+  async restoreSession(session: PersistedSession): Promise<void> {
+    if (await this.tmux.hasSession(session.tmuxSession)) return;
+
+    const [firstWindow, ...restWindows] = session.windows;
+    if (!firstWindow) return;
+
+    await this.tmux.newSession(session.tmuxSession, { windowName: firstWindow, cwd: session.directory });
+    await this.tmux.exec(`set-option -t '${session.tmuxSession}' status off`);
+    await this.tmux.exec(`set-option -t '${session.tmuxSession}' prefix None`);
+
+    for (const windowName of restWindows) {
+      await this.tmux.newWindow(session.tmuxSession, windowName, session.directory);
+    }
+
+    await this.tmux.selectWindow(session.tmuxSession, firstWindow);
+  }
+
+  /** Restore all persisted sessions from all workspaces. */
+  async restoreAll(workspaces: Workspace[]): Promise<void> {
+    for (const ws of workspaces) {
+      for (const session of ws.sessions ?? []) {
+        await this.restoreSession(session);
+      }
+    }
   }
 
   async kill(session: string): Promise<void> {

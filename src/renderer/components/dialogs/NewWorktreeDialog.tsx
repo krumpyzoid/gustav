@@ -26,9 +26,10 @@ interface Props {
   onClose: () => void;
   repo: string;
   repoRoot: string;
+  workspaceName?: string;
 }
 
-export function NewWorktreeDialog({ open, onClose, repo, repoRoot }: Props) {
+export function NewWorktreeDialog({ open, onClose, repo, repoRoot, workspaceName }: Props) {
   const [branch, setBranch] = useState('');
   const [base, setBase] = useState('origin/main');
   const [install, setInstall] = useState(true);
@@ -46,13 +47,13 @@ export function NewWorktreeDialog({ open, onClose, repo, repoRoot }: Props) {
     if (!branch.trim()) return;
     setLoading(true);
     setError('');
-    const result = await window.api.createWorktree({
-      repo,
-      repoRoot,
-      branch: branch.trim(),
-      base,
-      install,
-    });
+
+    let result;
+    if (workspaceName) {
+      result = await window.api.createRepoSession(workspaceName, repoRoot, 'worktree', branch.trim(), base, install);
+    } else {
+      result = await window.api.createWorktree({ repo, repoRoot, branch: branch.trim(), base, install });
+    }
     setLoading(false);
 
     if (result.success) {

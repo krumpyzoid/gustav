@@ -28,6 +28,8 @@ interface ElectronAPI {
   reorderWorkspaces: (ids: string[]) => Promise<Result<void>>;
   reorderWithinWorkspace: (workspaceId: string, ordering: Record<string, unknown>) => Promise<Result<void>>;
   discoverRepos: (directory: string) => Promise<Result<string[]>>;
+  pinRepos: (workspaceId: string, repoPaths: string[]) => Promise<Result<void>>;
+  unpinRepo: (workspaceId: string, repoPath: string) => Promise<Result<void>>;
 
   // Sessions
   switchSession: (session: string) => Promise<Result<WindowInfo[]>>;

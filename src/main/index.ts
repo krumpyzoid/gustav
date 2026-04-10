@@ -147,9 +147,11 @@ app.on('ready', () => {
   });
 
   // Start PTY and theme after window is ready
-  mainWindow.webContents.on('did-finish-load', () => {
+  mainWindow.webContents.on('did-finish-load', async () => {
     const colors = themeService.load();
     mainWindow!.webContents.send(Channels.THEME_UPDATE, colors);
+    // Restore persisted sessions before starting PTY
+    await sessionService.restoreAll(workspaceService.list());
     startPty(80, 24);
     themeService.startWatching();
   });
