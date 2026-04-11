@@ -1,6 +1,32 @@
 import { app, BrowserWindow, ipcMain, Menu } from 'electron';
 import * as pty from 'node-pty';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
+
+// Fix PATH for packaged macOS apps launched from Finder/Dock.
+// These inherit a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin) that
+// doesn't include Homebrew or user-installed tools like tmux/git.
+if (app.isPackaged && process.platform === 'darwin') {
+  try {
+    const shell = process.env.SHELL || '/bin/zsh';
+    // Use a marker to extract just the PATH value from shell output,
+    // avoiding interference from shell startup messages/motd.
+    const marker = `__PATH_${Date.now()}__`;
+    const raw = execSync(
+      `${shell} -ilc 'echo ${marker}; echo "$PATH"; echo ${marker}'`,
+      { encoding: 'utf-8', timeout: 5000 },
+    );
+    const lines = raw.split('\n');
+    const startIdx = lines.indexOf(marker);
+    const endIdx = lines.indexOf(marker, startIdx + 1);
+    if (startIdx !== -1 && endIdx !== -1) {
+      const fullPath = lines.slice(startIdx + 1, endIdx).join('').trim();
+      if (fullPath) process.env.PATH = fullPath;
+    }
+  } catch (e) {
+    console.error('Failed to resolve shell PATH:', e);
+  }
+}
 
 import { FsAdapter } from './adapters/fs.adapter';
 import { ShellAdapter } from './adapters/shell.adapter';
