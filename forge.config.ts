@@ -5,6 +5,8 @@ const config: ForgeConfig = {
     asar: true,
     executableName: 'gustav',
     name: 'Gustav',
+    icon: './resources/icon',
+    extraResource: ['./resources/icon.png'],
     ignore: [/^\/pkg/, /^\/plans/, /^\/docs/, /^\/.agents/],
   },
   makers: [

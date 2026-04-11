@@ -106,6 +106,7 @@ app.on('ready', () => {
     width: 1200,
     height: 800,
     autoHideMenuBar: true,
+    icon: path.join(process.resourcesPath, 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
