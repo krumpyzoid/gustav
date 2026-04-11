@@ -1,6 +1,8 @@
 import type { TmuxPort } from '../ports/tmux.port';
 import type { ShellPort } from '../ports/shell.port';
 
+const SEP = '|||';
+
 export class TmuxAdapter implements TmuxPort {
   constructor(private shell: ShellPort) {}
 
@@ -56,7 +58,7 @@ export class TmuxAdapter implements TmuxPort {
   }
 
   async listPanes(session: string): Promise<string> {
-    return this.exec(`list-panes -t '${session}' -s -F '#{pane_id}\t#{window_name}\t#{pane_current_command}'`);
+    return this.exec(`list-panes -t '${session}' -s -F '#{pane_id}${SEP}#{window_name}${SEP}#{pane_current_command}'`);
   }
 
   async capturePaneContent(paneId: string): Promise<string> {
@@ -80,10 +82,10 @@ export class TmuxAdapter implements TmuxPort {
   }
 
   async listWindows(session: string): Promise<{ index: number; name: string; active: boolean }[]> {
-    const raw = await this.exec(`list-windows -t '${session}' -F '#{window_index}\t#{window_name}\t#{window_active}'`);
+    const raw = await this.exec(`list-windows -t '${session}' -F '#{window_index}${SEP}#{window_name}${SEP}#{window_active}'`);
     if (!raw) return [];
     return raw.split('\n').filter(Boolean).map((line) => {
-      const [idx, name, active] = line.split('\t');
+      const [idx, name, active] = line.split(SEP);
       return { index: Number(idx), name, active: active === '1' };
     });
   }

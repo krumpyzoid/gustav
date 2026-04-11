@@ -23,8 +23,8 @@ if (app.isPackaged && process.platform === 'darwin') {
       const fullPath = lines.slice(startIdx + 1, endIdx).join('').trim();
       if (fullPath) process.env.PATH = fullPath;
     }
-  } catch (e) {
-    console.error('Failed to resolve shell PATH:', e);
+  } catch {
+    // Fall through with default PATH
   }
 }
 

@@ -279,7 +279,7 @@ export class StateService {
     const claudePaneIds: string[] = [];
     for (const line of panes.split('\n')) {
       if (!line.trim()) continue;
-      const [id, , command] = line.split('\t');
+      const [id, , command] = line.split('|||');
       if (command === 'claude') {
         claudePaneIds.push(id);
       }
