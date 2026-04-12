@@ -7,11 +7,11 @@ export function TerminalView() {
   useTerminal(containerRef);
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="flex-1 flex flex-col overflow-hidden bg-bg">
       <TabBar />
       <div
         ref={containerRef}
-        className="flex-1 bg-background overflow-hidden [&_.xterm]:h-full [&_.xterm]:p-4 [&_.xterm-viewport]:!scrollbar-none"
+        className="flex-1 border border-border rounded-lg overflow-hidden [&_.xterm]:h-full [&_.xterm]:p-4 [&_.xterm-viewport]:!scrollbar-none"
       />
     </div>
   );

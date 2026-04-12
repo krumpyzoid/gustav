@@ -4,6 +4,7 @@ import { useAppStore, refreshState } from '../../hooks/use-app-state';
 import type { WindowInfo } from '../../../main/domain/types';
 import { Button } from '../ui/button';
 import { Folder, GitBranch, Moon, Terminal } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 function statusLabel(status: ClaudeStatus): string {
   if (status === 'action') return 'needs input';
@@ -92,11 +93,11 @@ export function SessionTab({ tab, workspaceName, repoRoot, onRequestRemove }: Pr
   }
 
   return (
-    <div
+    <button
       onClick={handleClick}
-      className={`flex items-center gap-1.5 px-3 py-1 border-l-2 transition-colors group/entry
-        ${isSelected ? 'border-l-accent bg-muted' : 'border-l-transparent'}
-        ${isInactive ? 'opacity-40 cursor-pointer hover:opacity-60' : 'cursor-pointer hover:bg-muted'}`}
+      className={cn(`flex grow w-full text-left cursor-pointer items-center gap-1.5 px-1.5 py-1 transition-colors group/entry rounded-md hover:bg-foreground/5`,
+        isSelected && 'bg-foreground/10 hover:bg-foreground/10',
+        isInactive && 'opacity-40 hover:opacity-60')}
     >
       <div className="w-5 flex justify-center shrink-0">
         <StatusIcon status={tab.status} />
@@ -134,6 +135,6 @@ export function SessionTab({ tab, workspaceName, repoRoot, onRequestRemove }: Pr
           >🗑</Button>
         )}
       </div>
-    </div>
+    </button>
   );
 }

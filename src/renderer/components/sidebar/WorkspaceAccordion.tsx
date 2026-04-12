@@ -153,7 +153,7 @@ export function WorkspaceAccordion({ state, headerRef, onAddSession, onPinRepos,
       <button
         ref={headerRef}
         onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-1.5 w-full px-3 py-1.5 text-sm font-bold tracking-widest uppercase text-foreground bg-transparent border-t border-b border-border/50 cursor-pointer hover:text-foreground transition-colors"
+        className="flex items-center gap-1.5 w-full px-3 py-1.5 text-sm font-bold tracking-widest uppercase text-foreground bg-transparent cursor-pointer hover:text-foreground transition-colors"
       >
         <ChevronRight
           size={10}
@@ -186,7 +186,7 @@ export function WorkspaceAccordion({ state, headerRef, onAddSession, onPinRepos,
                   <ChevronDown size={8} />
                 </span>
                 {plusDropdownOpen && (
-                  <div className="absolute right-0 top-full mt-1 bg-popover text-popover-foreground border border-border rounded-md shadow-md z-50 min-w-[11rem]">
+                  <div className="absolute right-0 top-full mt-1 bg-popover text-popover-foreground   rounded-md shadow-md z-50 min-w-[11rem]">
                     {onAddSession && (
                       <button
                         onClick={(e) => { e.stopPropagation(); setPlusDropdownOpen(false); onAddSession(); }}

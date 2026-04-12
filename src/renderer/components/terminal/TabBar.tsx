@@ -42,7 +42,7 @@ export function TabBar() {
   }
 
   return (
-    <div className="flex justify-center bg-background border-b border-border px-2 gap-0.5 shrink-0" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
+    <div className="flex justify-center bg-bg px-2 gap-0.5 shrink-0" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
       {windows.map((w) => (
         <button
           key={w.index}

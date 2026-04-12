@@ -88,26 +88,27 @@ export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRe
 
   return (
     <>
-      <div className="flex items-center justify-end px-3 py-1.5 border-b border-border" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
+      <div className="flex items-center justify-end px-3 py-1.5" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
+  
         <div className="relative" ref={dropdownRef} style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <button
             onClick={() => setDropdownOpen((v) => !v)}
-            className="bg-transparent border-none text-foreground/60 hover:text-foreground cursor-pointer p-0.5 transition-colors flex items-center"
+            className="bg-transparent -none text-foreground/60 hover:text-foreground cursor-pointer p-0.5 transition-colors flex items-center"
             title="Add workspace or session"
           >
             <Plus size={14} />
           </button>
           {dropdownOpen && (
-            <div className="absolute right-0 top-full mt-1 bg-popover text-popover-foreground border border-border rounded-md shadow-md z-50 min-w-[10rem]">
+            <div className="absolute right-0 top-full mt-1 bg-popover text-popover-foreground -rounded-md shadow-md z-50 min-w-[10rem]">
               <button
                 onClick={() => { setDropdownOpen(false); onNewWorkspace(); }}
-                className="w-full px-3 py-1.5 text-sm text-left hover:bg-muted cursor-pointer bg-transparent border-none text-popover-foreground"
+                className="w-full px-3 py-1.5 text-sm text-left hover:bg-muted cursor-pointer bg-transparent -none text-popover-foreground"
               >
                 New Workspace
               </button>
               <button
                 onClick={() => { setDropdownOpen(false); onNewStandalone(); }}
-                className="w-full px-3 py-1.5 text-sm text-left hover:bg-muted cursor-pointer bg-transparent border-none text-popover-foreground"
+                className="w-full px-3 py-1.5 text-sm text-left hover:bg-muted cursor-pointer bg-transparent -none text-popover-foreground"
               >
                 New Standalone Session
               </button>
@@ -139,16 +140,16 @@ export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRe
       </div>
 
       {/* Bottom action bar */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-t border-border">
+      <div className="flex items-center justify-between px-3 py-1.5">
         <button
           onClick={onClean}
-          className="text-sm text-muted-foreground hover:text-foreground bg-transparent border-none cursor-pointer transition-colors"
+          className="text-sm text-muted-foreground hover:text-foreground bg-transparent cursor-pointer transition-colors"
         >
           Clean worktrees
         </button>
         <button
           onClick={onOpenSettings}
-          className="bg-transparent border-none text-foreground/40 hover:text-foreground cursor-pointer p-0.5 transition-colors"
+          className="bg-transparent -none text-foreground/40 hover:text-foreground cursor-pointer p-0.5 transition-colors"
           title="Settings"
         >
           <Settings size={14} />

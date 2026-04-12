@@ -9,7 +9,8 @@ interface Props {
 export function SettingsSidebar({ activeSection, onSelectSection, onBack }: Props) {
   return (
     <>
-      <div className="flex items-center px-3 py-1.5 border-b border-border" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
+      <div className="flex items-center pl-24" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
+
         <button
           onClick={onBack}
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}

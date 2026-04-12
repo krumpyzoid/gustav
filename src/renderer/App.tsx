@@ -50,7 +50,7 @@ export function App() {
       <aside
         ref={sidebarRef}
         onMouseUp={() => { if (view === 'terminal') focusTerminal(); }}
-        className="w-[220px] min-w-[220px] bg-bg flex flex-col pt-10 pb-2 select-none"
+        className="w-[220px] min-w-[220px] bg-bg flex flex-col pt-5 pb-2 select-none"
       >
         {view === 'terminal' ? (
           <Sidebar
@@ -76,7 +76,7 @@ export function App() {
 
       <ResizeHandle sidebarRef={sidebarRef} onResize={() => {}} />
 
-      <div className="flex-1 flex flex-col m-2 ml-0 rounded-lg overflow-hidden bg-background shadow-lg">
+      <div className="flex-1 flex flex-col m-2 ml-0 overflow-hidden">
         {/* Terminal stays mounted to preserve PTY state */}
         <div className={view === 'terminal' ? 'flex-1 flex flex-col overflow-hidden' : 'hidden'}>
           <TerminalView />

@@ -38,7 +38,7 @@ export function ResizeHandle({ sidebarRef, onResize }: Props) {
   return (
     <div
       onMouseDown={onMouseDown}
-      className="w-1 cursor-col-resize bg-border hover:bg-accent transition-colors"
+      className="w-1 cursor-col-resize bg-transparent hover:bg-accent transition-colors"
     />
   );
 }
