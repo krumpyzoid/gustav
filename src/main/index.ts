@@ -3,28 +3,35 @@ import * as pty from 'node-pty';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
 
-// Fix PATH for packaged macOS apps launched from Finder/Dock.
-// These inherit a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin) that
-// doesn't include Homebrew or user-installed tools like tmux/git.
+// Fix environment for packaged macOS apps launched from Finder/Dock.
+// These inherit a minimal environment that lacks Homebrew PATH and
+// locale variables (LANG, LC_CTYPE), causing broken UTF-8 rendering.
 if (app.isPackaged && process.platform === 'darwin') {
   try {
     const shell = process.env.SHELL || '/bin/zsh';
-    // Use a marker to extract just the PATH value from shell output,
+    // Use a marker to extract values from shell output,
     // avoiding interference from shell startup messages/motd.
-    const marker = `__PATH_${Date.now()}__`;
+    const marker = `__ENV_${Date.now()}__`;
     const raw = execSync(
-      `${shell} -ilc 'echo ${marker}; echo "$PATH"; echo ${marker}'`,
+      `${shell} -ilc 'echo ${marker}; echo "$PATH"; echo "$LANG"; echo "$LC_CTYPE"; echo ${marker}'`,
       { encoding: 'utf-8', timeout: 5000 },
     );
     const lines = raw.split('\n');
     const startIdx = lines.indexOf(marker);
     const endIdx = lines.indexOf(marker, startIdx + 1);
     if (startIdx !== -1 && endIdx !== -1) {
-      const fullPath = lines.slice(startIdx + 1, endIdx).join('').trim();
+      const values = lines.slice(startIdx + 1, endIdx);
+      const fullPath = values[0]?.trim();
+      const lang = values[1]?.trim();
+      const lcCtype = values[2]?.trim();
       if (fullPath) process.env.PATH = fullPath;
+      process.env.LANG = lang || 'en_US.UTF-8';
+      process.env.LC_CTYPE = lcCtype || 'en_US.UTF-8';
     }
   } catch {
-    // Fall through with default PATH
+    // Fall through with defaults; ensure UTF-8 locale at minimum
+    if (!process.env.LANG) process.env.LANG = 'en_US.UTF-8';
+    if (!process.env.LC_CTYPE) process.env.LC_CTYPE = 'en_US.UTF-8';
   }
 }
 
@@ -85,6 +92,14 @@ async function getPtyClientTty(): Promise<string | null> {
 }
 
 function startPty(cols: number, rows: number): void {
+  // Enable mouse mode globally so tmux interprets wheel events as
+  // scrollback navigation instead of letting them become arrow keys.
+  try {
+    execSync('tmux set -g mouse on', { encoding: 'utf-8', timeout: 3000 });
+  } catch {
+    // tmux server might not be running yet — sessions will set it individually
+  }
+
   ptyProcess = pty.spawn('tmux', ['attach'], {
     name: 'xterm-256color',
     cols,

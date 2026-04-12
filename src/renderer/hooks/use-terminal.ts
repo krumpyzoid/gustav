@@ -78,6 +78,21 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     // Input relay
     term.onData((data) => window.api.sendPtyInput(data));
 
+    // Trackpad/mouse wheel scrolling fix.
+    // tmux uses the alternate screen buffer which has no scrollback,
+    // so xterm.js converts wheel events to arrow-key sequences (cycling
+    // through shell history). Override this to send SGR 1006 mouse wheel
+    // escape sequences that tmux handles as scrollback navigation.
+    term.attachCustomWheelEventHandler((event: WheelEvent) => {
+      const amount = Math.max(1, Math.min(5, Math.ceil(Math.abs(event.deltaY) / 25)));
+      const button = event.deltaY < 0 ? 64 : 65; // SGR: 64=wheel up, 65=wheel down
+      const seq = `\x1b[<${button};1;1M`;
+      for (let i = 0; i < amount; i++) {
+        window.api.sendPtyInput(seq);
+      }
+      return false;
+    });
+
     // Auto-copy selection to clipboard on mouseup
     term.onSelectionChange(() => {
       const selection = term.getSelection();

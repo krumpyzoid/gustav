@@ -113,6 +113,7 @@ export class SessionService {
     await this.tmux.newSession(session.tmuxSession, { windowName: firstWindow, cwd: session.directory });
     await this.tmux.exec(`set-option -t '${session.tmuxSession}' status off`);
     await this.tmux.exec(`set-option -t '${session.tmuxSession}' prefix None`);
+    await this.tmux.exec(`set-option -t '${session.tmuxSession}' mouse on`);
 
     for (const windowName of restWindows) {
       await this.tmux.newWindow(session.tmuxSession, windowName, session.directory);
@@ -180,6 +181,7 @@ export class SessionService {
     await this.tmux.newSession(session, { windowName: 'Claude Code', cwd });
     await this.tmux.exec(`set-option -t '${session}' status off`);
     await this.tmux.exec(`set-option -t '${session}' prefix None`);
+    await this.tmux.exec(`set-option -t '${session}' mouse on`);
   }
 
   private async addCustomWindows(
