@@ -11,6 +11,7 @@ import type { TmuxPort } from '../ports/tmux.port';
 import type { PreferenceService } from '../services/preference.service';
 import type { CreateWorktreeParams, CleanTarget, Result, PersistedSession, SessionType, Preferences, WindowSpec } from '../domain/types';
 import { normalizeWindows } from '../domain/types';
+import { snapshotSessionWindows } from './snapshot-windows';
 
 function ok<T>(data: T): Result<T> {
   return { success: true, data };
@@ -215,9 +216,16 @@ export function registerHandlers(deps: {
 
   ipcMain.handle(Channels.SLEEP_SESSION, async (_event, session: string) => {
     try {
+      // Snapshot current windows and their running commands before killing
+      const ws = workspaceService.findBySessionPrefix(session);
+      if (ws) {
+        const existing = workspaceService.getPersistedSessions(ws.id).find((s) => s.tmuxSession === session);
+        if (existing) {
+          const windows = await snapshotSessionWindows(tmux, session, existing.windows);
+          await workspaceService.persistSession(ws.id, { ...existing, windows });
+        }
+      }
       await tmux.killSession(session);
-      // Persisted session is intentionally kept — its claudeSessionId
-      // will be reused when the session is recreated.
       return ok(undefined);
     } catch (e) {
       return err((e as Error).message);
@@ -440,22 +448,13 @@ export function registerHandlers(deps: {
       const cwd = (await tmux.displayMessage(`${session}:0`, '#{pane_current_path}')).trim() || process.env.HOME!;
       await tmux.newWindow(session, name, cwd);
       await tmux.selectWindow(session, name);
-      // Merge: keep existing specs (with commands/claudeSessionIds), add new window as bare name
+      // Snapshot windows to capture the new one alongside existing specs
       const ws = workspaceService.findBySessionPrefix(session);
       if (ws) {
         const existing = workspaceService.getPersistedSessions(ws.id).find((s) => s.tmuxSession === session);
         if (existing) {
-          const currentSpecs = normalizeWindows(existing.windows);
-          const updatedWindows = await tmux.listWindows(session);
-          const updatedNames = new Set(updatedWindows.map((w) => w.name));
-          // Keep existing specs for windows that still exist, add new ones as bare names
-          const merged = currentSpecs.filter((s) => updatedNames.has(s.name));
-          for (const w of updatedWindows) {
-            if (!merged.some((s) => s.name === w.name)) {
-              merged.push({ name: w.name });
-            }
-          }
-          await workspaceService.persistSession(ws.id, { ...existing, windows: merged });
+          const windows = await snapshotSessionWindows(tmux, session, existing.windows);
+          await workspaceService.persistSession(ws.id, { ...existing, windows });
         }
       }
       return ok(undefined);
@@ -472,16 +471,13 @@ export function registerHandlers(deps: {
         // Persisted session is intentionally kept for resume.
       } else {
         await tmux.killWindow(session, windowIndex);
-        // Merge: preserve existing specs (with commands/claudeSessionIds) for surviving windows
+        // Snapshot surviving windows to update persisted specs
         const ws = workspaceService.findBySessionPrefix(session);
         if (ws) {
           const existing = workspaceService.getPersistedSessions(ws.id).find((s) => s.tmuxSession === session);
           if (existing) {
-            const currentSpecs = normalizeWindows(existing.windows);
-            const updatedWindows = await tmux.listWindows(session);
-            const updatedNames = new Set(updatedWindows.map((w) => w.name));
-            const merged = currentSpecs.filter((s) => updatedNames.has(s.name));
-            await workspaceService.persistSession(ws.id, { ...existing, windows: merged });
+            const updated = await snapshotSessionWindows(tmux, session, existing.windows);
+            await workspaceService.persistSession(ws.id, { ...existing, windows: updated });
           }
         }
       }
