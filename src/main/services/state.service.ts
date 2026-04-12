@@ -39,7 +39,7 @@ export function parseRawStatus(content: string): RawStatus {
   // Busy: spinner symbol at line start + ing… — only check content above ─── chrome
   const sepIdx = lines.findIndex((l) => /^─+$/.test(l.trim()));
   const contentLines = sepIdx >= 0 ? lines.slice(0, sepIdx) : lines;
-  if (contentLines.slice(-30).some((l) => /^\S\s.*ing…/.test(l))) return 'busy';
+  if (contentLines.slice(-30).some((l) => /^\S\s\S+ing\b.*…/.test(l))) return 'busy';
 
   // Action: check full tail (chrome included) — approval prompts may be anywhere
   const fullTail = lines.slice(-10).join('\n');

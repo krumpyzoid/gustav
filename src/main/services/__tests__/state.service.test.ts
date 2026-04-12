@@ -577,6 +577,16 @@ describe('parseRawStatus', () => {
     expect(parseRawStatus('· Accomplishing…')).toBe('busy');
   });
 
+  it('returns busy when words appear between the gerund and ellipsis', () => {
+    expect(parseRawStatus('✻ Reading the file…')).toBe('busy');
+    expect(parseRawStatus('✻ Editing 3 files…')).toBe('busy');
+    expect(parseRawStatus('✻ Analyzing your code…')).toBe('busy');
+  });
+
+  it('does not match spinner lines without a gerund verb', () => {
+    expect(parseRawStatus('✻ Read file…')).toBeNull();
+  });
+
   it('does not match ing… without spinner at line start', () => {
     expect(parseRawStatus('  ⎿  Running…')).toBeNull();
     expect(parseRawStatus('Reading…')).toBeNull();
