@@ -87,7 +87,7 @@ describe('ClaudeSessionTracker', () => {
       ],
     };
 
-    const pane: PaneInfo = { paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 1000 };
+    const pane: PaneInfo = { paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 1000, paneCwd: '/home/user' };
     vi.mocked(tmux.listPanesExtended).mockResolvedValue([pane]);
     vi.mocked(shell.exec).mockResolvedValue('2000');
     vi.mocked(fs.readFile).mockImplementation(async (path: string) => {
@@ -130,7 +130,7 @@ describe('ClaudeSessionTracker', () => {
       ],
     };
 
-    const pane: PaneInfo = { paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 1000 };
+    const pane: PaneInfo = { paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 1000, paneCwd: '/home/user' };
     vi.mocked(tmux.listPanesExtended).mockResolvedValue([pane]);
     vi.mocked(shell.exec).mockResolvedValue('2000');
     vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({ pid: 2000, sessionId: 'uuid-abc' }));
@@ -163,7 +163,7 @@ describe('ClaudeSessionTracker', () => {
       ],
     };
 
-    const pane: PaneInfo = { paneId: '%0', windowName: 'Shell', paneCommand: 'claude', panePid: 1000 };
+    const pane: PaneInfo = { paneId: '%0', windowName: 'Shell', paneCommand: 'claude', panePid: 1000, paneCwd: '/home/user' };
     vi.mocked(tmux.listPanesExtended).mockResolvedValue([pane]);
     vi.mocked(shell.exec).mockResolvedValue('2000');
     vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({ pid: 2000, sessionId: 'uuid-xyz' }));
@@ -202,7 +202,7 @@ describe('ClaudeSessionTracker', () => {
       ],
     };
 
-    const pane: PaneInfo = { paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 1000 };
+    const pane: PaneInfo = { paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 1000, paneCwd: '/home/user' };
     vi.mocked(tmux.listPanesExtended).mockResolvedValue([pane]);
     vi.mocked(shell.exec).mockResolvedValue('2000');
     // readFile always rejects (session file missing)
@@ -234,7 +234,7 @@ describe('ClaudeSessionTracker', () => {
       ],
     };
 
-    const pane: PaneInfo = { paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 1000 };
+    const pane: PaneInfo = { paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 1000, paneCwd: '/home/user' };
     vi.mocked(tmux.listPanesExtended).mockResolvedValue([pane]);
     // pgrep throws when no matching processes are found
     vi.mocked(shell.exec).mockRejectedValue(new Error('pgrep: no matching processes'));

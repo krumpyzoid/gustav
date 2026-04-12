@@ -111,19 +111,19 @@ describe('TmuxAdapter.listPanesExtended', () => {
   it('parses panes with all fields', async () => {
     const shell = makeMockShell();
     vi.mocked(shell.exec).mockResolvedValue(
-      '%0|||Claude Code|||claude|||12345\n%1|||Git|||lazygit|||12346\n%2|||Shell|||fish|||12347'
+      '%0|||Claude Code|||claude|||12345|||/home/user/api\n%1|||Git|||lazygit|||12346|||/home/user/api\n%2|||Shell|||fish|||12347|||/home/user/api/src'
     );
 
     const adapter = new TmuxAdapter(shell);
     const panes = await adapter.listPanesExtended('myapp/feat');
 
     expect(panes).toEqual([
-      { paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 12345 },
-      { paneId: '%1', windowName: 'Git', paneCommand: 'lazygit', panePid: 12346 },
-      { paneId: '%2', windowName: 'Shell', paneCommand: 'fish', panePid: 12347 },
+      { paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 12345, paneCwd: '/home/user/api' },
+      { paneId: '%1', windowName: 'Git', paneCommand: 'lazygit', panePid: 12346, paneCwd: '/home/user/api' },
+      { paneId: '%2', windowName: 'Shell', paneCommand: 'fish', panePid: 12347, paneCwd: '/home/user/api/src' },
     ]);
     expect(shell.exec).toHaveBeenCalledWith(
-      "tmux list-panes -t 'myapp/feat' -s -F '#{pane_id}|||#{window_name}|||#{pane_current_command}|||#{pane_pid}'"
+      "tmux list-panes -t 'myapp/feat' -s -F '#{pane_id}|||#{window_name}|||#{pane_current_command}|||#{pane_pid}|||#{pane_current_path}'"
     );
   });
 
@@ -140,14 +140,14 @@ describe('TmuxAdapter.listPanesExtended', () => {
   it('skips blank lines', async () => {
     const shell = makeMockShell();
     vi.mocked(shell.exec).mockResolvedValue(
-      '%0|||Claude Code|||claude|||12345\n\n%1|||Shell|||fish|||12346\n'
+      '%0|||Claude Code|||claude|||12345|||/home/user\n\n%1|||Shell|||fish|||12346|||/home/user\n'
     );
 
     const adapter = new TmuxAdapter(shell);
     const panes = await adapter.listPanesExtended('myapp/feat');
 
     expect(panes).toHaveLength(2);
-    expect(panes[0]).toEqual({ paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 12345 });
-    expect(panes[1]).toEqual({ paneId: '%1', windowName: 'Shell', paneCommand: 'fish', panePid: 12346 });
+    expect(panes[0]).toEqual({ paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 12345, paneCwd: '/home/user' });
+    expect(panes[1]).toEqual({ paneId: '%1', windowName: 'Shell', paneCommand: 'fish', panePid: 12346, paneCwd: '/home/user' });
   });
 });

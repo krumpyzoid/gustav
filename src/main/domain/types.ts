@@ -90,6 +90,7 @@ export type WindowSpec = {
   name: string;
   command?: string;
   claudeSessionId?: string;
+  directory?: string;
 };
 
 export type PersistedSession = {

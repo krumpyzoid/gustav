@@ -3,6 +3,7 @@ export type PaneInfo = {
   windowName: string;
   paneCommand: string;
   panePid: number;
+  paneCwd: string;
 };
 
 export interface TmuxPort {

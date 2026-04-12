@@ -132,7 +132,8 @@ export class SessionService {
     const [first, ...rest] = normalizeWindows(session.windows);
     if (!first) return;
 
-    await this.tmux.newSession(session.tmuxSession, { windowName: first.name, cwd: session.directory });
+    const defaultDir = session.directory;
+    await this.tmux.newSession(session.tmuxSession, { windowName: first.name, cwd: first.directory ?? defaultDir });
     await this.tmux.exec(`set-option -t '${session.tmuxSession}' status off`);
     await this.tmux.exec(`set-option -t '${session.tmuxSession}' prefix None`);
     await this.tmux.exec(`set-option -t '${session.tmuxSession}' mouse on`);
@@ -141,7 +142,7 @@ export class SessionService {
     if (firstCmd) await this.tmux.sendKeys(`${session.tmuxSession}:${first.name}`, firstCmd);
 
     for (const spec of rest) {
-      await this.tmux.newWindow(session.tmuxSession, spec.name, session.directory);
+      await this.tmux.newWindow(session.tmuxSession, spec.name, spec.directory ?? defaultDir);
       const cmd = buildRestoreCommand(spec);
       if (cmd) await this.tmux.sendKeys(`${session.tmuxSession}:${spec.name}`, cmd);
     }

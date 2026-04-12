@@ -62,11 +62,11 @@ export class TmuxAdapter implements TmuxPort {
   }
 
   async listPanesExtended(session: string): Promise<PaneInfo[]> {
-    const raw = await this.exec(`list-panes -t '${session}' -s -F '#{pane_id}${SEP}#{window_name}${SEP}#{pane_current_command}${SEP}#{pane_pid}'`);
+    const raw = await this.exec(`list-panes -t '${session}' -s -F '#{pane_id}${SEP}#{window_name}${SEP}#{pane_current_command}${SEP}#{pane_pid}${SEP}#{pane_current_path}'`);
     if (!raw) return [];
     return raw.split('\n').filter(Boolean).map((line) => {
-      const [paneId, windowName, paneCommand, pid] = line.split(SEP);
-      return { paneId, windowName, paneCommand, panePid: Number(pid) };
+      const [paneId, windowName, paneCommand, pid, cwd] = line.split(SEP);
+      return { paneId, windowName, paneCommand, panePid: Number(pid), paneCwd: cwd ?? '' };
     });
   }
 

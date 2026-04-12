@@ -30,6 +30,7 @@ async function resolveChildCommand(shell: ShellPort, panePid: number): Promise<s
  * with existing persisted specs. Existing commands and claudeSessionIds are
  * preserved; new/bare windows get their running command resolved from the
  * shell's child process (full command line, not just the process name).
+ * Per-window working directories are also captured.
  */
 export async function snapshotSessionWindows(
   tmux: TmuxPort,
@@ -42,10 +43,10 @@ export async function snapshotSessionWindows(
   const panes = await tmux.listPanesExtended(session);
 
   // Build a map of windowName → first pane info
-  const paneByWindow = new Map<string, { command: string; pid: number }>();
+  const paneByWindow = new Map<string, { command: string; pid: number; cwd: string }>();
   for (const pane of panes) {
     if (!paneByWindow.has(pane.windowName)) {
-      paneByWindow.set(pane.windowName, { command: pane.paneCommand, pid: pane.panePid });
+      paneByWindow.set(pane.windowName, { command: pane.paneCommand, pid: pane.panePid, cwd: pane.paneCwd });
     }
   }
 
@@ -54,31 +55,35 @@ export async function snapshotSessionWindows(
   for (const win of liveWindows) {
     const existing = existingSpecs.find((s) => s.name === win.name);
     const pane = paneByWindow.get(win.name);
+    const directory = pane?.cwd || undefined;
 
     if (existing?.command) {
-      // Existing spec has a known command — keep it (authoritative)
-      merged.push(existing);
-    } else if (pane && !SHELLS.has(pane.command)) {
-      // Pane is running a non-shell process (e.g., claude, lazygit, vim)
-      // Use the process name directly — these TUI apps take over the pane
-      merged.push({
-        name: win.name,
-        command: pane.command,
-        ...(existing?.claudeSessionId ? { claudeSessionId: existing.claudeSessionId } : {}),
-      });
-    } else if (pane && SHELLS.has(pane.command) && shell) {
-      // Pane is running a shell — check if it has a foreground child process
+      // Existing spec has a known command — keep it, but update directory
+      merged.push({ ...existing, ...(directory ? { directory } : {}) });
+    } else if (pane && shell) {
+      // Always resolve via the shell's child process for the full command line
+      // (pane_current_command only gives the process name, e.g. 'node' for 'pnpm run dev')
       const childCmd = await resolveChildCommand(shell, pane.pid);
       merged.push({
         name: win.name,
         ...(childCmd ? { command: childCmd } : {}),
         ...(existing?.claudeSessionId ? { claudeSessionId: existing.claudeSessionId } : {}),
+        ...(directory ? { directory } : {}),
+      });
+    } else if (pane && !SHELLS.has(pane.command)) {
+      // No shell port — fall back to process name for non-shell processes
+      merged.push({
+        name: win.name,
+        command: pane.command,
+        ...(existing?.claudeSessionId ? { claudeSessionId: existing.claudeSessionId } : {}),
+        ...(directory ? { directory } : {}),
       });
     } else {
-      // No pane info or no shell port — just preserve the name
+      // No pane info or shell at prompt without shell port
       merged.push({
         name: win.name,
         ...(existing?.claudeSessionId ? { claudeSessionId: existing.claudeSessionId } : {}),
+        ...(directory ? { directory } : {}),
       });
     }
   }
