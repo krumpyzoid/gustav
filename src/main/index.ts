@@ -190,6 +190,7 @@ app.on('ready', () => {
     configService,
     preferenceService,
     tmux: tmuxAdapter,
+    shell: shellAdapter,
     git: gitAdapter,
     getPtyClientTty,
     getActiveSession: () => activeSession,

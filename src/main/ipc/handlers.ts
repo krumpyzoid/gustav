@@ -8,6 +8,7 @@ import type { WorkspaceService } from '../services/workspace.service';
 import type { ConfigService } from '../services/config.service';
 import type { GitPort } from '../ports/git.port';
 import type { TmuxPort } from '../ports/tmux.port';
+import type { ShellPort } from '../ports/shell.port';
 import type { PreferenceService } from '../services/preference.service';
 import type { CreateWorktreeParams, CleanTarget, Result, PersistedSession, SessionType, Preferences, WindowSpec } from '../domain/types';
 import { normalizeWindows } from '../domain/types';
@@ -67,6 +68,7 @@ export function registerHandlers(deps: {
   workspaceService: WorkspaceService;
   configService: ConfigService;
   tmux: TmuxPort;
+  shell: ShellPort;
   git: GitPort;
   getPtyClientTty: () => Promise<string | null>;
   getActiveSession: () => string | null;
@@ -75,7 +77,7 @@ export function registerHandlers(deps: {
   ensurePty: () => void;
   broadcastTheme: () => void;
 }): void {
-  const { worktreeService, sessionService, stateService, themeService, workspaceService, configService, preferenceService, tmux, git, getPtyClientTty, getActiveSession, setActiveSession, ensurePty, broadcastTheme } = deps;
+  const { worktreeService, sessionService, stateService, themeService, workspaceService, configService, preferenceService, tmux, shell, git, getPtyClientTty, getActiveSession, setActiveSession, ensurePty, broadcastTheme } = deps;
 
   // ── Queries ──────────────────────────────────────────────────
   ipcMain.handle(Channels.GET_STATE, async () => {
@@ -221,7 +223,7 @@ export function registerHandlers(deps: {
       if (ws) {
         const existing = workspaceService.getPersistedSessions(ws.id).find((s) => s.tmuxSession === session);
         if (existing) {
-          const windows = await snapshotSessionWindows(tmux, session, existing.windows);
+          const windows = await snapshotSessionWindows(tmux, session, existing.windows, shell);
           await workspaceService.persistSession(ws.id, { ...existing, windows });
         }
       }
@@ -453,7 +455,7 @@ export function registerHandlers(deps: {
       if (ws) {
         const existing = workspaceService.getPersistedSessions(ws.id).find((s) => s.tmuxSession === session);
         if (existing) {
-          const windows = await snapshotSessionWindows(tmux, session, existing.windows);
+          const windows = await snapshotSessionWindows(tmux, session, existing.windows, shell);
           await workspaceService.persistSession(ws.id, { ...existing, windows });
         }
       }
@@ -476,7 +478,7 @@ export function registerHandlers(deps: {
         if (ws) {
           const existing = workspaceService.getPersistedSessions(ws.id).find((s) => s.tmuxSession === session);
           if (existing) {
-            const updated = await snapshotSessionWindows(tmux, session, existing.windows);
+            const updated = await snapshotSessionWindows(tmux, session, existing.windows, shell);
             await workspaceService.persistSession(ws.id, { ...existing, windows: updated });
           }
         }

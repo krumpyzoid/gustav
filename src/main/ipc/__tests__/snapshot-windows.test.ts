@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { snapshotSessionWindows } from '../snapshot-windows';
 import type { TmuxPort } from '../../ports/tmux.port';
+import type { ShellPort } from '../../ports/shell.port';
 
 function makeMockTmux(
   windows: { index: number; name: string; active: boolean }[],
@@ -23,6 +24,30 @@ function makeMockTmux(
     displayMessage: vi.fn(),
     listWindows: vi.fn().mockResolvedValue(windows),
     listClients: vi.fn(),
+  };
+}
+
+function makeMockShell(childCommands: Record<number, string> = {}): ShellPort {
+  return {
+    exec: vi.fn().mockImplementation(async (cmd: string) => {
+      // pgrep -P <pid> → return child PID (pid + 1000 as convention)
+      const pgrepMatch = cmd.match(/pgrep -P (\d+)/);
+      if (pgrepMatch) {
+        const parentPid = Number(pgrepMatch[1]);
+        if (childCommands[parentPid] !== undefined) return String(parentPid + 1000);
+        throw new Error('no children');
+      }
+      // ps -p <pid> -o args= → return full command
+      const psMatch = cmd.match(/ps -p (\d+) -o args=/);
+      if (psMatch) {
+        const childPid = Number(psMatch[1]);
+        const parentPid = childPid - 1000;
+        if (childCommands[parentPid] !== undefined) return childCommands[parentPid];
+        throw new Error('no such process');
+      }
+      return '';
+    }),
+    execSync: vi.fn().mockReturnValue(''),
   };
 }
 
@@ -56,41 +81,78 @@ describe('snapshotSessionWindows', () => {
     ]);
   });
 
-  it('captures user-created windows with their running command', async () => {
+  it('captures non-shell TUI processes directly by process name', async () => {
+    const tmux = makeMockTmux(
+      [
+        { index: 0, name: 'Claude Code', active: false },
+        { index: 1, name: 'Logs', active: true },
+      ],
+      [
+        { paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 100 },
+        { paneId: '%1', windowName: 'Logs', paneCommand: 'tail', panePid: 101 },
+      ],
+    );
+
+    const existing = [{ name: 'Claude Code', command: 'claude' }];
+
+    const result = await snapshotSessionWindows(tmux, 'Dev/_ws', existing);
+
+    // 'tail' takes over the pane (non-shell), captured directly
+    expect(result).toEqual([
+      { name: 'Claude Code', command: 'claude' },
+      { name: 'Logs', command: 'tail' },
+    ]);
+  });
+
+  it('resolves full command from shell child process when ShellPort is provided', async () => {
     const tmux = makeMockTmux(
       [
         { index: 0, name: 'Claude Code', active: false },
         { index: 1, name: 'Shell', active: false },
         { index: 2, name: 'Dev Server', active: true },
-        { index: 3, name: 'Logs', active: false },
       ],
       [
         { paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 100 },
-        { paneId: '%1', windowName: 'Shell', paneCommand: 'fish', panePid: 101 },
-        { paneId: '%2', windowName: 'Dev Server', paneCommand: 'node', panePid: 102 },
-        { paneId: '%3', windowName: 'Logs', paneCommand: 'tail', panePid: 103 },
+        { paneId: '%1', windowName: 'Shell', paneCommand: 'zsh', panePid: 101 },
+        { paneId: '%2', windowName: 'Dev Server', paneCommand: 'zsh', panePid: 102 },
       ],
     );
 
-    // Existing specs only have the template windows, plus user-created bare names
+    // Dev Server shell (PID 102) has a child running 'npm run dev'
+    const shell = makeMockShell({ 102: 'npm run dev' });
+
     const existing = [
       { name: 'Claude Code', command: 'claude' },
       { name: 'Shell' },
-      { name: 'Dev Server' },  // bare name from NEW_WINDOW handler
+      { name: 'Dev Server' },
     ];
 
-    const result = await snapshotSessionWindows(tmux, 'Dev/_ws', existing);
+    const result = await snapshotSessionWindows(tmux, 'Dev/_ws', existing, shell);
 
-    // Dev Server should get 'node' captured, Logs is new and gets 'tail'
     expect(result).toEqual([
       { name: 'Claude Code', command: 'claude' },
-      { name: 'Shell' },
-      { name: 'Dev Server', command: 'node' },
-      { name: 'Logs', command: 'tail' },
+      { name: 'Shell' },  // shell PID 101 has no child → no command
+      { name: 'Dev Server', command: 'npm run dev' },
     ]);
   });
 
-  it('does not capture shell processes as commands', async () => {
+  it('strips absolute path prefix from resolved commands', async () => {
+    const tmux = makeMockTmux(
+      [{ index: 0, name: 'Dev', active: true }],
+      [{ paneId: '%0', windowName: 'Dev', paneCommand: 'zsh', panePid: 200 }],
+    );
+
+    // ps returns full path: /usr/local/bin/npm run dev
+    const shell = makeMockShell({ 200: '/usr/local/bin/npm run dev' });
+
+    const result = await snapshotSessionWindows(tmux, 'Dev/_ws', [], shell);
+
+    expect(result).toEqual([
+      { name: 'Dev', command: 'npm run dev' },
+    ]);
+  });
+
+  it('does not capture shell processes with no children as commands', async () => {
     const tmux = makeMockTmux(
       [
         { index: 0, name: 'Claude Code', active: false },
@@ -102,17 +164,20 @@ describe('snapshotSessionWindows', () => {
       ],
     );
 
+    // Shell PID 101 has no children
+    const shell = makeMockShell({});
+
     const existing = [{ name: 'Claude Code', command: 'claude' }];
 
-    const result = await snapshotSessionWindows(tmux, 'Dev/_ws', existing);
+    const result = await snapshotSessionWindows(tmux, 'Dev/_ws', existing, shell);
 
     expect(result).toEqual([
       { name: 'Claude Code', command: 'claude' },
-      { name: 'Scratch' },  // no command — just a shell
+      { name: 'Scratch' },  // no command — just a shell prompt
     ]);
   });
 
-  it('includes windows not in existing specs (user created after last persistence)', async () => {
+  it('includes windows not in existing specs', async () => {
     const tmux = makeMockTmux(
       [
         { index: 0, name: 'Claude Code', active: false },
@@ -126,10 +191,7 @@ describe('snapshotSessionWindows', () => {
       ],
     );
 
-    // No existing specs at all (e.g. session was never persisted)
-    const existing: string[] = [];
-
-    const result = await snapshotSessionWindows(tmux, 'Dev/_ws', existing);
+    const result = await snapshotSessionWindows(tmux, 'Dev/_ws', []);
 
     expect(result).toEqual([
       { name: 'Claude Code', command: 'claude' },
@@ -169,7 +231,6 @@ describe('snapshotSessionWindows', () => {
       ],
     );
 
-    // Legacy format: just string names
     const existing = ['Claude Code', 'Git', 'Shell'];
 
     const result = await snapshotSessionWindows(tmux, 'Dev/_ws', existing);
