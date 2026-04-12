@@ -479,6 +479,149 @@ describe('StateService.collectWorkspaces', () => {
     expect(apiGroup.sessions[1].branch).toBe('fix-bug');
     expect(apiGroup.sessions[1].active).toBe(false);
   });
+
+  it('shows sleeping workspace session when persisted but not in tmux', async () => {
+    const git = makeMockGit();
+    const tmux = makeMockTmux();
+    const wsService = makeMockWorkspaceService([
+      {
+        id: 'ws1',
+        name: 'Dev',
+        directory: '/home/user/dev',
+        sessions: [
+          {
+            tmuxSession: 'Dev/debug',
+            type: 'workspace',
+            directory: '/home/user/dev',
+            windows: [{ name: 'Claude Code', command: 'claude' }],
+          },
+        ],
+      },
+    ]);
+
+    vi.mocked(tmux.listSessions).mockResolvedValue([]);
+    vi.mocked(tmux.listPanes).mockResolvedValue('');
+    vi.mocked(git.listWorktrees).mockResolvedValue([]);
+    vi.mocked(git.getCurrentBranch).mockResolvedValue('main');
+
+    const svc = new StateService(git, tmux, wsService);
+    const state = await svc.collectWorkspaces();
+
+    expect(state.workspaces[0].sessions).toHaveLength(1);
+    expect(state.workspaces[0].sessions[0].tmuxSession).toBe('Dev/debug');
+    expect(state.workspaces[0].sessions[0].active).toBe(false);
+    expect(state.workspaces[0].sessions[0].status).toBe('none');
+    expect(state.workspaces[0].sessions[0].type).toBe('workspace');
+  });
+
+  it('shows sleeping directory session for pinned repo without duplicate', async () => {
+    const git = makeMockGit();
+    const tmux = makeMockTmux();
+    const wsService = makeMockWorkspaceService([
+      {
+        id: 'ws1',
+        name: 'Dev',
+        directory: '/home/user/dev',
+        pinnedRepos: [{ path: '/home/user/dev/api', repoName: 'api' }],
+        sessions: [
+          {
+            tmuxSession: 'Dev/api/_dir',
+            type: 'directory',
+            directory: '/home/user/dev/api',
+            windows: [{ name: 'Shell', command: 'fish' }],
+          },
+        ],
+      },
+    ]);
+
+    vi.mocked(tmux.listSessions).mockResolvedValue([]);
+    vi.mocked(tmux.listPanes).mockResolvedValue('');
+    vi.mocked(git.listWorktrees).mockResolvedValue([]);
+    vi.mocked(git.getCurrentBranch).mockResolvedValue('main');
+
+    const svc = new StateService(git, tmux, wsService);
+    const state = await svc.collectWorkspaces();
+
+    const apiGroup = state.workspaces[0].repoGroups[0];
+    // Only one directory entry — no duplicate from the pinned-repo placeholder path
+    const dirSessions = apiGroup.sessions.filter((s) => s.type === 'directory');
+    expect(dirSessions).toHaveLength(1);
+    expect(dirSessions[0].tmuxSession).toBe('Dev/api/_dir');
+    expect(dirSessions[0].active).toBe(false);
+  });
+
+  it('does not duplicate when session is live in tmux', async () => {
+    const git = makeMockGit();
+    const tmux = makeMockTmux();
+    const wsService = makeMockWorkspaceService([
+      {
+        id: 'ws1',
+        name: 'Dev',
+        directory: '/home/user/dev',
+        pinnedRepos: [{ path: '/home/user/dev/api', repoName: 'api' }],
+        sessions: [
+          {
+            tmuxSession: 'Dev/api/_dir',
+            type: 'directory',
+            directory: '/home/user/dev/api',
+            windows: [{ name: 'Shell', command: 'fish' }],
+          },
+        ],
+      },
+    ]);
+
+    // The persisted session IS live in tmux — must not inject a sleeping duplicate
+    vi.mocked(tmux.listSessions).mockResolvedValue(['Dev/api/_dir']);
+    vi.mocked(tmux.listPanes).mockResolvedValue('');
+    vi.mocked(git.listWorktrees).mockResolvedValue([]);
+    vi.mocked(git.getCurrentBranch).mockResolvedValue('main');
+
+    const svc = new StateService(git, tmux, wsService);
+    const state = await svc.collectWorkspaces();
+
+    const apiGroup = state.workspaces[0].repoGroups[0];
+    const dirSessions = apiGroup.sessions.filter((s) => s.type === 'directory');
+    expect(dirSessions).toHaveLength(1);
+    expect(dirSessions[0].active).toBe(true);
+  });
+
+  it('shows sleeping worktree session with correct branch', async () => {
+    const git = makeMockGit();
+    const tmux = makeMockTmux();
+    const wsService = makeMockWorkspaceService([
+      {
+        id: 'ws1',
+        name: 'Dev',
+        directory: '/home/user/dev',
+        pinnedRepos: [{ path: '/home/user/dev/api', repoName: 'api' }],
+        sessions: [
+          {
+            tmuxSession: 'Dev/api/feat-auth',
+            type: 'worktree',
+            directory: '/home/user/dev/api/.worktrees/feat-auth',
+            windows: [{ name: 'Claude Code', command: 'claude' }],
+          },
+        ],
+      },
+    ]);
+
+    // No live sessions, no git worktrees discovered
+    vi.mocked(tmux.listSessions).mockResolvedValue([]);
+    vi.mocked(tmux.listPanes).mockResolvedValue('');
+    vi.mocked(git.listWorktrees).mockResolvedValue([]);
+    vi.mocked(git.getCurrentBranch).mockResolvedValue('main');
+
+    const svc = new StateService(git, tmux, wsService);
+    const state = await svc.collectWorkspaces();
+
+    const apiGroup = state.workspaces[0].repoGroups[0];
+    const worktreeSessions = apiGroup.sessions.filter((s) => s.type === 'worktree');
+    expect(worktreeSessions).toHaveLength(1);
+    expect(worktreeSessions[0].tmuxSession).toBe('Dev/api/feat-auth');
+    expect(worktreeSessions[0].branch).toBe('feat-auth');
+    expect(worktreeSessions[0].active).toBe(false);
+    expect(worktreeSessions[0].status).toBe('none');
+  });
 });
 
 describe('status state machine', () => {

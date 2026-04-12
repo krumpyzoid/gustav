@@ -30,7 +30,7 @@ export function TabBar() {
     if (!activeSession) return;
     if (windows.length <= 1) {
       setActiveSession(null);
-      await window.api.killSession(activeSession);
+      await window.api.sleepSession(activeSession);
     } else {
       const remaining = windows.filter((w) => w.index !== windowIndex);
       if (!remaining.some((w) => w.active)) {

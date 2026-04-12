@@ -163,8 +163,49 @@ export class StateService {
     }
 
     // Build workspace states
+    const liveTmuxSet = new Set(sessions);
     const workspaceStates: WorkspaceState[] = await Promise.all(workspaces.map(async (ws) => {
       const allTabs = wsSessionMap.get(ws.id) ?? [];
+
+      // ── Inject sleeping sessions from persisted entries ──────────────────────
+      // Persisted sessions whose tmux session is not currently live are "sleeping":
+      // the entry was kept in workspaces.json after the tmux session was killed.
+      // We surface them in the UI as inactive (active: false, status: 'none') so
+      // the user can see them and choose to wake or destroy them.
+      for (const persisted of ws.sessions ?? []) {
+        if (liveTmuxSet.has(persisted.tmuxSession)) continue; // already represented as active
+        if (allTabs.some((t) => t.tmuxSession === persisted.tmuxSession)) continue; // already in map
+
+        const tab: SessionTab = {
+          workspaceId: ws.id,
+          type: persisted.type,
+          tmuxSession: persisted.tmuxSession,
+          repoName: null,
+          branch: null,
+          worktreePath: persisted.type === 'worktree' ? persisted.directory : null,
+          status: 'none',
+          active: false,
+        };
+
+        // Parse repoName and branch out of the tmux session name.
+        // Session names follow the pattern: "<WorkspaceName>/<repoName>/_dir"
+        // or "<WorkspaceName>/<repoName>/<branch>" for worktrees, and
+        // "<WorkspaceName>/<label>" for workspace-type sessions.
+        const afterPrefix = persisted.tmuxSession.slice(ws.name.length + 1);
+        if (persisted.type === 'directory' || persisted.type === 'worktree') {
+          const slashIdx = afterPrefix.indexOf('/');
+          if (slashIdx > -1) {
+            tab.repoName = afterPrefix.slice(0, slashIdx);
+            const rest = afterPrefix.slice(slashIdx + 1);
+            if (rest !== '_dir') {
+              tab.branch = rest;
+            }
+          }
+        }
+
+        allTabs.push(tab);
+      }
+
       const wsSessions = allTabs.filter((t) => t.type === 'workspace');
       const repoTabs = allTabs.filter((t) => t.type !== 'workspace');
 

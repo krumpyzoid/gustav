@@ -3,7 +3,7 @@ import { StatusIcon } from './StatusIcon';
 import { useAppStore, refreshState } from '../../hooks/use-app-state';
 import type { WindowInfo } from '../../../main/domain/types';
 import { Button } from '../ui/button';
-import { Folder, GitBranch, Moon, Terminal } from 'lucide-react';
+import { Folder, GitBranch, Moon, Terminal, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 function statusLabel(status: ClaudeStatus): string {
@@ -49,17 +49,32 @@ function sessionDisplayName(tab: SessionTabType): string {
 interface Props {
   tab: SessionTabType;
   workspaceName?: string;
+  workspaceDir?: string;
   repoRoot?: string;
   onRequestRemove?: () => void;
 }
 
-export function SessionTab({ tab, workspaceName, repoRoot, onRequestRemove }: Props) {
+export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onRequestRemove }: Props) {
   const { activeSession, setActiveSession, setWindows } = useAppStore();
   const isSelected = tab.tmuxSession === activeSession;
   const isInactive = !tab.active;
   const label = statusLabel(tab.status);
 
   async function handleClick() {
+    if (isInactive && tab.type === 'workspace' && workspaceName && workspaceDir) {
+      // Extract label from tmux session name (e.g. "dev/Cocorico" → "Cocorico", "dev/_ws" → undefined)
+      const parts = tab.tmuxSession.split('/');
+      const last = parts[parts.length - 1];
+      const label = last === '_ws' ? undefined : last;
+      const result = await window.api.createWorkspaceSession(workspaceName, workspaceDir, label);
+      if (result.success) {
+        setActiveSession(result.data);
+        const switchResult = await window.api.switchSession(result.data);
+        if (switchResult.success) setWindows(switchResult.data as WindowInfo[]);
+        refreshState();
+      }
+      return;
+    }
     if (isInactive && tab.type === 'worktree' && workspaceName && repoRoot && tab.branch && tab.worktreePath) {
       const result = await window.api.launchWorktreeSession(workspaceName, repoRoot, tab.branch, tab.worktreePath);
       if (result.success) {
@@ -86,9 +101,15 @@ export function SessionTab({ tab, workspaceName, repoRoot, onRequestRemove }: Pr
     if (result.success) setWindows(result.data as WindowInfo[]);
   }
 
-  async function handleKill(e: React.MouseEvent) {
+  async function handleSleep(e: React.MouseEvent) {
     e.stopPropagation();
-    await window.api.killSession(tab.tmuxSession);
+    await window.api.sleepSession(tab.tmuxSession);
+    refreshState();
+  }
+
+  async function handleDestroy(e: React.MouseEvent) {
+    e.stopPropagation();
+    await window.api.destroySession(tab.tmuxSession);
     refreshState();
   }
 
@@ -118,21 +139,35 @@ export function SessionTab({ tab, workspaceName, repoRoot, onRequestRemove }: Pr
       <div className="hidden group-hover/entry:flex gap-0.5 shrink-0 ml-auto">
         {!isInactive && (
           <Button
-            onClick={handleKill}
-            className="size-5"
-            title="Kill session"
-            variant="destructive"
+            onClick={handleSleep}
+            className="size-5 text-c3 hover:text-c3 hover:bg-c3/20"
+            title="Put to sleep"
+            variant="ghost"
             size="icon"
-          >✕</Button>
+          >
+            <Moon className="size-3" />
+          </Button>
         )}
-        {tab.type === 'worktree' && onRequestRemove && (
+        {tab.type === 'worktree' && onRequestRemove ? (
           <Button
             onClick={(e) => { e.stopPropagation(); onRequestRemove(); }}
             className="size-5"
             variant="destructive"
-            title="Remove worktree"
+            title="Delete worktree"
             size="icon"
-          >🗑</Button>
+          >
+            <Trash2 className="size-3" />
+          </Button>
+        ) : (
+          <Button
+            onClick={handleDestroy}
+            className="size-5"
+            title="Destroy session"
+            variant="destructive"
+            size="icon"
+          >
+            <Trash2 className="size-3" />
+          </Button>
         )}
       </div>
     </button>

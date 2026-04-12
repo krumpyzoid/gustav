@@ -222,7 +222,11 @@ export function WorkspaceAccordion({ state, headerRef, onAddSession, onPinRepos,
               scope={workspaceId}
               onReorder={handleReorderSession}
             >
-              <SessionTab tab={tab} />
+              <SessionTab
+                tab={tab}
+                workspaceName={state.workspace?.name}
+                workspaceDir={state.workspace?.directory}
+              />
             </SortableItem>
           ))}
 
