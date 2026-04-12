@@ -1,3 +1,10 @@
+export type PaneInfo = {
+  paneId: string;
+  windowName: string;
+  paneCommand: string;
+  panePid: number;
+};
+
 export interface TmuxPort {
   exec(cmd: string): Promise<string>;
   listSessions(): Promise<string[]>;
@@ -10,6 +17,7 @@ export interface TmuxPort {
   selectWindow(session: string, window: string): Promise<void>;
   killWindow(session: string, windowIndex: number): Promise<void>;
   listPanes(session: string): Promise<string>;
+  listPanesExtended(session: string): Promise<PaneInfo[]>;
   capturePaneContent(paneId: string): Promise<string>;
   displayMessage(target: string, format: string): Promise<string>;
   listWindows(session: string): Promise<{ index: number; name: string; active: boolean }[]>;

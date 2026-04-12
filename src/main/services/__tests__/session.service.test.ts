@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { SessionService } from '../session.service';
+import { SessionService, buildRestoreCommand } from '../session.service';
 import type { TmuxPort } from '../../ports/tmux.port';
-import type { Workspace } from '../../domain/types';
+import type { Workspace, WindowSpec } from '../../domain/types';
 
 function makeMockTmux(): TmuxPort {
   return {
@@ -185,6 +185,80 @@ describe('SessionService.restoreSession', () => {
 
     expect(tmux.newSession).not.toHaveBeenCalled();
   });
+
+  it('sends commands to restored windows with WindowSpec', async () => {
+    const tmux = makeMockTmux();
+    vi.mocked(tmux.hasSession).mockResolvedValue(false);
+    const svc = new SessionService(tmux);
+
+    await svc.restoreSession({
+      tmuxSession: 'Dev/api/_dir',
+      type: 'directory',
+      directory: '/home/user/api',
+      windows: [
+        { name: 'Claude Code', command: 'claude' },
+        { name: 'Git', command: 'lazygit' },
+        { name: 'Shell' },
+      ] satisfies WindowSpec[],
+    });
+
+    expect(tmux.sendKeys).toHaveBeenCalledWith('Dev/api/_dir:Claude Code', 'claude --continue');
+    expect(tmux.sendKeys).toHaveBeenCalledWith('Dev/api/_dir:Git', 'lazygit');
+    const sendKeysCalls = vi.mocked(tmux.sendKeys).mock.calls;
+    expect(sendKeysCalls.some(([target]) => target === 'Dev/api/_dir:Shell')).toBe(false);
+  });
+
+  it('uses --resume when claudeSessionId is present', async () => {
+    const tmux = makeMockTmux();
+    vi.mocked(tmux.hasSession).mockResolvedValue(false);
+    const svc = new SessionService(tmux);
+
+    await svc.restoreSession({
+      tmuxSession: 'Dev/api/_dir',
+      type: 'directory',
+      directory: '/home/user/api',
+      windows: [
+        { name: 'Claude Code', command: 'claude', claudeSessionId: 'abc-123' },
+        { name: 'Shell' },
+      ] satisfies WindowSpec[],
+    });
+
+    expect(tmux.sendKeys).toHaveBeenCalledWith('Dev/api/_dir:Claude Code', 'claude --resume abc-123');
+  });
+
+  it('sends no commands for legacy string[] windows', async () => {
+    const tmux = makeMockTmux();
+    vi.mocked(tmux.hasSession).mockResolvedValue(false);
+    const svc = new SessionService(tmux);
+
+    await svc.restoreSession({
+      tmuxSession: 'Dev/api/_dir',
+      type: 'directory',
+      directory: '/home/user/api',
+      windows: ['Claude Code', 'Git', 'Shell'],
+    });
+
+    expect(tmux.sendKeys).not.toHaveBeenCalled();
+  });
+
+  it('sends custom .gustav window commands', async () => {
+    const tmux = makeMockTmux();
+    vi.mocked(tmux.hasSession).mockResolvedValue(false);
+    const svc = new SessionService(tmux);
+
+    await svc.restoreSession({
+      tmuxSession: 'Dev/api/_dir',
+      type: 'directory',
+      directory: '/home/user/api',
+      windows: [
+        { name: 'Claude Code', command: 'claude' },
+        { name: 'Dev', command: 'pnpm run dev' },
+        { name: 'Shell' },
+      ] satisfies WindowSpec[],
+    });
+
+    expect(tmux.sendKeys).toHaveBeenCalledWith('Dev/api/_dir:Dev', 'pnpm run dev');
+  });
 });
 
 describe('SessionService.restoreAll', () => {
@@ -221,5 +295,32 @@ describe('SessionService.restoreAll', () => {
     await svc.restoreAll(workspaces);
 
     expect(tmux.newSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('buildRestoreCommand', () => {
+  it('returns "claude --resume <id>" when command is "claude" and claudeSessionId is set', () => {
+    const spec: WindowSpec = { name: 'Claude Code', command: 'claude', claudeSessionId: 'abc-123' };
+    expect(buildRestoreCommand(spec)).toBe('claude --resume abc-123');
+  });
+
+  it('returns "claude --continue" when command is "claude" and no claudeSessionId', () => {
+    const spec: WindowSpec = { name: 'Claude Code', command: 'claude' };
+    expect(buildRestoreCommand(spec)).toBe('claude --continue');
+  });
+
+  it('returns the command as-is for non-claude commands (passthrough)', () => {
+    const spec: WindowSpec = { name: 'Git', command: 'lazygit' };
+    expect(buildRestoreCommand(spec)).toBe('lazygit');
+  });
+
+  it('returns undefined when command is undefined', () => {
+    const spec: WindowSpec = { name: 'Shell' };
+    expect(buildRestoreCommand(spec)).toBeUndefined();
+  });
+
+  it('returns custom .gustav commands as-is (passthrough)', () => {
+    const spec: WindowSpec = { name: 'Tests', command: 'npm test' };
+    expect(buildRestoreCommand(spec)).toBe('npm test');
   });
 });

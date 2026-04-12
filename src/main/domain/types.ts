@@ -86,12 +86,25 @@ export type PinnedRepo = {
   repoName: string;
 };
 
+export type WindowSpec = {
+  name: string;
+  command?: string;
+  claudeSessionId?: string;
+};
+
 export type PersistedSession = {
   tmuxSession: string;
   type: SessionType;
   directory: string;
-  windows: string[];
+  windows: (string | WindowSpec)[];
 };
+
+// Normalizes the mixed windows field from persisted sessions into a uniform
+// WindowSpec array, supporting both the legacy string[] format and the new
+// WindowSpec[] format for backward compatibility.
+export function normalizeWindows(windows: (string | WindowSpec)[]): WindowSpec[] {
+  return windows.map((w) => (typeof w === 'string' ? { name: w } : w));
+}
 
 export type Workspace = {
   id: string;

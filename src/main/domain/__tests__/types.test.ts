@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { worstStatus } from '../types';
-import type { ClaudeStatus, PinnedRepo, PersistedSession, Workspace, RepoGroupState } from '../types';
+import { worstStatus, normalizeWindows } from '../types';
+import type { ClaudeStatus, PinnedRepo, PersistedSession, Workspace, RepoGroupState, WindowSpec } from '../types';
 
 describe('worstStatus', () => {
   it('returns none for empty array', () => {
@@ -86,5 +86,33 @@ describe('RepoGroupState type', () => {
       sessions: [],
     };
     expect(rg.currentBranch).toBe('main');
+  });
+});
+
+describe('normalizeWindows', () => {
+  it('converts string input to { name }', () => {
+    const result = normalizeWindows(['Claude Code']);
+    expect(result).toEqual([{ name: 'Claude Code' }]);
+  });
+
+  it('passes through WindowSpec objects unchanged', () => {
+    const spec: WindowSpec = { name: 'Git', command: 'lazygit' };
+    const result = normalizeWindows([spec]);
+    expect(result).toEqual([{ name: 'Git', command: 'lazygit' }]);
+  });
+
+  it('handles mixed array of strings and WindowSpec objects', () => {
+    const result = normalizeWindows(['Shell', { name: 'Claude Code', command: 'claude' }]);
+    expect(result).toEqual([{ name: 'Shell' }, { name: 'Claude Code', command: 'claude' }]);
+  });
+
+  it('returns empty array for empty input', () => {
+    expect(normalizeWindows([])).toEqual([]);
+  });
+
+  it('preserves claudeSessionId when present', () => {
+    const spec: WindowSpec = { name: 'Claude Code', command: 'claude', claudeSessionId: 'abc-123' };
+    const result = normalizeWindows([spec]);
+    expect(result).toEqual([{ name: 'Claude Code', command: 'claude', claudeSessionId: 'abc-123' }]);
   });
 });

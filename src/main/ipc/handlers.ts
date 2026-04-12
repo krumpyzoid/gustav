@@ -9,7 +9,8 @@ import type { ConfigService } from '../services/config.service';
 import type { GitPort } from '../ports/git.port';
 import type { TmuxPort } from '../ports/tmux.port';
 import type { PreferenceService } from '../services/preference.service';
-import type { CreateWorktreeParams, CleanTarget, Result, PersistedSession, SessionType, Preferences } from '../domain/types';
+import type { CreateWorktreeParams, CleanTarget, Result, PersistedSession, SessionType, Preferences, WindowSpec } from '../domain/types';
+import { normalizeWindows } from '../domain/types';
 
 function ok<T>(data: T): Result<T> {
   return { success: true, data };
@@ -21,6 +22,40 @@ function sleep(ms: number): Promise<void> {
 
 function err(message: string): Result<never> {
   return { success: false, error: message };
+}
+
+function buildWindowSpecs(
+  type: 'workspace' | 'directory' | 'worktree',
+  gustavTmuxEntries: string[],
+  claudeSessionId?: string,
+): WindowSpec[] {
+  const specs: WindowSpec[] = [{ name: 'Claude Code', command: 'claude', ...(claudeSessionId ? { claudeSessionId } : {}) }];
+
+  if (type === 'directory' || type === 'worktree') {
+    specs.push({ name: 'Git', command: 'lazygit' });
+  }
+
+  specs.push({ name: 'Shell' });
+
+  for (const entry of gustavTmuxEntries) {
+    const colonIdx = entry.indexOf(':');
+    const name = colonIdx > -1 ? entry.slice(0, colonIdx) : entry;
+    const cmd = colonIdx > -1 ? entry.slice(colonIdx + 1) : undefined;
+    specs.push(cmd ? { name, command: cmd } : { name });
+  }
+
+  return specs;
+}
+
+/** Look up the Claude session ID from a previously persisted session. */
+function findClaudeSessionId(workspaceService: WorkspaceService, session: string): string | undefined {
+  const ws = workspaceService.findBySessionPrefix(session);
+  if (!ws) return undefined;
+  const persisted = workspaceService.getPersistedSessions(ws.id).find((s) => s.tmuxSession === session);
+  if (!persisted) return undefined;
+  const specs = normalizeWindows(persisted.windows);
+  const claude = specs.find((s) => s.name === 'Claude Code');
+  return claude?.claudeSessionId;
 }
 
 export function registerHandlers(deps: {
@@ -123,8 +158,11 @@ export function registerHandlers(deps: {
         for (const repoRoot of repoPaths) {
           try {
             const config = await configService.parse(repoRoot);
-            const session = await sessionService.launchDirectorySession(ws.name, repoRoot, config);
-            const windows = ['Claude Code', 'Git', 'Shell', ...config.tmux.map((e: string) => e.split(':')[0])];
+            const repoName = require('node:path').basename(repoRoot);
+            const sessionName = sessionService.getSessionName(ws.name, { type: 'directory', repoName });
+            const prevClaudeId = findClaudeSessionId(workspaceService, sessionName);
+            const session = await sessionService.launchDirectorySession(ws.name, repoRoot, config, prevClaudeId);
+            const windows = buildWindowSpecs('directory', config.tmux, prevClaudeId);
             await workspaceService.persistSession(ws.id, { tmuxSession: session, type: 'directory', directory: repoRoot, windows });
           } catch {}
         }
@@ -175,10 +213,24 @@ export function registerHandlers(deps: {
     }
   });
 
-  ipcMain.handle(Channels.KILL_SESSION, async (_event, session: string) => {
+  ipcMain.handle(Channels.SLEEP_SESSION, async (_event, session: string) => {
     try {
       await tmux.killSession(session);
-      // Remove from persisted sessions
+      // Persisted session is intentionally kept — its claudeSessionId
+      // will be reused when the session is recreated.
+      return ok(undefined);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
+  ipcMain.handle(Channels.DESTROY_SESSION, async (_event, session: string) => {
+    try {
+      // Kill tmux session if it's running
+      if (await tmux.hasSession(session)) {
+        await tmux.killSession(session);
+      }
+      // Remove the persisted session entry permanently
       const ws = workspaceService.findBySessionPrefix(session);
       if (ws) {
         await workspaceService.removeSession(ws.id, session);
@@ -192,11 +244,13 @@ export function registerHandlers(deps: {
   ipcMain.handle(Channels.CREATE_WORKSPACE_SESSION, async (_event, workspaceName: string, workspaceDir: string, label?: string) => {
     try {
       const config = await configService.parse(workspaceDir);
-      const session = await sessionService.launchWorkspaceSession(workspaceName, workspaceDir, config, label);
+      const sessionName = sessionService.getSessionName(workspaceName, { type: 'workspace', label });
+      const prevClaudeId = findClaudeSessionId(workspaceService, sessionName);
+      const session = await sessionService.launchWorkspaceSession(workspaceName, workspaceDir, config, label, prevClaudeId);
       // Persist session definition
       const ws = workspaceService.findBySessionPrefix(session);
       if (ws) {
-        const windows = ['Claude Code', 'Shell', ...config.tmux.map((e) => e.split(':')[0])];
+        const windows = buildWindowSpecs('workspace', config.tmux, prevClaudeId);
         await workspaceService.persistSession(ws.id, { tmuxSession: session, type: 'workspace', directory: workspaceDir, windows });
       }
       ensurePty();
@@ -227,8 +281,12 @@ export function registerHandlers(deps: {
 
       let sessionType: SessionType;
       let sessionDir: string;
+      let prevClaudeId: string | undefined;
       if (mode === 'directory') {
-        session = await sessionService.launchDirectorySession(workspaceName, repoRoot, config);
+        const repoName = require('node:path').basename(repoRoot);
+        const sessionName = sessionService.getSessionName(workspaceName, { type: 'directory', repoName });
+        prevClaudeId = findClaudeSessionId(workspaceService, sessionName);
+        session = await sessionService.launchDirectorySession(workspaceName, repoRoot, config, prevClaudeId);
         sessionType = 'directory';
         sessionDir = repoRoot;
       } else {
@@ -242,7 +300,10 @@ export function registerHandlers(deps: {
           install: install ?? false,
         });
         const wtPath = require('node:path').join(git.getWorktreeDir(repoRoot), branch);
-        session = await sessionService.launchWorktreeSession(workspaceName, repoRoot, branch, wtPath, config);
+        const repoName = require('node:path').basename(repoRoot);
+        const sessionName = sessionService.getSessionName(workspaceName, { type: 'worktree', repoName, branch });
+        prevClaudeId = findClaudeSessionId(workspaceService, sessionName);
+        session = await sessionService.launchWorktreeSession(workspaceName, repoRoot, branch, wtPath, config, prevClaudeId);
         sessionType = 'worktree';
         sessionDir = wtPath;
       }
@@ -250,7 +311,7 @@ export function registerHandlers(deps: {
       // Persist session definition
       const ws = workspaceService.findBySessionPrefix(session);
       if (ws) {
-        const windows = ['Claude Code', 'Git', 'Shell', ...config.tmux.map((e) => e.split(':')[0])];
+        const windows = buildWindowSpecs(sessionType, config.tmux, prevClaudeId);
         await workspaceService.persistSession(ws.id, { tmuxSession: session, type: sessionType, directory: sessionDir, windows });
       }
 
@@ -276,11 +337,14 @@ export function registerHandlers(deps: {
   ) => {
     try {
       const config = await configService.parse(repoRoot);
-      const session = await sessionService.launchWorktreeSession(workspaceName, repoRoot, branch, worktreePath, config);
+      const repoName = require('node:path').basename(repoRoot);
+      const sessionName = sessionService.getSessionName(workspaceName, { type: 'worktree', repoName, branch });
+      const prevClaudeId = findClaudeSessionId(workspaceService, sessionName);
+      const session = await sessionService.launchWorktreeSession(workspaceName, repoRoot, branch, worktreePath, config, prevClaudeId);
       // Persist session definition
       const ws = workspaceService.findBySessionPrefix(session);
       if (ws) {
-        const windows = ['Claude Code', 'Git', 'Shell', ...config.tmux.map((e) => e.split(':')[0])];
+        const windows = buildWindowSpecs('worktree', config.tmux, prevClaudeId);
         await workspaceService.persistSession(ws.id, { tmuxSession: session, type: 'worktree', directory: worktreePath, windows });
       }
       ensurePty();
@@ -372,13 +436,22 @@ export function registerHandlers(deps: {
       const cwd = (await tmux.displayMessage(`${session}:0`, '#{pane_current_path}')).trim() || process.env.HOME!;
       await tmux.newWindow(session, name, cwd);
       await tmux.selectWindow(session, name);
-      // Update persisted window list
+      // Merge: keep existing specs (with commands/claudeSessionIds), add new window as bare name
       const ws = workspaceService.findBySessionPrefix(session);
       if (ws) {
-        const updatedWindows = await tmux.listWindows(session);
         const existing = workspaceService.getPersistedSessions(ws.id).find((s) => s.tmuxSession === session);
         if (existing) {
-          await workspaceService.persistSession(ws.id, { ...existing, windows: updatedWindows.map((w) => w.name) });
+          const currentSpecs = normalizeWindows(existing.windows);
+          const updatedWindows = await tmux.listWindows(session);
+          const updatedNames = new Set(updatedWindows.map((w) => w.name));
+          // Keep existing specs for windows that still exist, add new ones as bare names
+          const merged = currentSpecs.filter((s) => updatedNames.has(s.name));
+          for (const w of updatedWindows) {
+            if (!merged.some((s) => s.name === w.name)) {
+              merged.push({ name: w.name });
+            }
+          }
+          await workspaceService.persistSession(ws.id, { ...existing, windows: merged });
         }
       }
       return ok(undefined);
@@ -392,17 +465,19 @@ export function registerHandlers(deps: {
       const windows = await tmux.listWindows(session);
       if (windows.length <= 1) {
         await tmux.killSession(session);
-        const ws = workspaceService.findBySessionPrefix(session);
-        if (ws) await workspaceService.removeSession(ws.id, session);
+        // Persisted session is intentionally kept for resume.
       } else {
         await tmux.killWindow(session, windowIndex);
-        // Update persisted window list
+        // Merge: preserve existing specs (with commands/claudeSessionIds) for surviving windows
         const ws = workspaceService.findBySessionPrefix(session);
         if (ws) {
-          const updatedWindows = await tmux.listWindows(session);
           const existing = workspaceService.getPersistedSessions(ws.id).find((s) => s.tmuxSession === session);
           if (existing) {
-            await workspaceService.persistSession(ws.id, { ...existing, windows: updatedWindows.map((w) => w.name) });
+            const currentSpecs = normalizeWindows(existing.windows);
+            const updatedWindows = await tmux.listWindows(session);
+            const updatedNames = new Set(updatedWindows.map((w) => w.name));
+            const merged = currentSpecs.filter((s) => updatedNames.has(s.name));
+            await workspaceService.persistSession(ws.id, { ...existing, windows: merged });
           }
         }
       }

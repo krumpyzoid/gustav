@@ -47,6 +47,7 @@ import { ThemeService } from './services/theme.service';
 import { PreferenceService } from './services/preference.service';
 import { StateService } from './services/state.service';
 import { WorktreeService } from './services/worktree.service';
+import { ClaudeSessionTracker } from './services/claude-session-tracker';
 
 import { registerHandlers } from './ipc/handlers';
 import { Channels } from './ipc/channels';
@@ -68,6 +69,7 @@ const sessionService = new SessionService(tmuxAdapter);
 const preferenceService = new PreferenceService();
 const themeService = new ThemeService(fsAdapter);
 const stateService = new StateService(gitAdapter, tmuxAdapter, workspaceService);
+const claudeTracker = new ClaudeSessionTracker(tmuxAdapter, shellAdapter, fsAdapter, workspaceService);
 
 // Apply saved theme preference at startup
 themeService.setPreference(preferenceService.load().theme);
@@ -222,10 +224,16 @@ app.on('ready', () => {
     }
   });
 
-  // State polling — broadcast every 5s
-  stateService.onChange((state) => {
+  // State polling — broadcast every 1s, also capture Claude session IDs
+  stateService.onChange(async (state) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send(Channels.STATE_UPDATE, state);
+    }
+    // Capture Claude session IDs in the background (fire-and-forget)
+    try {
+      await claudeTracker.captureAll(workspaceService.list());
+    } catch {
+      // Non-critical — session IDs will be captured on next poll
     }
   });
   stateService.startPolling(1000, () => activeSession);

@@ -1,6 +1,21 @@
 import { basename } from 'node:path';
 import type { TmuxPort } from '../ports/tmux.port';
-import type { GustavConfig, PersistedSession, Workspace } from '../domain/types';
+import type { GustavConfig, PersistedSession, Workspace, WindowSpec } from '../domain/types';
+import { normalizeWindows } from '../domain/types';
+
+/** Determine the command to send when restoring a tmux window.
+ * Claude windows use --resume when a prior session ID is tracked, falling back
+ * to --continue. All other windows pass their command through unchanged. */
+export function buildRestoreCommand(spec: WindowSpec): string | undefined {
+  if (!spec.command) return undefined;
+  if (spec.command === 'claude' && spec.claudeSessionId) {
+    return `claude --resume ${spec.claudeSessionId}`;
+  }
+  if (spec.command === 'claude') {
+    return 'claude --continue';
+  }
+  return spec.command;
+}
 
 export type SessionNameOpts =
   | { type: 'workspace'; label?: string }
@@ -31,14 +46,16 @@ export class SessionService {
     workspaceDir: string,
     config: GustavConfig,
     label?: string,
+    claudeSessionId?: string,
   ): Promise<string> {
     const session = this.getSessionName(workspaceName, { type: 'workspace', label });
     if (await this.tmux.hasSession(session)) {
       throw new Error(`Session "${label ?? '_ws'}" already exists in workspace "${workspaceName}"`);
     }
 
+    const claudeCmd = claudeSessionId ? `claude --resume ${claudeSessionId}` : 'claude';
     await this.createBaseSession(session, workspaceDir);
-    await this.tmux.sendKeys(`${session}:Claude Code`, 'claude');
+    await this.tmux.sendKeys(`${session}:Claude Code`, claudeCmd);
     await this.tmux.newWindow(session, 'Shell', workspaceDir);
     await this.addCustomWindows(session, workspaceDir, config);
     await this.tmux.selectWindow(session, 'Claude Code');
@@ -51,13 +68,15 @@ export class SessionService {
     workspaceName: string,
     repoRoot: string,
     config: GustavConfig,
+    claudeSessionId?: string,
   ): Promise<string> {
     const repoName = basename(repoRoot);
     const session = this.getSessionName(workspaceName, { type: 'directory', repoName });
     if (await this.tmux.hasSession(session)) return session;
 
+    const claudeCmd = claudeSessionId ? `claude --resume ${claudeSessionId}` : 'claude';
     await this.createBaseSession(session, repoRoot);
-    await this.tmux.sendKeys(`${session}:Claude Code`, 'claude');
+    await this.tmux.sendKeys(`${session}:Claude Code`, claudeCmd);
     await this.tmux.newWindow(session, 'Git', repoRoot);
     await this.tmux.sendKeys(`${session}:Git`, 'lazygit');
     await this.tmux.newWindow(session, 'Shell', repoRoot);
@@ -74,13 +93,15 @@ export class SessionService {
     branch: string,
     workdir: string,
     config: GustavConfig,
+    claudeSessionId?: string,
   ): Promise<string> {
     const repoName = basename(repoRoot);
     const session = this.getSessionName(workspaceName, { type: 'worktree', repoName, branch });
     if (await this.tmux.hasSession(session)) return session;
 
+    const claudeCmd = claudeSessionId ? `claude --resume ${claudeSessionId}` : 'claude';
     await this.createBaseSession(session, workdir);
-    await this.tmux.sendKeys(`${session}:Claude Code`, 'claude');
+    await this.tmux.sendKeys(`${session}:Claude Code`, claudeCmd);
     await this.tmux.newWindow(session, 'Git', workdir);
     await this.tmux.sendKeys(`${session}:Git`, 'lazygit');
     await this.tmux.newWindow(session, 'Shell', workdir);
@@ -91,12 +112,13 @@ export class SessionService {
   }
 
   /** Standalone session: claude + shell only, no config. */
-  async launchStandaloneSession(label: string, dir: string): Promise<string> {
+  async launchStandaloneSession(label: string, dir: string, claudeSessionId?: string): Promise<string> {
     const session = this.getSessionName(null, { type: 'workspace', label });
     if (await this.tmux.hasSession(session)) return session;
 
+    const claudeCmd = claudeSessionId ? `claude --resume ${claudeSessionId}` : 'claude';
     await this.createBaseSession(session, dir);
-    await this.tmux.sendKeys(`${session}:Claude Code`, 'claude');
+    await this.tmux.sendKeys(`${session}:Claude Code`, claudeCmd);
     await this.tmux.newWindow(session, 'Shell', dir);
     await this.tmux.selectWindow(session, 'Claude Code');
 
@@ -107,19 +129,24 @@ export class SessionService {
   async restoreSession(session: PersistedSession): Promise<void> {
     if (await this.tmux.hasSession(session.tmuxSession)) return;
 
-    const [firstWindow, ...restWindows] = session.windows;
-    if (!firstWindow) return;
+    const [first, ...rest] = normalizeWindows(session.windows);
+    if (!first) return;
 
-    await this.tmux.newSession(session.tmuxSession, { windowName: firstWindow, cwd: session.directory });
+    await this.tmux.newSession(session.tmuxSession, { windowName: first.name, cwd: session.directory });
     await this.tmux.exec(`set-option -t '${session.tmuxSession}' status off`);
     await this.tmux.exec(`set-option -t '${session.tmuxSession}' prefix None`);
     await this.tmux.exec(`set-option -t '${session.tmuxSession}' mouse on`);
 
-    for (const windowName of restWindows) {
-      await this.tmux.newWindow(session.tmuxSession, windowName, session.directory);
+    const firstCmd = buildRestoreCommand(first);
+    if (firstCmd) await this.tmux.sendKeys(`${session.tmuxSession}:${first.name}`, firstCmd);
+
+    for (const spec of rest) {
+      await this.tmux.newWindow(session.tmuxSession, spec.name, session.directory);
+      const cmd = buildRestoreCommand(spec);
+      if (cmd) await this.tmux.sendKeys(`${session.tmuxSession}:${spec.name}`, cmd);
     }
 
-    await this.tmux.selectWindow(session.tmuxSession, firstWindow);
+    await this.tmux.selectWindow(session.tmuxSession, first.name);
   }
 
   /** Restore all persisted sessions from all workspaces. */

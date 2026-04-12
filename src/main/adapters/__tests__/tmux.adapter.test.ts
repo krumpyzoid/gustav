@@ -106,3 +106,48 @@ describe('TmuxAdapter.sendKeys', () => {
     );
   });
 });
+
+describe('TmuxAdapter.listPanesExtended', () => {
+  it('parses panes with all fields', async () => {
+    const shell = makeMockShell();
+    vi.mocked(shell.exec).mockResolvedValue(
+      '%0|||Claude Code|||claude|||12345\n%1|||Git|||lazygit|||12346\n%2|||Shell|||fish|||12347'
+    );
+
+    const adapter = new TmuxAdapter(shell);
+    const panes = await adapter.listPanesExtended('myapp/feat');
+
+    expect(panes).toEqual([
+      { paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 12345 },
+      { paneId: '%1', windowName: 'Git', paneCommand: 'lazygit', panePid: 12346 },
+      { paneId: '%2', windowName: 'Shell', paneCommand: 'fish', panePid: 12347 },
+    ]);
+    expect(shell.exec).toHaveBeenCalledWith(
+      "tmux list-panes -t 'myapp/feat' -s -F '#{pane_id}|||#{window_name}|||#{pane_current_command}|||#{pane_pid}'"
+    );
+  });
+
+  it('returns empty array for empty output', async () => {
+    const shell = makeMockShell();
+    vi.mocked(shell.exec).mockResolvedValue('');
+
+    const adapter = new TmuxAdapter(shell);
+    const panes = await adapter.listPanesExtended('myapp/feat');
+
+    expect(panes).toEqual([]);
+  });
+
+  it('skips blank lines', async () => {
+    const shell = makeMockShell();
+    vi.mocked(shell.exec).mockResolvedValue(
+      '%0|||Claude Code|||claude|||12345\n\n%1|||Shell|||fish|||12346\n'
+    );
+
+    const adapter = new TmuxAdapter(shell);
+    const panes = await adapter.listPanesExtended('myapp/feat');
+
+    expect(panes).toHaveLength(2);
+    expect(panes[0]).toEqual({ paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 12345 });
+    expect(panes[1]).toEqual({ paneId: '%1', windowName: 'Shell', paneCommand: 'fish', panePid: 12346 });
+  });
+});
