@@ -212,8 +212,6 @@ app.on('ready', () => {
   mainWindow.webContents.on('did-finish-load', async () => {
     const colors = themeService.resolve();
     mainWindow!.webContents.send(Channels.THEME_UPDATE, colors);
-    // Restore persisted sessions before starting PTY
-    await sessionService.restoreAll(workspaceService.list());
     startPty(80, 24);
     themeService.startWatching();
   });
