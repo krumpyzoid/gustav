@@ -62,7 +62,6 @@ export function App() {
             onRemoveWorktree={(tab, repoRoot) => { setRemoveTab(tab); setRemoveRepoRoot(repoRoot); }}
             onAddWorktree={(repoName, repoRoot, workspaceName) => { setNewWorktreeRepo(repoName); setNewWorktreeRoot(repoRoot); setNewWorktreeWorkspaceName(workspaceName); setNewWorktreeOpen(true); }}
             onUnpinRepo={async (workspaceId, repoPath) => { await window.api.unpinRepo(workspaceId, repoPath); refreshState(); }}
-            onClean={() => setCleanOpen(true)}
             onOpenSettings={() => setView('settings')}
           />
         ) : (

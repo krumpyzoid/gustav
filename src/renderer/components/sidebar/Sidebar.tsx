@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Plus, Settings } from 'lucide-react';
+import { Moon, Plus, Settings } from 'lucide-react';
 import { useAppStore, refreshState } from '../../hooks/use-app-state';
 import { WorkspaceAccordion } from './WorkspaceAccordion';
 import { DraggableWorkspace } from './DraggableWorkspace';
@@ -47,11 +47,10 @@ interface Props {
   onRemoveWorktree: (tab: SessionTabType, repoRoot: string) => void;
   onAddWorktree: (repoName: string, repoRoot: string, workspaceName: string) => void;
   onUnpinRepo: (workspaceId: string, repoPath: string) => void;
-  onClean: () => void;
   onOpenSettings: () => void;
 }
 
-export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRepos, onEditWorkspace, onRemoveWorktree, onAddWorktree, onUnpinRepo, onClean, onOpenSettings }: Props) {
+export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRepos, onEditWorkspace, onRemoveWorktree, onAddWorktree, onUnpinRepo, onOpenSettings }: Props) {
   const { defaultWorkspace, workspaces } = useAppStore();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -75,6 +74,22 @@ export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRe
     refreshState();
   }, [workspaces]);
 
+  async function handleSleepAll() {
+    const allSessions = [
+      ...defaultWorkspace.sessions,
+      ...workspaces.flatMap((ws) => [
+        ...ws.sessions,
+        ...ws.repoGroups.flatMap((rg) => rg.sessions),
+      ]),
+    ];
+    for (const tab of allSessions) {
+      if (tab.active) {
+        await window.api.sleepSession(tab.tmuxSession);
+      }
+    }
+    refreshState();
+  }
+
   useEffect(() => {
     if (!dropdownOpen) return;
     function handleClick(e: MouseEvent) {
@@ -88,8 +103,23 @@ export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRe
 
   return (
     <>
-      <div className="flex items-center justify-end px-3 py-1.5" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
-  
+      <div className="flex items-center justify-end gap-1 px-3 py-1.5" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
+        <button
+          onClick={handleSleepAll}
+          className="bg-transparent -none text-foreground/60 hover:text-foreground cursor-pointer p-0.5 transition-colors flex items-center"
+          title="Sleep all sessions"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
+          <Moon size={14} />
+        </button>
+        <button
+          onClick={onOpenSettings}
+          className="bg-transparent -none text-foreground/60 hover:text-foreground cursor-pointer p-0.5 transition-colors flex items-center"
+          title="Settings"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
+          <Settings size={14} />
+        </button>
         <div className="relative" ref={dropdownRef} style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <button
             onClick={() => setDropdownOpen((v) => !v)}
@@ -139,22 +169,6 @@ export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRe
         ))}
       </div>
 
-      {/* Bottom action bar */}
-      <div className="flex items-center justify-between px-3 py-1.5">
-        <button
-          onClick={onClean}
-          className="text-sm text-muted-foreground hover:text-foreground bg-transparent cursor-pointer transition-colors"
-        >
-          Clean worktrees
-        </button>
-        <button
-          onClick={onOpenSettings}
-          className="bg-transparent -none text-foreground/40 hover:text-foreground cursor-pointer p-0.5 transition-colors"
-          title="Settings"
-        >
-          <Settings size={14} />
-        </button>
-      </div>
     </>
   );
 }
