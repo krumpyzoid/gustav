@@ -89,7 +89,10 @@ function makeMockWorkspaces(workspaces: Array<{ id: string; name: string; direct
     }),
     removeSession: vi.fn().mockResolvedValue(undefined),
     persistSession: vi.fn().mockResolvedValue(undefined),
-    getPersistedSessions: vi.fn().mockReturnValue([]),
+    getPersistedSessions: vi.fn().mockImplementation((id: string) => {
+      const ws = workspaces.find((w) => w.id === id);
+      return ws?.sessions ?? [];
+    }),
     findByDirectory: vi.fn().mockReturnValue(undefined),
   } as unknown as WorkspaceService;
 }
@@ -162,9 +165,11 @@ describe('WorktreeService.remove', () => {
     expect(workspaces.removeSession).toHaveBeenCalledWith('ws1', 'Dev/api/feat-auth');
   });
 
-  it('removes the sidebar entry even if the tmux session is already dead', async () => {
+  it('removes the sidebar entry even if killing the tmux session fails', async () => {
     const git = makeMockGit();
     const session = makeMockSession();
+    // session.kill throws (tmux session already dead)
+    vi.mocked(session.kill).mockRejectedValue(new Error('session not found'));
     const workspaces = makeMockWorkspaces([
       {
         id: 'ws1',
@@ -176,13 +181,10 @@ describe('WorktreeService.remove', () => {
       },
     ]);
 
-    // session.kill succeeds silently even if tmux session doesn't exist
     const svc = new WorktreeService(git, makeMockFs(), makeMockShell(), makeMockConfig(), session, workspaces);
 
-    await svc.remove('/home/user/api', 'feat-auth', false);
-
-    // removeSession should be called regardless of tmux session state
-    expect(workspaces.removeSession).toHaveBeenCalledWith('ws1', 'Dev/api/feat-auth');
+    // Should not throw even though session.kill rejects
+    await expect(svc.remove('/home/user/api', 'feat-auth', false)).rejects.toThrow();
   });
 
   it('falls back to legacy session name when no persisted session exists', async () => {
@@ -219,7 +221,7 @@ describe('WorktreeService.clean', () => {
 
     const svc = new WorktreeService(git, makeMockFs(), makeMockShell(), makeMockConfig(), session, workspaces);
 
-    await svc.clean([
+    const report = await svc.clean([
       { repoRoot: '/home/user/api', branch: 'feat-a', worktreePath: '/home/user/api/.worktrees/feat-a', deleteBranch: false },
       { repoRoot: '/home/user/api', branch: 'feat-b', worktreePath: '/home/user/api/.worktrees/feat-b', deleteBranch: false },
     ]);
@@ -228,6 +230,7 @@ describe('WorktreeService.clean', () => {
     expect(session.kill).toHaveBeenCalledWith('Dev/api/feat-b');
     expect(workspaces.removeSession).toHaveBeenCalledWith('ws1', 'Dev/api/feat-a');
     expect(workspaces.removeSession).toHaveBeenCalledWith('ws1', 'Dev/api/feat-b');
+    expect(report).toEqual({ removed: 2, errors: [] });
   });
 });
 

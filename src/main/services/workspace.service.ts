@@ -9,12 +9,20 @@ const DEFAULT_STORAGE_DIR = join(homedir(), '.local', 'share', 'gustav');
 
 export class WorkspaceService {
   private storagePath: string;
+  private writeQueue: Promise<void> = Promise.resolve();
 
   constructor(
     private fs: FileSystemPort,
     storageDir?: string,
   ) {
     this.storagePath = join(storageDir ?? DEFAULT_STORAGE_DIR, 'workspaces.json');
+  }
+
+  /** Serialize all mutating operations to prevent concurrent read-modify-write races on workspaces.json. */
+  private enqueue<T>(fn: () => Promise<T>): Promise<T> {
+    const result = this.writeQueue.then(fn, fn);
+    this.writeQueue = result.then(() => {}, () => {});
+    return result;
   }
 
   list(): Workspace[] {
@@ -28,106 +36,106 @@ export class WorkspaceService {
   }
 
   async create(name: string, directory: string): Promise<Workspace> {
-    const existing = this.list();
-    if (existing.some((w) => w.directory === directory)) {
-      throw new Error(`A workspace for directory "${directory}" already exists`);
-    }
-
-    const workspace: Workspace = {
-      id: randomUUID(),
-      name,
-      directory,
-    };
-
-    existing.push(workspace);
-    await this.persist(existing);
-    return workspace;
+    return this.enqueue(async () => {
+      const existing = this.list();
+      if (existing.some((w) => w.directory === directory)) {
+        throw new Error(`A workspace for directory "${directory}" already exists`);
+      }
+      const workspace: Workspace = { id: randomUUID(), name, directory };
+      existing.push(workspace);
+      await this.persist(existing);
+      return workspace;
+    });
   }
 
   async rename(id: string, newName: string): Promise<void> {
-    const workspaces = this.list();
-    const ws = workspaces.find((w) => w.id === id);
-    if (!ws) throw new Error(`Workspace "${id}" not found`);
-    ws.name = newName;
-    await this.persist(workspaces);
+    return this.enqueue(async () => {
+      const workspaces = this.list();
+      const ws = workspaces.find((w) => w.id === id);
+      if (!ws) throw new Error(`Workspace "${id}" not found`);
+      ws.name = newName;
+      await this.persist(workspaces);
+    });
   }
 
   async remove(id: string): Promise<void> {
-    const workspaces = this.list().filter((w) => w.id !== id);
-    await this.persist(workspaces);
+    return this.enqueue(async () => {
+      const workspaces = this.list().filter((w) => w.id !== id);
+      await this.persist(workspaces);
+    });
   }
 
   async updateOrdering(id: string, ordering: WorkspaceOrdering): Promise<void> {
-    const workspaces = this.list();
-    const ws = workspaces.find((w) => w.id === id);
-    if (!ws) throw new Error(`Workspace "${id}" not found`);
-    ws.ordering = ordering;
-    await this.persist(workspaces);
+    return this.enqueue(async () => {
+      const workspaces = this.list();
+      const ws = workspaces.find((w) => w.id === id);
+      if (!ws) throw new Error(`Workspace "${id}" not found`);
+      ws.ordering = ordering;
+      await this.persist(workspaces);
+    });
   }
 
   async reorder(ids: string[]): Promise<void> {
-    const workspaces = this.list();
-    const byId = new Map(workspaces.map((w) => [w.id, w]));
-    const reordered = ids.map((id) => byId.get(id)).filter(Boolean) as Workspace[];
-    // Append any workspaces not in the ids list (safety net)
-    for (const w of workspaces) {
-      if (!ids.includes(w.id)) reordered.push(w);
-    }
-    await this.persist(reordered);
+    return this.enqueue(async () => {
+      const workspaces = this.list();
+      const byId = new Map(workspaces.map((w) => [w.id, w]));
+      const reordered = ids.map((id) => byId.get(id)).filter(Boolean) as Workspace[];
+      for (const w of workspaces) {
+        if (!ids.includes(w.id)) reordered.push(w);
+      }
+      await this.persist(reordered);
+    });
   }
 
   async pinRepos(id: string, repoPaths: string[]): Promise<void> {
-    const workspaces = this.list();
-    const ws = workspaces.find((w) => w.id === id);
-    if (!ws) throw new Error(`Workspace "${id}" not found`);
-
-    const existing = ws.pinnedRepos ?? [];
-    const existingPaths = new Set(existing.map((r) => r.path));
-
-    for (const repoPath of repoPaths) {
-      if (!existingPaths.has(repoPath)) {
-        existing.push({ path: repoPath, repoName: basename(repoPath) });
-        existingPaths.add(repoPath);
+    return this.enqueue(async () => {
+      const workspaces = this.list();
+      const ws = workspaces.find((w) => w.id === id);
+      if (!ws) throw new Error(`Workspace "${id}" not found`);
+      const existing = ws.pinnedRepos ?? [];
+      const existingPaths = new Set(existing.map((r) => r.path));
+      for (const repoPath of repoPaths) {
+        if (!existingPaths.has(repoPath)) {
+          existing.push({ path: repoPath, repoName: basename(repoPath) });
+          existingPaths.add(repoPath);
+        }
       }
-    }
-
-    ws.pinnedRepos = existing;
-    await this.persist(workspaces);
+      ws.pinnedRepos = existing;
+      await this.persist(workspaces);
+    });
   }
 
   async unpinRepo(id: string, repoPath: string): Promise<void> {
-    const workspaces = this.list();
-    const ws = workspaces.find((w) => w.id === id);
-    if (!ws) throw new Error(`Workspace "${id}" not found`);
-
-    ws.pinnedRepos = (ws.pinnedRepos ?? []).filter((r) => r.path !== repoPath);
-    await this.persist(workspaces);
+    return this.enqueue(async () => {
+      const workspaces = this.list();
+      const ws = workspaces.find((w) => w.id === id);
+      if (!ws) throw new Error(`Workspace "${id}" not found`);
+      ws.pinnedRepos = (ws.pinnedRepos ?? []).filter((r) => r.path !== repoPath);
+      await this.persist(workspaces);
+    });
   }
 
   async persistSession(id: string, session: PersistedSession): Promise<void> {
-    const workspaces = this.list();
-    const ws = workspaces.find((w) => w.id === id);
-    if (!ws) throw new Error(`Workspace "${id}" not found`);
-
-    const sessions = ws.sessions ?? [];
-    const idx = sessions.findIndex((s) => s.tmuxSession === session.tmuxSession);
-    if (idx >= 0) {
-      sessions[idx] = session;
-    } else {
-      sessions.push(session);
-    }
-
-    ws.sessions = sessions;
-    await this.persist(workspaces);
+    return this.enqueue(async () => {
+      const workspaces = this.list();
+      const ws = workspaces.find((w) => w.id === id);
+      if (!ws) throw new Error(`Workspace "${id}" not found`);
+      const sessions = ws.sessions ?? [];
+      const idx = sessions.findIndex((s) => s.tmuxSession === session.tmuxSession);
+      if (idx >= 0) { sessions[idx] = session; } else { sessions.push(session); }
+      ws.sessions = sessions;
+      await this.persist(workspaces);
+    });
   }
 
   async removeSession(id: string, tmuxSession: string): Promise<void> {
-    const workspaces = this.list();
-    const ws = workspaces.find((w) => w.id === id);
-    if (!ws) return;
-
-    ws.sessions = (ws.sessions ?? []).filter((s) => s.tmuxSession !== tmuxSession);
-    await this.persist(workspaces);
+    return this.enqueue(async () => {
+      const workspaces = this.list();
+      const ws = workspaces.find((w) => w.id === id);
+      if (!ws) return;
+      ws.sessions = (ws.sessions ?? []).filter((s) => s.tmuxSession !== tmuxSession);
+      await this.persist(workspaces);
+    });
   }
 
   getPersistedSessions(id: string): PersistedSession[] {

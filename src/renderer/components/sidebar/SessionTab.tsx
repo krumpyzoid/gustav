@@ -65,9 +65,8 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
       // Try to wake from persisted snapshot first (preserves user-created tabs)
       const wakeResult = await window.api.wakeSession(tab.tmuxSession);
       if (wakeResult.success) {
-        setActiveSession(wakeResult.data);
-        const switchResult = await window.api.switchSession(wakeResult.data);
-        if (switchResult.success) setWindows(switchResult.data as WindowInfo[]);
+        setActiveSession(tab.tmuxSession);
+        setWindows(wakeResult.data as WindowInfo[]);
         refreshState();
         return;
       }

@@ -236,7 +236,7 @@ export class WorktreeService {
   /** Look up the tmux session name from persisted workspace sessions by worktree directory. */
   private findPersistedSessionName(wtPath: string): string | null {
     for (const ws of this.workspaces.list()) {
-      for (const s of ws.sessions ?? []) {
+      for (const s of this.workspaces.getPersistedSessions(ws.id)) {
         if (s.directory === wtPath) return s.tmuxSession;
       }
     }

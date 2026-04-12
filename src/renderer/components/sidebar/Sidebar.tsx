@@ -84,7 +84,7 @@ export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRe
     ];
     for (const tab of allSessions) {
       if (tab.active) {
-        await window.api.sleepSession(tab.tmuxSession);
+        try { await window.api.sleepSession(tab.tmuxSession); } catch {}
       }
     }
     refreshState();
@@ -103,7 +103,7 @@ export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRe
 
   return (
     <>
-      <div className="flex items-center justify-end gap-1 px-3 py-1.5" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
+      <div className="flex items-center justify-end gap-2 pb-4" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
         <button
           onClick={handleSleepAll}
           className="bg-transparent -none text-foreground/60 hover:text-foreground cursor-pointer p-0.5 transition-colors flex items-center"

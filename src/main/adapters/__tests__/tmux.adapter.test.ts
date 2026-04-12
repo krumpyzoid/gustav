@@ -5,6 +5,7 @@ import type { ShellPort } from '../../ports/shell.port';
 function makeMockShell(): ShellPort {
   return {
     exec: vi.fn(),
+    execSync: vi.fn().mockReturnValue(''),
   };
 }
 
@@ -12,7 +13,7 @@ describe('TmuxAdapter.listWindows', () => {
   it('parses tmux list-windows output into WindowInfo[]', async () => {
     const shell = makeMockShell();
     vi.mocked(shell.exec).mockResolvedValue(
-      '0\tClaude Code\t1\n1\tGit\t0\n2\tShell\t0\n'
+      '0|||Claude Code|||1\n1|||Git|||0\n2|||Shell|||0\n'
     );
 
     const adapter = new TmuxAdapter(shell);
@@ -24,7 +25,7 @@ describe('TmuxAdapter.listWindows', () => {
       { index: 2, name: 'Shell', active: false },
     ]);
     expect(shell.exec).toHaveBeenCalledWith(
-      "tmux list-windows -t 'myapp/feat' -F '#{window_index}\t#{window_name}\t#{window_active}'"
+      "tmux list-windows -t 'myapp/feat' -F '#{window_index}|||#{window_name}|||#{window_active}'"
     );
   });
 

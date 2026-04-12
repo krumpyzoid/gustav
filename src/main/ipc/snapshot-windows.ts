@@ -64,9 +64,11 @@ export async function snapshotSessionWindows(
       // Resolve command from the shell's child process for the full command line
       // (pane_current_command only gives the process name, e.g. 'node' for 'pnpm run dev')
       const childCmd = await resolveChildCommand(shell, pane.pid);
+      // Fall back to pane_current_command if child resolution fails (process exited between pgrep and ps)
+      const command = childCmd ?? (!SHELLS.has(pane.command) ? pane.command : undefined);
       merged.push({
         name: win.name,
-        ...(childCmd ? { command: childCmd } : {}),
+        ...(command ? { command } : {}),
         ...(existing?.claudeSessionId ? { claudeSessionId: existing.claudeSessionId } : {}),
         ...(directory ? { directory } : {}),
       });
