@@ -103,8 +103,8 @@ describe('StateService.collectWorkspaces', () => {
       'Project/api/_dir',
     ]);
     vi.mocked(tmux.listPanes).mockImplementation(async (session: string) => {
-      if (session === 'Project/_ws') return '%0\tClaude Code\tclaude';
-      if (session === 'Project/api/_dir') return '%1\tClaude Code\tclaude';
+      if (session === 'Project/_ws') return '%0|||Claude Code|||claude';
+      if (session === 'Project/api/_dir') return '%1|||Claude Code|||claude';
       return '';
     });
     vi.mocked(tmux.capturePaneContent).mockImplementation(async (paneId: string) => {
@@ -161,7 +161,7 @@ describe('StateService.collectWorkspaces', () => {
     const wsService = makeMockWorkspaceService();
 
     vi.mocked(tmux.listSessions).mockResolvedValue(['_standalone/test']);
-    vi.mocked(tmux.listPanes).mockResolvedValue('%0\tShell\tclaude');
+    vi.mocked(tmux.listPanes).mockResolvedValue('%0|||Shell|||claude');
     vi.mocked(tmux.capturePaneContent).mockResolvedValue('Do you want to proceed?\n(y = yes)');
 
     const svc = new StateService(git, tmux, wsService);
@@ -176,7 +176,7 @@ describe('StateService.collectWorkspaces', () => {
     const wsService = makeMockWorkspaceService();
 
     vi.mocked(tmux.listSessions).mockResolvedValue(['_standalone/test']);
-    vi.mocked(tmux.listPanes).mockResolvedValue('%0\tClaude Code\tnode');
+    vi.mocked(tmux.listPanes).mockResolvedValue('%0|||Claude Code|||node');
 
     const svc = new StateService(git, tmux, wsService);
     const state = await svc.collectWorkspaces();
@@ -190,7 +190,7 @@ describe('StateService.collectWorkspaces', () => {
     const wsService = makeMockWorkspaceService();
 
     vi.mocked(tmux.listSessions).mockResolvedValue(['_standalone/test']);
-    vi.mocked(tmux.listPanes).mockResolvedValue('%0\tClaude Code\tclaude\n%1\tShell\tclaude');
+    vi.mocked(tmux.listPanes).mockResolvedValue('%0|||Claude Code|||claude\n%1|||Shell|||claude');
     vi.mocked(tmux.capturePaneContent).mockImplementation(async (paneId: string) => {
       if (paneId === '%0') return '✻ Thinking…';
       if (paneId === '%1') return 'Do you want to proceed?\n(y = yes)';
@@ -213,8 +213,8 @@ describe('StateService.collectWorkspaces', () => {
     vi.mocked(tmux.listSessions).mockResolvedValue(['app/api/_dir', 'app/api/feat']);
 
     vi.mocked(tmux.listPanes).mockImplementation(async (session: string) => {
-      if (session === 'app/api/_dir') return '%0\tClaude Code\tclaude';
-      if (session === 'app/api/feat') return '%1\tClaude Code\tclaude';
+      if (session === 'app/api/_dir') return '%0|||Claude Code|||claude';
+      if (session === 'app/api/feat') return '%1|||Claude Code|||claude';
       return '';
     });
 
@@ -632,7 +632,7 @@ describe('status state machine', () => {
     const tmux = makeMockTmux();
     const wsService = makeMockWorkspaceService();
     vi.mocked(tmux.listSessions).mockResolvedValue(['_standalone/test']);
-    vi.mocked(tmux.listPanes).mockResolvedValue('%0\tClaude Code\tclaude');
+    vi.mocked(tmux.listPanes).mockResolvedValue('%0|||Claude Code|||claude');
     vi.mocked(tmux.capturePaneContent).mockResolvedValue(`Welcome banner\n${chrome}`);
 
     const svc = new StateService(git, tmux, wsService);
@@ -646,7 +646,7 @@ describe('status state machine', () => {
     const tmux = makeMockTmux();
     const wsService = makeMockWorkspaceService();
     vi.mocked(tmux.listSessions).mockResolvedValue(['_standalone/test']);
-    vi.mocked(tmux.listPanes).mockResolvedValue('%0\tClaude Code\tclaude');
+    vi.mocked(tmux.listPanes).mockResolvedValue('%0|||Claude Code|||claude');
 
     const svc = new StateService(git, tmux, wsService);
 
@@ -666,7 +666,7 @@ describe('status state machine', () => {
     const tmux = makeMockTmux();
     const wsService = makeMockWorkspaceService();
     vi.mocked(tmux.listSessions).mockResolvedValue(['_standalone/test']);
-    vi.mocked(tmux.listPanes).mockResolvedValue('%0\tClaude Code\tclaude');
+    vi.mocked(tmux.listPanes).mockResolvedValue('%0|||Claude Code|||claude');
 
     const svc = new StateService(git, tmux, wsService);
 
@@ -683,7 +683,7 @@ describe('status state machine', () => {
     const git = makeMockGit();
     const tmux = makeMockTmux();
     const wsService = makeMockWorkspaceService();
-    vi.mocked(tmux.listPanes).mockResolvedValue('%0\tClaude Code\tclaude');
+    vi.mocked(tmux.listPanes).mockResolvedValue('%0|||Claude Code|||claude');
 
     const svc = new StateService(git, tmux, wsService);
 
