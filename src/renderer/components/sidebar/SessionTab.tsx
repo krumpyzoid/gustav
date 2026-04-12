@@ -61,13 +61,29 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
   const label = statusLabel(tab.status);
 
   async function handleClick() {
-    if (isInactive && tab.type === 'workspace' && workspaceName && workspaceDir) {
-      // Extract label from tmux session name (e.g. "dev/Cocorico" → "Cocorico", "dev/_ws" → undefined)
-      const parts = tab.tmuxSession.split('/');
-      const last = parts[parts.length - 1];
-      const label = last === '_ws' ? undefined : last;
-      const result = await window.api.createWorkspaceSession(workspaceName, workspaceDir, label);
-      if (result.success) {
+    if (isInactive) {
+      // Try to wake from persisted snapshot first (preserves user-created tabs)
+      const wakeResult = await window.api.wakeSession(tab.tmuxSession);
+      if (wakeResult.success) {
+        setActiveSession(wakeResult.data);
+        const switchResult = await window.api.switchSession(wakeResult.data);
+        if (switchResult.success) setWindows(switchResult.data as WindowInfo[]);
+        refreshState();
+        return;
+      }
+      // Fallback: create fresh session (for entries with no persisted snapshot)
+      let result: { success: boolean; data?: string; error?: string } | undefined;
+      if (tab.type === 'workspace' && workspaceName && workspaceDir) {
+        const parts = tab.tmuxSession.split('/');
+        const last = parts[parts.length - 1];
+        const label = last === '_ws' ? undefined : last;
+        result = await window.api.createWorkspaceSession(workspaceName, workspaceDir, label);
+      } else if (tab.type === 'worktree' && workspaceName && repoRoot && tab.branch && tab.worktreePath) {
+        result = await window.api.launchWorktreeSession(workspaceName, repoRoot, tab.branch, tab.worktreePath);
+      } else if (tab.type === 'directory' && workspaceName && repoRoot) {
+        result = await window.api.createRepoSession(workspaceName, repoRoot, 'directory');
+      }
+      if (result?.success && result.data) {
         setActiveSession(result.data);
         const switchResult = await window.api.switchSession(result.data);
         if (switchResult.success) setWindows(switchResult.data as WindowInfo[]);
@@ -75,27 +91,6 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
       }
       return;
     }
-    if (isInactive && tab.type === 'worktree' && workspaceName && repoRoot && tab.branch && tab.worktreePath) {
-      const result = await window.api.launchWorktreeSession(workspaceName, repoRoot, tab.branch, tab.worktreePath);
-      if (result.success) {
-        setActiveSession(result.data);
-        const switchResult = await window.api.switchSession(result.data);
-        if (switchResult.success) setWindows(switchResult.data as WindowInfo[]);
-        refreshState();
-      }
-      return;
-    }
-    if (isInactive && tab.type === 'directory' && workspaceName && repoRoot) {
-      const result = await window.api.createRepoSession(workspaceName, repoRoot, 'directory');
-      if (result.success) {
-        setActiveSession(result.data);
-        const switchResult = await window.api.switchSession(result.data);
-        if (switchResult.success) setWindows(switchResult.data as WindowInfo[]);
-        refreshState();
-      }
-      return;
-    }
-    if (isInactive) return;
     setActiveSession(tab.tmuxSession);
     const result = await window.api.switchSession(tab.tmuxSession);
     if (result.success) setWindows(result.data as WindowInfo[]);

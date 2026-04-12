@@ -34,6 +34,7 @@ interface ElectronAPI {
   // Sessions
   switchSession: (session: string) => Promise<Result<WindowInfo[]>>;
   sleepSession: (session: string) => Promise<Result<void>>;
+  wakeSession: (session: string) => Promise<Result<string>>;
   destroySession: (session: string) => Promise<Result<void>>;
   createWorkspaceSession: (workspaceName: string, workspaceDir: string, label?: string) => Promise<Result<string>>;
   createRepoSession: (workspaceName: string, repoRoot: string, mode: string, branch?: string, base?: string, install?: boolean) => Promise<Result<string>>;

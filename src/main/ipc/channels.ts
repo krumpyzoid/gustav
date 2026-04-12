@@ -16,6 +16,7 @@ export const Channels = {
   // Session commands
   SWITCH_SESSION: 'switch-session',
   SLEEP_SESSION: 'sleep-session',
+  WAKE_SESSION: 'wake-session',
   DESTROY_SESSION: 'destroy-session',
   CREATE_WORKSPACE_SESSION: 'create-workspace-session',
   CREATE_REPO_SESSION: 'create-repo-session',

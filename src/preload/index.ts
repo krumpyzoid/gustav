@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('api', {
   // Sessions
   switchSession: (session: string) => ipcRenderer.invoke('switch-session', session),
   sleepSession: (session: string) => ipcRenderer.invoke('sleep-session', session),
+  wakeSession: (session: string) => ipcRenderer.invoke('wake-session', session),
   destroySession: (session: string) => ipcRenderer.invoke('destroy-session', session),
   createWorkspaceSession: (workspaceName: string, workspaceDir: string, label?: string) =>
     ipcRenderer.invoke('create-workspace-session', workspaceName, workspaceDir, label),

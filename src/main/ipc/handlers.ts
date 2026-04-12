@@ -234,6 +234,30 @@ export function registerHandlers(deps: {
     }
   });
 
+  ipcMain.handle(Channels.WAKE_SESSION, async (_event, session: string) => {
+    try {
+      // Restore session from persisted snapshot (preserves user-created windows and commands)
+      const ws = workspaceService.findBySessionPrefix(session);
+      if (ws) {
+        const persisted = workspaceService.getPersistedSessions(ws.id).find((s) => s.tmuxSession === session);
+        if (persisted) {
+          await sessionService.restoreSession(persisted);
+          ensurePty();
+          let tty = await getPtyClientTty();
+          if (!tty) { await sleep(200); tty = await getPtyClientTty(); }
+          if (tty) {
+            await sessionService.switchTo(session, tty);
+            setActiveSession(session);
+          }
+          return ok(session);
+        }
+      }
+      return err('No persisted session found');
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
   ipcMain.handle(Channels.DESTROY_SESSION, async (_event, session: string) => {
     try {
       // Kill tmux session if it's running
