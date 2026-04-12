@@ -1,5 +1,7 @@
 import { useRef, useState } from 'react';
 import { Sidebar } from './components/sidebar/Sidebar';
+import { SettingsSidebar } from './components/settings/SettingsSidebar';
+import { SettingsView } from './components/settings/SettingsView';
 import { TerminalView } from './components/terminal/Terminal';
 import { ResizeHandle } from './components/terminal/ResizeHandle';
 import { NewWorkspaceDialog } from './components/dialogs/NewWorkspaceDialog';
@@ -16,12 +18,16 @@ import { focusTerminal } from './hooks/use-terminal';
 import { useTheme } from './hooks/use-theme';
 import type { SessionTab } from '../main/domain/types';
 
+type View = 'terminal' | 'settings';
+
 export function App() {
   useAppStateSubscription();
   useTheme();
   useKeyboardShortcuts();
 
   const sidebarRef = useRef<HTMLElement>(null);
+  const [view, setView] = useState<View>('terminal');
+  const [settingsSection, setSettingsSection] = useState('appearance');
 
   // Dialog state
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
@@ -40,24 +46,43 @@ export function App() {
   const [removeRepoRoot, setRemoveRepoRoot] = useState<string | null>(null);
 
   return (
-    <div className="flex h-screen">
-      <aside ref={sidebarRef} onMouseUp={() => focusTerminal()} className="w-[220px] min-w-[220px] bg-bg flex flex-col py-2 select-none">
-        <Sidebar
-          onNewWorkspace={() => setNewWorkspaceOpen(true)}
-          onNewStandalone={() => setNewStandaloneOpen(true)}
-          onNewSession={(wsId) => setNewSessionWorkspaceId(wsId)}
-          onPinRepos={(wsId) => setPinReposWorkspaceId(wsId)}
-          onEditWorkspace={(wsId) => setEditWorkspaceId(wsId)}
-          onRemoveWorktree={(tab, repoRoot) => { setRemoveTab(tab); setRemoveRepoRoot(repoRoot); }}
-          onAddWorktree={(repoName, repoRoot, workspaceName) => { setNewWorktreeRepo(repoName); setNewWorktreeRoot(repoRoot); setNewWorktreeWorkspaceName(workspaceName); setNewWorktreeOpen(true); }}
-          onUnpinRepo={async (workspaceId, repoPath) => { await window.api.unpinRepo(workspaceId, repoPath); refreshState(); }}
-          onClean={() => setCleanOpen(true)}
-        />
+    <div className="flex h-screen bg-bg">
+      <aside
+        ref={sidebarRef}
+        onMouseUp={() => { if (view === 'terminal') focusTerminal(); }}
+        className="w-[220px] min-w-[220px] bg-bg flex flex-col pt-10 pb-2 select-none"
+      >
+        {view === 'terminal' ? (
+          <Sidebar
+            onNewWorkspace={() => setNewWorkspaceOpen(true)}
+            onNewStandalone={() => setNewStandaloneOpen(true)}
+            onNewSession={(wsId) => setNewSessionWorkspaceId(wsId)}
+            onPinRepos={(wsId) => setPinReposWorkspaceId(wsId)}
+            onEditWorkspace={(wsId) => setEditWorkspaceId(wsId)}
+            onRemoveWorktree={(tab, repoRoot) => { setRemoveTab(tab); setRemoveRepoRoot(repoRoot); }}
+            onAddWorktree={(repoName, repoRoot, workspaceName) => { setNewWorktreeRepo(repoName); setNewWorktreeRoot(repoRoot); setNewWorktreeWorkspaceName(workspaceName); setNewWorktreeOpen(true); }}
+            onUnpinRepo={async (workspaceId, repoPath) => { await window.api.unpinRepo(workspaceId, repoPath); refreshState(); }}
+            onClean={() => setCleanOpen(true)}
+            onOpenSettings={() => setView('settings')}
+          />
+        ) : (
+          <SettingsSidebar
+            activeSection={settingsSection}
+            onSelectSection={setSettingsSection}
+            onBack={() => { setView('terminal'); focusTerminal(); }}
+          />
+        )}
       </aside>
 
       <ResizeHandle sidebarRef={sidebarRef} onResize={() => {}} />
 
-      <TerminalView />
+      <div className="flex-1 flex flex-col m-2 ml-0 rounded-lg overflow-hidden bg-background shadow-lg">
+        {/* Terminal stays mounted to preserve PTY state */}
+        <div className={view === 'terminal' ? 'flex-1 flex flex-col overflow-hidden' : 'hidden'}>
+          <TerminalView />
+        </div>
+        {view === 'settings' && <SettingsView section={settingsSection} />}
+      </div>
 
       {/* Dialogs */}
       <NewWorkspaceDialog

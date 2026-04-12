@@ -33,6 +33,11 @@ export type AppState = {
 // ── Theme ─────────────────────────────────────────────────────────
 export type ThemeColors = Record<string, string>;
 
+// ── Preferences ──────────────────────────────────────────────────
+export interface Preferences {
+  theme?: string; // 'system' | built-in theme slug
+}
+
 // ── Branch info (for new worktree dialog) ─────────────────────────
 export type BranchInfo = {
   name: string;

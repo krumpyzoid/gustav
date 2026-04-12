@@ -55,6 +55,10 @@ contextBridge.exposeInMainWorld('api', {
   getBranches: (repoRoot: string) => ipcRenderer.invoke('get-branches', repoRoot),
   getCleanCandidates: () => ipcRenderer.invoke('get-clean-candidates'),
 
+  // Preferences
+  getPreferences: () => ipcRenderer.invoke('get-preferences'),
+  setPreference: (key: string, value: unknown) => ipcRenderer.invoke('set-preference', key, value),
+
   // Theme
   getTheme: () => ipcRenderer.invoke('get-theme'),
   onThemeUpdate: (cb: (colors: any) => void) => {

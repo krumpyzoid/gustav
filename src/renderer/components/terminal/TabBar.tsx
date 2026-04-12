@@ -42,12 +42,13 @@ export function TabBar() {
   }
 
   return (
-    <div className="flex bg-background border-b border-border px-2 gap-0.5 shrink-0">
+    <div className="flex justify-center bg-background border-b border-border px-2 gap-0.5 shrink-0" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
       {windows.map((w) => (
         <button
           key={w.index}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => handleClick(w.name)}
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           className={`group/tab relative px-4 py-3.5 text-sm transition-colors border-b-2
             ${w.active
               ? 'border-b-accent text-foreground'
@@ -68,6 +69,7 @@ export function TabBar() {
       {isAdding ? (
         <input
           autoFocus
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           className="px-4 py-3.5 text-sm bg-transparent text-foreground border-b-2 border-b-accent outline-none w-32"
           placeholder="Tab name…"
           onKeyDown={(e) => {
@@ -80,6 +82,7 @@ export function TabBar() {
         <button
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => setIsAdding(true)}
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           className="px-4 py-3.5 text-sm text-foreground/40 hover:text-foreground transition-colors border-b-2 border-b-transparent"
         >
           +

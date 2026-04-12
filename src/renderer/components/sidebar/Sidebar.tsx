@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Plus, ChevronDown } from 'lucide-react';
+import { Plus, Settings } from 'lucide-react';
 import { useAppStore, refreshState } from '../../hooks/use-app-state';
 import { WorkspaceAccordion } from './WorkspaceAccordion';
 import { DraggableWorkspace } from './DraggableWorkspace';
@@ -48,9 +48,10 @@ interface Props {
   onAddWorktree: (repoName: string, repoRoot: string, workspaceName: string) => void;
   onUnpinRepo: (workspaceId: string, repoPath: string) => void;
   onClean: () => void;
+  onOpenSettings: () => void;
 }
 
-export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRepos, onEditWorkspace, onRemoveWorktree, onAddWorktree, onUnpinRepo, onClean }: Props) {
+export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRepos, onEditWorkspace, onRemoveWorktree, onAddWorktree, onUnpinRepo, onClean, onOpenSettings }: Props) {
   const { defaultWorkspace, workspaces } = useAppStore();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -87,18 +88,14 @@ export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRe
 
   return (
     <>
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border">
-        <span className="text-sm font-bold tracking-wider uppercase text-foreground/60">
-          Workspaces
-        </span>
-        <div className="relative" ref={dropdownRef}>
+      <div className="flex items-center justify-end px-3 py-1.5 border-b border-border" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
+        <div className="relative" ref={dropdownRef} style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <button
             onClick={() => setDropdownOpen((v) => !v)}
-            className="bg-transparent border-none text-foreground/60 hover:text-foreground cursor-pointer p-0.5 transition-colors flex items-center gap-0.5"
+            className="bg-transparent border-none text-foreground/60 hover:text-foreground cursor-pointer p-0.5 transition-colors flex items-center"
             title="Add workspace or session"
           >
             <Plus size={14} />
-            <ChevronDown size={10} />
           </button>
           {dropdownOpen && (
             <div className="absolute right-0 top-full mt-1 bg-popover text-popover-foreground border border-border rounded-md shadow-md z-50 min-w-[10rem]">
@@ -142,12 +139,19 @@ export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRe
       </div>
 
       {/* Bottom action bar */}
-      <div className="px-3 py-1.5 border-t border-border">
+      <div className="flex items-center justify-between px-3 py-1.5 border-t border-border">
         <button
           onClick={onClean}
           className="text-sm text-muted-foreground hover:text-foreground bg-transparent border-none cursor-pointer transition-colors"
         >
           Clean worktrees
+        </button>
+        <button
+          onClick={onOpenSettings}
+          className="bg-transparent border-none text-foreground/40 hover:text-foreground cursor-pointer p-0.5 transition-colors"
+          title="Settings"
+        >
+          <Settings size={14} />
         </button>
       </div>
     </>

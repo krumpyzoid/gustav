@@ -44,6 +44,7 @@ import { ConfigService } from './services/config.service';
 import { WorkspaceService } from './services/workspace.service';
 import { SessionService } from './services/session.service';
 import { ThemeService } from './services/theme.service';
+import { PreferenceService } from './services/preference.service';
 import { StateService } from './services/state.service';
 import { WorktreeService } from './services/worktree.service';
 
@@ -64,8 +65,12 @@ const tmuxAdapter = new TmuxAdapter(shellAdapter);
 const configService = new ConfigService(fsAdapter);
 const workspaceService = new WorkspaceService(fsAdapter);
 const sessionService = new SessionService(tmuxAdapter);
+const preferenceService = new PreferenceService();
 const themeService = new ThemeService(fsAdapter);
 const stateService = new StateService(gitAdapter, tmuxAdapter, workspaceService);
+
+// Apply saved theme preference at startup
+themeService.setPreference(preferenceService.load().theme);
 const worktreeService = new WorktreeService(
   gitAdapter, fsAdapter, shellAdapter, configService, sessionService, workspaceService,
 );
@@ -146,7 +151,8 @@ app.on('ready', () => {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
-    autoHideMenuBar: true,
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 16, y: 18 },
     icon: path.join(process.resourcesPath, 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
@@ -163,6 +169,15 @@ app.on('ready', () => {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
+  function broadcastTheme() {
+    const pref = preferenceService.load().theme;
+    themeService.setPreference(pref);
+    const colors = themeService.resolve();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(Channels.THEME_UPDATE, colors);
+    }
+  }
+
   // Register IPC handlers
   registerHandlers({
     worktreeService,
@@ -171,6 +186,7 @@ app.on('ready', () => {
     themeService,
     workspaceService,
     configService,
+    preferenceService,
     tmux: tmuxAdapter,
     git: gitAdapter,
     getPtyClientTty,
@@ -179,6 +195,7 @@ app.on('ready', () => {
     ensurePty: () => {
       if (!ptyProcess) startPty(80, 24);
     },
+    broadcastTheme,
   });
 
   // Prevent Electron's built-in zoom so Ctrl+/- reaches the renderer for terminal font sizing
@@ -190,7 +207,7 @@ app.on('ready', () => {
 
   // Start PTY and theme after window is ready
   mainWindow.webContents.on('did-finish-load', async () => {
-    const colors = themeService.load();
+    const colors = themeService.resolve();
     mainWindow!.webContents.send(Channels.THEME_UPDATE, colors);
     // Restore persisted sessions before starting PTY
     await sessionService.restoreAll(workspaceService.list());

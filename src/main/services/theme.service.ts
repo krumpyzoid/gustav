@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { FileSystemPort } from '../ports/filesystem.port';
 import type { ThemeColors } from '../domain/types';
+import { BUILT_IN_THEMES } from '../domain/themes';
 
 const THEME_DIR = join(homedir(), '.config/omarchy/current/theme');
 const COLORS_TOML = join(THEME_DIR, 'colors.toml');
@@ -22,8 +23,21 @@ const FALLBACK_THEME: ThemeColors = {
 export class ThemeService {
   private lastJson = '';
   private listener: ((colors: ThemeColors) => void) | null = null;
+  private themePreference: string | undefined;
 
   constructor(private fs: FileSystemPort) {}
+
+  setPreference(pref: string | undefined): void {
+    this.themePreference = pref;
+  }
+
+  resolve(): ThemeColors {
+    const pref = this.themePreference;
+    if (pref && pref !== 'system' && BUILT_IN_THEMES[pref]) {
+      return { ...BUILT_IN_THEMES[pref].colors };
+    }
+    return this.load();
+  }
 
   load(): ThemeColors {
     // Try colors.toml first
@@ -68,7 +82,7 @@ export class ThemeService {
   }
 
   sendIfChanged(): void {
-    const colors = this.load();
+    const colors = this.resolve();
     const json = JSON.stringify(colors);
     if (json !== this.lastJson) {
       this.lastJson = json;

@@ -8,7 +8,8 @@ import type { WorkspaceService } from '../services/workspace.service';
 import type { ConfigService } from '../services/config.service';
 import type { GitPort } from '../ports/git.port';
 import type { TmuxPort } from '../ports/tmux.port';
-import type { CreateWorktreeParams, CleanTarget, Result, PersistedSession, SessionType } from '../domain/types';
+import type { PreferenceService } from '../services/preference.service';
+import type { CreateWorktreeParams, CleanTarget, Result, PersistedSession, SessionType, Preferences } from '../domain/types';
 
 function ok<T>(data: T): Result<T> {
   return { success: true, data };
@@ -34,9 +35,11 @@ export function registerHandlers(deps: {
   getPtyClientTty: () => Promise<string | null>;
   getActiveSession: () => string | null;
   setActiveSession: (session: string) => void;
+  preferenceService: PreferenceService;
   ensurePty: () => void;
+  broadcastTheme: () => void;
 }): void {
-  const { worktreeService, sessionService, stateService, themeService, workspaceService, configService, tmux, git, getPtyClientTty, getActiveSession, setActiveSession, ensurePty } = deps;
+  const { worktreeService, sessionService, stateService, themeService, workspaceService, configService, preferenceService, tmux, git, getPtyClientTty, getActiveSession, setActiveSession, ensurePty, broadcastTheme } = deps;
 
   // ── Queries ──────────────────────────────────────────────────
   ipcMain.handle(Channels.GET_STATE, async () => {
@@ -44,7 +47,7 @@ export function registerHandlers(deps: {
   });
 
   ipcMain.handle(Channels.GET_THEME, () => {
-    return themeService.load();
+    return themeService.resolve();
   });
 
   ipcMain.handle(Channels.GET_BRANCHES, async (_event, repoRoot: string) => {
@@ -407,5 +410,16 @@ export function registerHandlers(deps: {
     } catch (e) {
       return err((e as Error).message);
     }
+  });
+
+  // ── Preferences ─────────────────────────────────────────────────
+  ipcMain.handle(Channels.GET_PREFERENCES, () => {
+    return preferenceService.load();
+  });
+
+  ipcMain.handle(Channels.SET_PREFERENCE, (_event, key: keyof Preferences, value: unknown) => {
+    const prefs = preferenceService.set(key, value as any);
+    if (key === 'theme') broadcastTheme();
+    return prefs;
   });
 }

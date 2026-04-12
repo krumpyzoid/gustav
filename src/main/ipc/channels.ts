@@ -36,6 +36,10 @@ export const Channels = {
   NEW_WINDOW: 'new-window',
   KILL_WINDOW: 'kill-window',
 
+  // Preferences
+  GET_PREFERENCES: 'get-preferences',
+  SET_PREFERENCE: 'set-preference',
+
   // Streams (fire-and-forget)
   PTY_INPUT: 'pty-input',
   PTY_RESIZE: 'pty-resize',
