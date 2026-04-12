@@ -57,11 +57,11 @@ export async function snapshotSessionWindows(
     const pane = paneByWindow.get(win.name);
     const directory = pane?.cwd || undefined;
 
-    if (existing?.command) {
-      // Existing spec has a known command — keep it, but update directory
+    if (existing?.command === 'claude') {
+      // Claude windows have special restore logic (--resume/--continue) — preserve as-is
       merged.push({ ...existing, ...(directory ? { directory } : {}) });
     } else if (pane && shell) {
-      // Always resolve via the shell's child process for the full command line
+      // Resolve command from the shell's child process for the full command line
       // (pane_current_command only gives the process name, e.g. 'node' for 'pnpm run dev')
       const childCmd = await resolveChildCommand(shell, pane.pid);
       merged.push({

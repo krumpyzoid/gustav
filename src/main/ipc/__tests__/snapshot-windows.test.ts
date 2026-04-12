@@ -50,7 +50,7 @@ function makeMockShell(childCommands: Record<number, string> = {}): ShellPort {
 }
 
 describe('snapshotSessionWindows', () => {
-  it('preserves existing specs with known commands and captures directory', async () => {
+  it('preserves claude spec but re-resolves other commands from live state', async () => {
     const tmux = makeMockTmux(
       [
         { index: 0, name: 'Claude Code', active: true },
@@ -64,18 +64,43 @@ describe('snapshotSessionWindows', () => {
       ],
     );
 
+    // Git pane (pid 101) has child 'lazygit'
+    const shell = makeMockShell({ 101: 'lazygit' });
+
     const existing = [
       { name: 'Claude Code', command: 'claude', claudeSessionId: 'abc-123' },
       { name: 'Git', command: 'lazygit' },
       { name: 'Shell' },
     ];
 
-    const result = await snapshotSessionWindows(tmux, 'Dev/_ws', existing);
+    const result = await snapshotSessionWindows(tmux, 'Dev/_ws', existing, shell);
 
     expect(result).toEqual([
+      // claude preserved as-is (special restore logic)
       { name: 'Claude Code', command: 'claude', claudeSessionId: 'abc-123', directory: '/home/user/api' },
+      // lazygit re-resolved from live pane
       { name: 'Git', command: 'lazygit', directory: '/home/user/api' },
+      // shell at prompt, no child → no command
       { name: 'Shell', directory: '/home/user/api/src' },
+    ]);
+  });
+
+  it('overwrites stale commands with fresh resolution', async () => {
+    const tmux = makeMockTmux(
+      [{ index: 0, name: 'Dev Server', active: true }],
+      [{ paneId: '%0', windowName: 'Dev Server', paneCommand: 'node', panePid: 200, paneCwd: '/home/user/app' }],
+    );
+
+    // Shell child resolves to the actual command
+    const shell = makeMockShell({ 200: 'pnpm run dev' });
+
+    // Existing spec has stale 'node' from a previous broken snapshot
+    const existing = [{ name: 'Dev Server', command: 'node' }];
+
+    const result = await snapshotSessionWindows(tmux, 'Dev/_ws', existing, shell);
+
+    expect(result).toEqual([
+      { name: 'Dev Server', command: 'pnpm run dev', directory: '/home/user/app' },
     ]);
   });
 
