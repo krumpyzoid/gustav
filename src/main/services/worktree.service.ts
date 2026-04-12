@@ -82,9 +82,6 @@ export class WorktreeService {
 
     // post_new hook
     await this.runHook(config.hooks.post_new, branch, wtPath, repoRoot);
-
-    // Launch tmux session
-    await this.session.launch(repoRoot, branch, wtPath, config);
   }
 
   async remove(repoRoot: string, branch: string, deleteBranch: boolean): Promise<void> {
@@ -95,11 +92,13 @@ export class WorktreeService {
     // pre_rm hook
     await this.runHook(config.hooks.pre_rm, branch, wtPath, repoRoot);
 
-    // Remove worktree
-    await this.git.worktreeRemove(repoRoot, wtPath);
+    // Remove worktree (skip if directory is already gone)
+    if (this.fs.exists(wtPath)) {
+      await this.git.worktreeRemove(repoRoot, wtPath);
+    }
 
-    // Kill tmux session
-    await this.session.kill(repoRoot, branch);
+    // Kill tmux session and remove persisted sidebar entry
+    await this.killSessionAndRemoveEntry(repoRoot, branch, wtPath);
 
     // Optionally delete branch
     if (deleteBranch) {
@@ -200,7 +199,7 @@ export class WorktreeService {
       for (const target of repoTargets) {
         try {
           await this.git.worktreeRemove(repoRoot, target.worktreePath);
-          await this.session.kill(repoRoot, target.branch);
+          await this.killSessionAndRemoveEntry(repoRoot, target.branch, target.worktreePath);
 
           if (target.deleteBranch) {
             try {
@@ -219,6 +218,29 @@ export class WorktreeService {
     }
 
     return report;
+  }
+
+  /** Find the tmux session name for a worktree and clean up both tmux and persisted state. */
+  private async killSessionAndRemoveEntry(repoRoot: string, branch: string, wtPath: string): Promise<void> {
+    const sessionName = this.findPersistedSessionName(wtPath)
+      ?? this.session.getLegacySessionName(repoRoot, branch);
+
+    await this.session.kill(sessionName);
+
+    const ws = this.workspaces.findBySessionPrefix(sessionName);
+    if (ws) {
+      await this.workspaces.removeSession(ws.id, sessionName);
+    }
+  }
+
+  /** Look up the tmux session name from persisted workspace sessions by worktree directory. */
+  private findPersistedSessionName(wtPath: string): string | null {
+    for (const ws of this.workspaces.list()) {
+      for (const s of ws.sessions ?? []) {
+        if (s.directory === wtPath) return s.tmuxSession;
+      }
+    }
+    return null;
   }
 
   private async runHook(

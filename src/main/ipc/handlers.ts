@@ -397,6 +397,10 @@ export function registerHandlers(deps: {
   ipcMain.handle(Channels.CREATE_WORKTREE, async (_event, params: CreateWorktreeParams) => {
     try {
       await worktreeService.create(params);
+      // Launch a legacy tmux session (no workspace context available here)
+      const config = await configService.parse(params.repoRoot);
+      const wtPath = require('node:path').join(git.getWorktreeDir(params.repoRoot), params.branch);
+      await sessionService.launch(params.repoRoot, params.branch, wtPath, config);
       return ok(undefined);
     } catch (e) {
       return err((e as Error).message);
