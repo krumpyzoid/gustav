@@ -600,4 +600,28 @@ export function registerHandlers(deps: {
     remoteClientService.stopForward(channelId);
     return ok(undefined);
   });
+
+  ipcMain.handle(Channels.GET_SAVED_SERVERS, () => {
+    if (!remoteClientService) return err('Remote client service not available');
+    return ok(remoteClientService.getSavedServers());
+  });
+
+  ipcMain.handle(Channels.DELETE_SAVED_SERVER, (_event, id: string) => {
+    if (!remoteClientService) return err('Remote client service not available');
+    remoteClientService.deleteSavedServer(id);
+    return ok(undefined);
+  });
+
+  ipcMain.handle(Channels.CONNECT_SAVED_SERVER, async (_event, id: string) => {
+    if (!remoteClientService) return err('Remote client service not available');
+    try {
+      const servers = remoteClientService.getSavedServers();
+      const server = servers.find((s) => s.id === id);
+      if (!server) return err('Saved server not found');
+      await remoteClientService.connectToSaved(server);
+      return ok(undefined);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
 }

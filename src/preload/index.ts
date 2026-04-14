@@ -90,6 +90,9 @@ contextBridge.exposeInMainWorld('api', {
   forwardPort: (remotePort: number, localPort?: number) =>
     ipcRenderer.invoke('forward-port', remotePort, localPort),
   stopForward: (channelId: number) => ipcRenderer.invoke('stop-forward', channelId),
+  getSavedServers: () => ipcRenderer.invoke('get-saved-servers'),
+  deleteSavedServer: (id: string) => ipcRenderer.invoke('delete-saved-server', id),
+  connectSavedServer: (id: string) => ipcRenderer.invoke('connect-saved-server', id),
   onRemoteStateUpdate: (cb: (state: any) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, state: any) => cb(state);
     ipcRenderer.on('remote-state-update', handler);

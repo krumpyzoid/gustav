@@ -52,7 +52,7 @@ describe('RemoteClientService', () => {
       }));
     });
 
-    service = new RemoteClientService();
+    service = new RemoteClientService('/tmp/gustav-test-client');
     let receivedState: any = null;
     service.onStateUpdate((state) => { receivedState = state; });
 
@@ -75,7 +75,7 @@ describe('RemoteClientService', () => {
       });
     });
 
-    service = new RemoteClientService();
+    service = new RemoteClientService('/tmp/gustav-test-client');
     await service.connect(`wss://127.0.0.1:${port}`);
 
     service.sendCommand('sleep-session', { session: 'ws/repo/_dir' });
@@ -91,7 +91,7 @@ describe('RemoteClientService', () => {
     testServer = createTestServer(port);
     await testServer.start();
 
-    service = new RemoteClientService();
+    service = new RemoteClientService('/tmp/gustav-test-client');
     expect(service.getConnectionStatus()).toBe('disconnected');
 
     await service.connect(`wss://127.0.0.1:${port}`);
@@ -115,7 +115,7 @@ describe('RemoteClientService', () => {
       ws.send(frame);
     });
 
-    service = new RemoteClientService();
+    service = new RemoteClientService('/tmp/gustav-test-client');
     let receivedPty: Buffer | null = null;
     service.onPtyData((data) => { receivedPty = data; });
 

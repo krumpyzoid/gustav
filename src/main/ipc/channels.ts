@@ -62,6 +62,9 @@ export const Channels = {
   REMOTE_PTY_RESIZE: 'remote-pty-resize',
   FORWARD_PORT: 'forward-port',
   STOP_FORWARD: 'stop-forward',
+  GET_SAVED_SERVERS: 'get-saved-servers',
+  DELETE_SAVED_SERVER: 'delete-saved-server',
+  CONNECT_SAVED_SERVER: 'connect-saved-server',
 
   // Remote events (main → renderer)
   REMOTE_STATE_UPDATE: 'remote-state-update',

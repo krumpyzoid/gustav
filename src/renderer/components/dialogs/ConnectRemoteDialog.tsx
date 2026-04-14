@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
+import { Trash2, Wifi } from 'lucide-react';
 import { useAppStore } from '../../hooks/use-app-state';
 
 interface Props {
@@ -7,8 +8,15 @@ interface Props {
   onClose: () => void;
 }
 
+type SavedServer = {
+  id: string;
+  label: string;
+  host: string;
+  port: number;
+  pairedAt: string;
+};
+
 function parseConnectionString(input: string): { host: string; port: string; code: string } | null {
-  // Format: host:port:CODE or host:port CODE
   const trimmed = input.trim();
   const parts = trimmed.split(/[:\s]+/);
   if (parts.length >= 3) {
@@ -29,7 +37,17 @@ export function ConnectRemoteDialog({ open, onClose }: Props) {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [manualMode, setManualMode] = useState(false);
+  const [savedServers, setSavedServers] = useState<SavedServer[]>([]);
+  const [showPairForm, setShowPairForm] = useState(false);
   const { remoteConnectionStatus } = useAppStore();
+
+  useEffect(() => {
+    if (open) {
+      window.api.getSavedServers?.().then((result: any) => {
+        if (result.success) setSavedServers(result.data);
+      });
+    }
+  }, [open]);
 
   function handlePaste(value: string) {
     setConnectionString(value);
@@ -66,6 +84,7 @@ export function ConnectRemoteDialog({ open, onClose }: Props) {
         setHost('');
         setPort('7777');
         setCode('');
+        setShowPairForm(false);
         onClose();
       } else {
         setError(result.error);
@@ -75,11 +94,31 @@ export function ConnectRemoteDialog({ open, onClose }: Props) {
     }
   }
 
+  async function handleConnectSaved(server: SavedServer) {
+    setError('');
+    try {
+      const result = await window.api.connectSavedServer(server.id);
+      if (result.success) {
+        onClose();
+      } else {
+        setError(result.error);
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function handleDeleteSaved(id: string) {
+    await window.api.deleteSavedServer(id);
+    setSavedServers((prev) => prev.filter((s) => s.id !== id));
+  }
+
   function handleDisconnect() {
     window.api.disconnectRemote();
   }
 
   const isConnected = remoteConnectionStatus === 'connected';
+  const hasSavedServers = savedServers.length > 0;
 
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
@@ -101,78 +140,120 @@ export function ConnectRemoteDialog({ open, onClose }: Props) {
               </button>
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-              {!manualMode ? (
-                <div>
-                  <label className="block text-sm mb-1 text-muted-foreground">
-                    Paste connection info
-                  </label>
-                  <input
-                    className="w-full bg-muted text-foreground px-3 py-2 rounded-md border border-input text-sm font-mono"
-                    placeholder="100.64.0.1:7777:ABC123"
-                    value={connectionString}
-                    onChange={(e) => handlePaste(e.target.value)}
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setManualMode(true)}
-                    className="text-xs text-muted-foreground mt-1 underline cursor-pointer bg-transparent border-none p-0"
-                  >
-                    Enter manually
-                  </button>
+            <div className="flex flex-col gap-3">
+              {/* Saved servers */}
+              {hasSavedServers && !showPairForm && (
+                <div className="flex flex-col gap-1">
+                  {savedServers.map((server) => (
+                    <div
+                      key={server.id}
+                      className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted hover:bg-muted/80 cursor-pointer group"
+                      onClick={() => handleConnectSaved(server)}
+                    >
+                      <Wifi size={14} className="text-muted-foreground shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{server.label}</div>
+                        <div className="text-xs text-muted-foreground">{server.host}:{server.port}</div>
+                      </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteSaved(server.id); }}
+                        className="hidden group-hover:block bg-transparent border-none text-muted-foreground hover:text-destructive cursor-pointer p-1"
+                        title="Remove saved server"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              ) : (
-                <>
-                  <div>
-                    <label className="block text-sm mb-1 text-muted-foreground">Host</label>
-                    <input
-                      className="w-full bg-muted text-foreground px-3 py-2 rounded-md border border-input text-sm"
-                      placeholder="100.64.0.1"
-                      value={host}
-                      onChange={(e) => setHost(e.target.value)}
-                      autoFocus
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm mb-1 text-muted-foreground">Port</label>
-                    <input
-                      className="w-full bg-muted text-foreground px-3 py-2 rounded-md border border-input text-sm"
-                      placeholder="7777"
-                      value={port}
-                      onChange={(e) => setPort(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm mb-1 text-muted-foreground">Pairing Code</label>
-                    <input
-                      className="w-full bg-muted text-foreground px-3 py-2 rounded-md border border-input text-sm font-mono tracking-widest"
-                      placeholder="ABC123"
-                      value={code}
-                      onChange={(e) => setCode(e.target.value.toUpperCase())}
-                      maxLength={6}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setManualMode(false)}
-                    className="text-xs text-muted-foreground underline cursor-pointer bg-transparent border-none p-0"
-                  >
-                    Paste connection string
-                  </button>
-                </>
               )}
 
               {error && <p className="text-sm text-destructive">{error}</p>}
 
-              <button
-                type="submit"
-                disabled={!host || !code}
-                className="w-full py-2 text-sm bg-primary text-primary-foreground rounded-md cursor-pointer disabled:opacity-50"
-              >
-                Connect
-              </button>
-            </form>
+              {/* Pair new server form */}
+              {(showPairForm || !hasSavedServers) && (
+                <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+                  {!manualMode ? (
+                    <div>
+                      <label className="block text-sm mb-1 text-muted-foreground">
+                        Paste connection info
+                      </label>
+                      <input
+                        className="w-full bg-muted text-foreground px-3 py-2 rounded-md border border-input text-sm font-mono"
+                        placeholder="100.64.0.1:7777:ABC123"
+                        value={connectionString}
+                        onChange={(e) => handlePaste(e.target.value)}
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setManualMode(true)}
+                        className="text-xs text-muted-foreground mt-1 underline cursor-pointer bg-transparent border-none p-0"
+                      >
+                        Enter manually
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="block text-sm mb-1 text-muted-foreground">Host</label>
+                        <input
+                          className="w-full bg-muted text-foreground px-3 py-2 rounded-md border border-input text-sm"
+                          placeholder="100.64.0.1"
+                          value={host}
+                          onChange={(e) => setHost(e.target.value)}
+                          autoFocus
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm mb-1 text-muted-foreground">Port</label>
+                        <input
+                          className="w-full bg-muted text-foreground px-3 py-2 rounded-md border border-input text-sm"
+                          placeholder="7777"
+                          value={port}
+                          onChange={(e) => setPort(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm mb-1 text-muted-foreground">Pairing Code</label>
+                        <input
+                          className="w-full bg-muted text-foreground px-3 py-2 rounded-md border border-input text-sm font-mono tracking-widest"
+                          placeholder="ABC123"
+                          value={code}
+                          onChange={(e) => setCode(e.target.value.toUpperCase())}
+                          maxLength={6}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setManualMode(false)}
+                        className="text-xs text-muted-foreground underline cursor-pointer bg-transparent border-none p-0"
+                      >
+                        Paste connection string
+                      </button>
+                    </>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={!host || !code}
+                    className="w-full py-2 text-sm bg-primary text-primary-foreground rounded-md cursor-pointer disabled:opacity-50"
+                  >
+                    Pair & Connect
+                  </button>
+                </form>
+              )}
+
+              {/* Toggle between saved and pair form */}
+              {hasSavedServers && (
+                <button
+                  type="button"
+                  onClick={() => setShowPairForm(!showPairForm)}
+                  className="text-xs text-muted-foreground underline cursor-pointer bg-transparent border-none p-0 text-center"
+                >
+                  {showPairForm ? 'Back to saved servers' : 'Pair new server'}
+                </button>
+              )}
+            </div>
           )}
         </Dialog.Content>
       </Dialog.Portal>

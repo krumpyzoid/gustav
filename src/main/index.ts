@@ -77,7 +77,7 @@ const remoteService = new RemoteService({
   stateService, sessionService, workspaceService, configService,
   git: gitAdapter, tmux: tmuxAdapter, shell: shellAdapter, dataDir,
 });
-const remoteClientService = new RemoteClientService();
+const remoteClientService = new RemoteClientService(dataDir);
 
 // Apply saved theme preference at startup
 themeService.setPreference(preferenceService.load().theme);
