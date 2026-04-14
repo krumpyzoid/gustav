@@ -46,6 +46,10 @@ export class CommandDispatcher {
 
         case 'sleep-session': {
           const session = params.session as string;
+          // Only allow killing Gustav-managed sessions
+          if (!this.deps.workspaceService.findBySessionPrefix(session) && !session.startsWith('_standalone/')) {
+            return err('Unknown session');
+          }
           if (await this.deps.tmux.hasSession(session)) {
             await this.deps.tmux.killSession(session);
           }
@@ -69,6 +73,9 @@ export class CommandDispatcher {
 
         case 'destroy-session': {
           const session = params.session as string;
+          if (!this.deps.workspaceService.findBySessionPrefix(session) && !session.startsWith('_standalone/')) {
+            return err('Unknown session');
+          }
           if (await this.deps.tmux.hasSession(session)) {
             await this.deps.tmux.killSession(session);
           }

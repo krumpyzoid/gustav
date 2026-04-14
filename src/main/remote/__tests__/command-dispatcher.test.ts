@@ -33,6 +33,7 @@ function makeMockDeps() {
     findBySessionPrefix: vi.fn().mockReturnValue(null),
     getPersistedSessions: vi.fn().mockReturnValue([]),
     persistSession: vi.fn(),
+    removeSession: vi.fn(),
     discoverGitRepos: vi.fn().mockReturnValue([]),
   } as unknown as WorkspaceService;
 
@@ -65,6 +66,7 @@ describe('CommandDispatcher', () => {
 
   it('dispatches sleep-session', async () => {
     const deps = makeMockDeps();
+    deps.workspaceService.findBySessionPrefix = vi.fn().mockReturnValue({ id: 'ws1', name: 'ws' });
     const dispatcher = new CommandDispatcher(deps);
 
     const result = await dispatcher.dispatch('sleep-session', { session: 'ws/repo/_dir' });
@@ -87,6 +89,7 @@ describe('CommandDispatcher', () => {
 
   it('dispatches destroy-session', async () => {
     const deps = makeMockDeps();
+    deps.workspaceService.findBySessionPrefix = vi.fn().mockReturnValue({ id: 'ws1', name: 'ws' });
     const dispatcher = new CommandDispatcher(deps);
 
     const result = await dispatcher.dispatch('destroy-session', { session: 'ws/repo/_dir' });

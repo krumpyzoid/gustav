@@ -10,23 +10,24 @@ type TunnelResult =
   | { success: true; channelId: number }
   | { success: false; error: string };
 
-// Ports that must never be tunneled — sensitive local services
-const BLOCKED_PORTS = new Set([22, 25, 53, 3306, 5432, 6379, 27017]);
-// Exclude cloud metadata endpoint range
-const BLOCKED_HOSTS = ['169.254.169.254'];
-
 export class TunnelManager {
   private tunnels = new Map<number, TunnelEntry>();
   private nextChannelId = 1;
+  private allowedPorts: Set<number> | null = null; // null = unrestricted (for local use), Set = allowlist
 
   constructor(private onFrame: (frame: Buffer) => void) {}
 
+  /** Set the allowed ports (from detected ports). Only these can be tunneled. */
+  setAllowedPorts(ports: number[]): void {
+    this.allowedPorts = new Set(ports);
+  }
+
   async createTunnel(remotePort: number): Promise<TunnelResult> {
-    if (BLOCKED_PORTS.has(remotePort)) {
-      return { success: false, error: `Port ${remotePort} is blocked for security reasons` };
-    }
     if (remotePort < 1024) {
       return { success: false, error: `Privileged ports (< 1024) are not allowed` };
+    }
+    if (this.allowedPorts && !this.allowedPorts.has(remotePort)) {
+      return { success: false, error: `Port ${remotePort} is not in the allowed list. Start a dev server in a Gustav session first.` };
     }
     const channelId = this.nextChannelId++;
 

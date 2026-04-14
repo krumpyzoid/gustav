@@ -7,6 +7,7 @@ export type ServerConfig = {
   port: number;
   cert: string;
   key: string;
+  bindAddress?: string; // default: '0.0.0.0'
 };
 
 const MAX_FAILED_AUTH = 5;
@@ -73,7 +74,7 @@ export class RemoteServerAdapter {
       });
 
       this.httpsServer.on('error', reject);
-      this.httpsServer.listen(this.config.port, '0.0.0.0', () => resolve());
+      this.httpsServer.listen(this.config.port, this.config.bindAddress ?? '0.0.0.0', () => resolve());
     });
   }
 

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { RemoteServerAdapter } from './remote-server.adapter';
 import { AuthService, type AuthStorage } from './auth.service';
@@ -45,6 +45,7 @@ export class RemoteService {
   private authenticated = false;
   private clientAddress: string | null = null;
   private messageQueue = Promise.resolve();
+  private authTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private deps: RemoteServiceDeps) {
     this.dispatcher = new CommandDispatcher({
@@ -61,7 +62,7 @@ export class RemoteService {
   async start(port: number): Promise<void> {
     this.port = port;
     const remoteDir = join(this.deps.dataDir, 'remote');
-    if (!existsSync(remoteDir)) mkdirSync(remoteDir, { recursive: true });
+    if (!existsSync(remoteDir)) mkdirSync(remoteDir, { recursive: true, mode: 0o700 });
 
     // Load or generate TLS cert
     const tlsCert = this.loadOrGenerateCert(remoteDir);
@@ -86,6 +87,12 @@ export class RemoteService {
     this.server.onConnection(() => {
       this.authenticated = false;
       this.clientAddress = this.server?.getClientAddress() ?? null;
+      // E3: Kick unauthenticated clients after 30 seconds
+      this.authTimeout = setTimeout(() => {
+        if (!this.authenticated) {
+          this.server?.disconnectClient();
+        }
+      }, 30_000);
     });
 
     this.server.onDisconnection(() => {
@@ -197,12 +204,11 @@ export class RemoteService {
         return;
       }
 
-      // Default: try to dispatch as a command
-      const result = await this.dispatcher.dispatch(msg.type, msg.payload);
+      // Reject unrecognized message types — no open dispatch
       this.server?.sendText(encodeControlMessage({
-        type: msg.type,
+        type: 'error',
         id: msg.id,
-        payload: result as unknown as Record<string, unknown>,
+        payload: { message: `Unknown message type: ${msg.type}` },
       }));
     } catch (e) {
       // Ignore malformed messages
@@ -232,6 +238,7 @@ export class RemoteService {
         const clientPubKey = payload.publicKey as string;
         const clientId = this.auth.completePairing(clientPubKey);
         this.authenticated = true;
+        if (this.authTimeout) { clearTimeout(this.authTimeout); this.authTimeout = null; }
         this.server.sendText(encodeControlMessage({
           type: 'auth',
           id: 'pair-ok',
@@ -268,6 +275,7 @@ export class RemoteService {
       const serverSig = this.auth.signCurrentChallenge();
       if (this.auth.verifyChallengeResponse(publicKey, signature)) {
         this.authenticated = true;
+        if (this.authTimeout) { clearTimeout(this.authTimeout); this.authTimeout = null; }
         this.server.sendText(encodeControlMessage({
           type: 'auth',
           id: 'verify-ok',
@@ -327,6 +335,7 @@ export class RemoteService {
   }
 
   private handleBinaryMessage(data: Buffer): void {
+    if (!this.authenticated) return;
     const frame = decodeBinaryFrame(data);
     if (frame.channelType === ChannelType.PTY_INPUT) {
       this.ptyManager?.handleInput(data);
@@ -366,6 +375,7 @@ export class RemoteService {
   }
 
   private teardownManagers(): void {
+    if (this.authTimeout) { clearTimeout(this.authTimeout); this.authTimeout = null; }
     this.authenticated = false;
     this.clientAddress = null;
     this.ptyManager?.destroyAll();
@@ -385,13 +395,16 @@ export class RemoteService {
     return false;
   }
 
-  /** S5: Validate directory is within a known workspace root */
+  /** Validate directory is within a known workspace root (resolves symlinks) */
   private isAllowedDirectory(dir: string): boolean {
-    const resolved = resolve(dir);
+    let resolved: string;
+    try { resolved = realpathSync(dir); } catch { resolved = resolve(dir); }
     const workspaces = this.deps.workspaceService.list();
     return workspaces.some((ws) => {
-      const root = ws.directory.endsWith('/') ? ws.directory : ws.directory + '/';
-      return resolved === ws.directory || resolved.startsWith(root);
+      let wsRoot: string;
+      try { wsRoot = realpathSync(ws.directory); } catch { wsRoot = resolve(ws.directory); }
+      const root = wsRoot.endsWith('/') ? wsRoot : wsRoot + '/';
+      return resolved === wsRoot || resolved.startsWith(root);
     });
   }
 
@@ -408,7 +421,7 @@ export class RemoteService {
     }
 
     const tlsCert = generateSelfSignedCert();
-    writeFileSync(certPath, tlsCert.cert);
+    writeFileSync(certPath, tlsCert.cert, { mode: 0o600 });
     writeFileSync(keyPath, tlsCert.key, { mode: 0o600 });
     return tlsCert;
   }
