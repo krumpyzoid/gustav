@@ -8,6 +8,7 @@ export class RemoteClientService {
   private adapter: RemoteClientAdapter;
   private tunnelManager: ClientTunnelManager | null = null;
   private status: ConnectionStatus = 'disconnected';
+  private pendingResponses = new Map<string, (payload: Record<string, unknown>) => void>();
 
   private stateHandler: ((state: any) => void) | null = null;
   private ptyDataHandler: ((data: Buffer) => void) | null = null;
@@ -66,9 +67,32 @@ export class RemoteClientService {
   sendCommand(action: string, params: Record<string, unknown> = {}): void {
     this.adapter.sendText(encodeControlMessage({
       type: 'session-command',
-      id: `cmd-${Date.now()}`,
+      id: `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       payload: { action, ...params },
     }));
+  }
+
+  /** Send a command and wait for the server's response by matching message ID */
+  async sendCommandAndWait(action: string, params: Record<string, unknown> = {}, timeoutMs = 10_000): Promise<Record<string, unknown>> {
+    const id = `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingResponses.delete(id);
+        reject(new Error(`Command '${action}' timed out`));
+      }, timeoutMs);
+
+      this.pendingResponses.set(id, (payload) => {
+        clearTimeout(timer);
+        this.pendingResponses.delete(id);
+        resolve(payload);
+      });
+
+      this.adapter.sendText(encodeControlMessage({
+        type: 'session-command',
+        id,
+        payload: { action, ...params },
+      }));
+    });
   }
 
   sendAuth(payload: Record<string, unknown>): void {
@@ -112,6 +136,13 @@ export class RemoteClientService {
   private handleMessage(data: string): void {
     try {
       const msg = decodeControlMessage(data);
+
+      // Check for pending request-response
+      const pending = this.pendingResponses.get(msg.id);
+      if (pending) {
+        pending(msg.payload);
+        return;
+      }
 
       if (msg.type === 'state-update') {
         this.stateHandler?.(msg.payload);

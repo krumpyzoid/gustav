@@ -25,9 +25,10 @@ interface RepoGroupProps {
   onAddWorktree?: (repoName: string, repoRoot: string, workspaceName: string) => void;
   onUnpinRepo?: (repoPath: string) => void;
   onReorderRepoSession: (repoName: string, newOrder: string[]) => void;
+  isRemote?: boolean;
 }
 
-function RepoGroup({ repoName, repoRoot, workspaceName, sessions, workspaceId, onRemoveWorktree, onAddWorktree, onUnpinRepo, onReorderRepoSession }: RepoGroupProps) {
+function RepoGroup({ repoName, repoRoot, workspaceName, sessions, workspaceId, onRemoveWorktree, onAddWorktree, onUnpinRepo, onReorderRepoSession, isRemote }: RepoGroupProps) {
   const headerRef = useRef<HTMLDivElement>(null);
   const scope = `${workspaceId}:${repoName}`;
 
@@ -77,6 +78,7 @@ function RepoGroup({ repoName, repoRoot, workspaceName, sessions, workspaceId, o
             tab={tab}
             workspaceName={workspaceName}
             repoRoot={repoRoot}
+            isRemote={isRemote}
             onRequestRemove={
               tab.type === 'worktree' ? () => onRemoveWorktree?.(tab, repoRoot) : undefined
             }
@@ -227,6 +229,7 @@ export function WorkspaceAccordion({ state, headerRef, onAddSession, onPinRepos,
                 tab={tab}
                 workspaceName={state.workspace?.name}
                 workspaceDir={state.workspace?.directory}
+                isRemote={isRemote}
               />
             </SortableItem>
           ))}
@@ -250,6 +253,7 @@ export function WorkspaceAccordion({ state, headerRef, onAddSession, onPinRepos,
                 onAddWorktree={onAddWorktree}
                 onUnpinRepo={onUnpinRepo ? (repoPath) => onUnpinRepo(workspaceId, repoPath) : undefined}
                 onReorderRepoSession={handleReorderRepoSession}
+                isRemote={isRemote}
               />
             </SortableItem>
           ))}

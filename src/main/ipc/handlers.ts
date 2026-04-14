@@ -572,6 +572,12 @@ export function registerHandlers(deps: {
   ipcMain.handle(Channels.REMOTE_SESSION_COMMAND, async (_event, action: string, params: Record<string, unknown>) => {
     if (!remoteClientService) return err('Remote client service not available');
     try {
+      // Commands that need a response from the server
+      if (action === 'attach-pty' || action === 'wake-session') {
+        const response = await remoteClientService.sendCommandAndWait(action, params);
+        return ok(response);
+      }
+      // Fire-and-forget commands
       remoteClientService.sendCommand(action, params);
       return ok(undefined);
     } catch (e) {

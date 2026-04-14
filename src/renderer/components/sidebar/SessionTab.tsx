@@ -52,15 +52,22 @@ interface Props {
   workspaceDir?: string;
   repoRoot?: string;
   onRequestRemove?: () => void;
+  isRemote?: boolean;
 }
 
-export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onRequestRemove }: Props) {
-  const { activeSession, setActiveSession, setWindows } = useAppStore();
-  const isSelected = tab.tmuxSession === activeSession;
+export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onRequestRemove, isRemote }: Props) {
+  const { activeSession, remoteActiveSession, setActiveSession, setWindows, setRemoteActiveSession, setIsRemoteSession, setRemotePtyChannelId } = useAppStore();
+  const isSelected = isRemote
+    ? tab.tmuxSession === remoteActiveSession
+    : tab.tmuxSession === activeSession;
   const isInactive = !tab.active;
   const label = statusLabel(tab.status);
 
   async function handleClick() {
+    if (isRemote) {
+      await handleRemoteClick();
+      return;
+    }
     if (isInactive) {
       // Try to wake from persisted snapshot first (preserves user-created tabs)
       const wakeResult = await window.api.wakeSession(tab.tmuxSession);
@@ -90,20 +97,50 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
       }
       return;
     }
+    setIsRemoteSession(false);
     setActiveSession(tab.tmuxSession);
     const result = await window.api.switchSession(tab.tmuxSession);
     if (result.success) setWindows(result.data as WindowInfo[]);
   }
 
+  async function handleRemoteClick() {
+    if (isInactive) {
+      // Wake remote session
+      await window.api.remoteSessionCommand('wake-session', { session: tab.tmuxSession });
+    }
+
+    // Detach previous remote PTY if any
+    const prevChannel = useAppStore.getState().remotePtyChannelId;
+    if (prevChannel !== null) {
+      window.api.remoteSessionCommand('detach-pty', { channelId: prevChannel });
+    }
+
+    // Attach to remote PTY — waits for server response with channelId
+    const result = await window.api.remoteSessionCommand('attach-pty', { tmuxSession: tab.tmuxSession, cols: 80, rows: 24 });
+    if (result.success && result.data?.channelId) {
+      setRemoteActiveSession(tab.tmuxSession);
+      setIsRemoteSession(true);
+      setRemotePtyChannelId(result.data.channelId as number);
+    }
+  }
+
   async function handleSleep(e: React.MouseEvent) {
     e.stopPropagation();
-    await window.api.sleepSession(tab.tmuxSession);
+    if (isRemote) {
+      await window.api.remoteSessionCommand('sleep-session', { session: tab.tmuxSession });
+    } else {
+      await window.api.sleepSession(tab.tmuxSession);
+    }
     refreshState();
   }
 
   async function handleDestroy(e: React.MouseEvent) {
     e.stopPropagation();
-    await window.api.destroySession(tab.tmuxSession);
+    if (isRemote) {
+      await window.api.remoteSessionCommand('destroy-session', { session: tab.tmuxSession });
+    } else {
+      await window.api.destroySession(tab.tmuxSession);
+    }
     refreshState();
   }
 
