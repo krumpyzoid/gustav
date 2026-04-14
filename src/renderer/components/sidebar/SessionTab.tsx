@@ -97,7 +97,14 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
       }
       return;
     }
+    // Detach remote PTY if switching back to local
+    const prevRemoteChannel = useAppStore.getState().remotePtyChannelId;
+    if (prevRemoteChannel !== null) {
+      window.api.remoteSessionCommand('detach-pty', { channelId: prevRemoteChannel });
+    }
     setIsRemoteSession(false);
+    setRemoteActiveSession(null);
+    setRemotePtyChannelId(null);
     setActiveSession(tab.tmuxSession);
     const result = await window.api.switchSession(tab.tmuxSession);
     if (result.success) setWindows(result.data as WindowInfo[]);
@@ -118,6 +125,8 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
     // Attach to remote PTY — waits for server response with channelId
     const result = await window.api.remoteSessionCommand('attach-pty', { tmuxSession: tab.tmuxSession, cols: 80, rows: 24 });
     if (result.success && result.data?.channelId) {
+      // Deselect local session, activate remote
+      setActiveSession(null);
       setRemoteActiveSession(tab.tmuxSession);
       setIsRemoteSession(true);
       setRemotePtyChannelId(result.data.channelId as number);

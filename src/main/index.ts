@@ -224,7 +224,10 @@ app.on('ready', () => {
   });
   remoteClientService.onPtyData((data) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(Channels.REMOTE_PTY_DATA, data);
+      // Decode binary frame in main process — send only the payload string to renderer
+      // Frame format: [1 byte channel type][4 bytes channel ID][N bytes payload]
+      const payload = Buffer.isBuffer(data) && data.length > 5 ? data.subarray(5).toString() : '';
+      mainWindow.webContents.send(Channels.REMOTE_PTY_DATA, payload);
     }
   });
   remoteClientService.onStatusChange((status) => {

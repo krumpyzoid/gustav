@@ -52,14 +52,10 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       if (!useAppStore.getState().isRemoteSession) term.write(data);
     });
 
-    // PTY data (remote) — binary frames get decoded and written to xterm
-    const cleanupRemotePty = window.api.onRemotePtyData?.((data: any) => {
-      if (useAppStore.getState().isRemoteSession) {
-        // data is a binary frame Buffer, extract the payload (skip 5-byte header)
-        const buf = Buffer.isBuffer?.(data) ? data : Buffer.from(data);
-        if (buf.length > 5) {
-          term.write(new Uint8Array(buf.subarray(5)));
-        }
+    // PTY data (remote) — main process already decoded the frame, sends plain string
+    const cleanupRemotePty = window.api.onRemotePtyData?.((data: string) => {
+      if (useAppStore.getState().isRemoteSession && data) {
+        term.write(data);
       }
     });
 
