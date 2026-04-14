@@ -10,12 +10,10 @@ interface ThemeOption {
 const THEMES: ThemeOption[] = [
   { slug: 'system', name: 'System (Omarchy)', colors: { bg: '#282828', fg: '#d4be98', accent: '#7daea3', c1: '#ea6962', c2: '#a9b665' } },
   { slug: 'light', name: 'Light', colors: { bg: '#fafafa', fg: '#383a42', accent: '#4078f2', c1: '#e45649', c2: '#50a14f' } },
-  { slug: 'dark', name: 'Dark', colors: { bg: '#1e1e2e', fg: '#cdd6f4', accent: '#89b4fa', c1: '#f38ba8', c2: '#a6e3a1' } },
   { slug: 'gruvbox-dark', name: 'Gruvbox Dark', colors: { bg: '#282828', fg: '#d4be98', accent: '#7daea3', c1: '#ea6962', c2: '#a9b665' } },
   { slug: 'nord', name: 'Nord', colors: { bg: '#2e3440', fg: '#d8dee9', accent: '#88c0d0', c1: '#bf616a', c2: '#a3be8c' } },
-  { slug: 'catppuccin-mocha', name: 'Catppuccin Mocha', colors: { bg: '#1e1e2e', fg: '#cdd6f4', accent: '#cba6f7', c1: '#f38ba8', c2: '#a6e3a1' } },
-  { slug: 'tokyo-night', name: 'Tokyo Night', colors: { bg: '#1a1b26', fg: '#c0caf5', accent: '#7aa2f7', c1: '#f7768e', c2: '#9ece6a' } },
-  { slug: 'rose-pine', name: 'Rose Pine', colors: { bg: '#191724', fg: '#e0def4', accent: '#c4a7e7', c1: '#eb6f92', c2: '#31748f' } },
+  { slug: 'rose-pine', name: 'Rosé Pine', colors: { bg: '#191724', fg: '#e0def4', accent: '#c4a7e7', c1: '#eb6f92', c2: '#31748f' } },
+  { slug: 'claude', name: 'Claude', colors: { bg: '#FCF5EC', fg: '#40362B', accent: '#D97D3B', c1: '#C44D2B', c2: '#5E8A3C' } },
 ];
 
 export function AppearanceSettings() {
