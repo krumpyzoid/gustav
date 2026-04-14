@@ -51,6 +51,8 @@ import { ClaudeSessionTracker } from './services/claude-session-tracker';
 
 import { registerHandlers } from './ipc/handlers';
 import { Channels } from './ipc/channels';
+import { RemoteService } from './remote/remote.service';
+import { RemoteClientService } from './remote/remote-client.service';
 
 let mainWindow: BrowserWindow | null = null;
 let ptyProcess: pty.IPty | null = null;
@@ -70,6 +72,12 @@ const preferenceService = new PreferenceService();
 const themeService = new ThemeService(fsAdapter);
 const stateService = new StateService(gitAdapter, tmuxAdapter, workspaceService);
 const claudeTracker = new ClaudeSessionTracker(tmuxAdapter, shellAdapter, fsAdapter, workspaceService);
+const dataDir = require('node:path').join(require('node:os').homedir(), '.local', 'share', 'gustav');
+const remoteService = new RemoteService({
+  stateService, sessionService, workspaceService, configService,
+  git: gitAdapter, tmux: tmuxAdapter, shell: shellAdapter, dataDir,
+});
+const remoteClientService = new RemoteClientService();
 
 // Apply saved theme preference at startup
 themeService.setPreference(preferenceService.load().theme);
@@ -199,6 +207,30 @@ app.on('ready', () => {
       if (!ptyProcess) startPty(80, 24);
     },
     broadcastTheme,
+    remoteService,
+    remoteClientService,
+    broadcastToRenderer: (channel: string, ...args: unknown[]) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(channel, ...args);
+      }
+    },
+  });
+
+  // Wire remote client events to renderer
+  remoteClientService.onStateUpdate((state) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(Channels.REMOTE_STATE_UPDATE, state);
+    }
+  });
+  remoteClientService.onPtyData((data) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(Channels.REMOTE_PTY_DATA, data);
+    }
+  });
+  remoteClientService.onStatusChange((status) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(Channels.REMOTE_CONNECTION_STATUS, status);
+    }
   });
 
   // Prevent Electron's built-in zoom so Ctrl+/- reaches the renderer for terminal font sizing
@@ -228,6 +260,8 @@ app.on('ready', () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send(Channels.STATE_UPDATE, state);
     }
+    // Forward state to connected remote client
+    remoteService.broadcastState(state);
     // Capture Claude session IDs in the background (fire-and-forget)
     try {
       await claudeTracker.captureAll(workspaceService.list());

@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { xtermTheme } from './use-theme';
 import { navigateSession, navigateWindow } from './use-keyboard-shortcuts';
+import { useAppStore } from './use-app-state';
 
 let globalTermRef: Terminal | null = null;
 
@@ -35,14 +36,32 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     function fit() {
       fitAddon.fit();
       window.api.sendPtyResize(term.cols, term.rows);
+      // Also notify remote PTY if attached
+      const store = useAppStore.getState();
+      if (store.isRemoteSession && store.remotePtyChannelId !== null) {
+        window.api.sendRemotePtyResize(store.remotePtyChannelId, term.cols, term.rows);
+      }
     }
 
     setTimeout(fit, 100);
     const resizeObserver = new ResizeObserver(() => fit());
     resizeObserver.observe(containerRef.current);
 
-    // PTY data
-    const cleanupPty = window.api.onPtyData((data) => term.write(data));
+    // PTY data (local)
+    const cleanupPty = window.api.onPtyData((data) => {
+      if (!useAppStore.getState().isRemoteSession) term.write(data);
+    });
+
+    // PTY data (remote) — binary frames get decoded and written to xterm
+    const cleanupRemotePty = window.api.onRemotePtyData?.((data: any) => {
+      if (useAppStore.getState().isRemoteSession) {
+        // data is a binary frame Buffer, extract the payload (skip 5-byte header)
+        const buf = Buffer.isBuffer?.(data) ? data : Buffer.from(data);
+        if (buf.length > 5) {
+          term.write(new Uint8Array(buf.subarray(5)));
+        }
+      }
+    });
 
     // Custom key handler: Shift+Enter, Alt+Arrows, Ctrl+/-, Ctrl+0
     term.attachCustomKeyEventHandler((event) => {
@@ -75,8 +94,15 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       return true;
     });
 
-    // Input relay
-    term.onData((data) => window.api.sendPtyInput(data));
+    // Input relay — route to local or remote PTY
+    term.onData((data) => {
+      const store = useAppStore.getState();
+      if (store.isRemoteSession && store.remotePtyChannelId !== null) {
+        window.api.sendRemotePtyInput(store.remotePtyChannelId, data);
+      } else {
+        window.api.sendPtyInput(data);
+      }
+    });
 
     // Trackpad/mouse wheel scrolling fix.
     // tmux uses the alternate screen buffer which has no scrollback,
@@ -87,8 +113,13 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       const amount = Math.max(1, Math.min(5, Math.ceil(Math.abs(event.deltaY) / 25)));
       const button = event.deltaY < 0 ? 64 : 65; // SGR: 64=wheel up, 65=wheel down
       const seq = `\x1b[<${button};1;1M`;
+      const store = useAppStore.getState();
       for (let i = 0; i < amount; i++) {
-        window.api.sendPtyInput(seq);
+        if (store.isRemoteSession && store.remotePtyChannelId !== null) {
+          window.api.sendRemotePtyInput(store.remotePtyChannelId, seq);
+        } else {
+          window.api.sendPtyInput(seq);
+        }
       }
       return false;
     });
@@ -138,6 +169,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       globalTermRef = null;
       document.removeEventListener('keydown', handleKeyDown);
       cleanupPty();
+      cleanupRemotePty?.();
       cleanupTheme();
       resizeObserver.disconnect();
       term.dispose();

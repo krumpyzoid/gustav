@@ -8,7 +8,7 @@ export default defineConfig({
     build: {
       outDir: 'build/main',
       rollupOptions: {
-        external: ['node-pty']
+        external: ['node-pty', 'ws']
       }
     }
   },

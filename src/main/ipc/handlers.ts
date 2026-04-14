@@ -77,8 +77,11 @@ export function registerHandlers(deps: {
   preferenceService: PreferenceService;
   ensurePty: () => void;
   broadcastTheme: () => void;
+  remoteService?: import('../remote/remote.service').RemoteService;
+  remoteClientService?: import('../remote/remote-client.service').RemoteClientService;
+  broadcastToRenderer?: (channel: string, ...args: unknown[]) => void;
 }): void {
-  const { worktreeService, sessionService, stateService, themeService, workspaceService, configService, preferenceService, tmux, shell, git, getPtyClientTty, getActiveSession, setActiveSession, ensurePty, broadcastTheme } = deps;
+  const { worktreeService, sessionService, stateService, themeService, workspaceService, configService, preferenceService, tmux, shell, git, getPtyClientTty, getActiveSession, setActiveSession, ensurePty, broadcastTheme, remoteService, remoteClientService, broadcastToRenderer } = deps;
 
   /** Ensure PTY is running, switch tmux client to the given session, and mark it active. */
   async function switchAfterPty(session: string): Promise<void> {
@@ -493,5 +496,102 @@ export function registerHandlers(deps: {
     const prefs = preferenceService.set(key, value as any);
     if (key === 'theme') broadcastTheme();
     return prefs;
+  });
+
+  // ── Remote server commands ────────────────────────────────────────
+  ipcMain.handle(Channels.ENABLE_REMOTE, async (_event, port: number) => {
+    if (!remoteService) return err('Remote service not available');
+    try {
+      await remoteService.start(port);
+      return ok(remoteService.getHostInfo());
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
+  ipcMain.handle(Channels.DISABLE_REMOTE, async () => {
+    if (!remoteService) return err('Remote service not available');
+    try {
+      await remoteService.stop();
+      return ok(undefined);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
+  ipcMain.handle(Channels.GET_HOST_INFO, () => {
+    if (!remoteService) return err('Remote service not available');
+    return ok(remoteService.getHostInfo());
+  });
+
+  ipcMain.handle(Channels.DISCONNECT_REMOTE_CLIENT, () => {
+    if (!remoteService) return err('Remote service not available');
+    remoteService.disconnectClient();
+    return ok(undefined);
+  });
+
+  ipcMain.handle(Channels.REGENERATE_PAIRING_CODE, () => {
+    if (!remoteService) return err('Remote service not available');
+    remoteService.regenerateCode();
+    return ok(remoteService.getHostInfo());
+  });
+
+  // ── Remote client commands ──────────────────────────────────────────
+  // Remote PTY input/resize (fire-and-forget, like local PTY)
+  ipcMain.on(Channels.REMOTE_PTY_INPUT, (_event, channelId: number, data: string) => {
+    remoteClientService?.sendPtyInput(channelId, data);
+  });
+
+  ipcMain.on(Channels.REMOTE_PTY_RESIZE, (_event, channelId: number, cols: number, rows: number) => {
+    remoteClientService?.sendPtyResize(channelId, cols, rows);
+  });
+
+  ipcMain.handle(Channels.CONNECT_REMOTE, async (_event, host: string, port: number, code: string) => {
+    if (!remoteClientService) return err('Remote client service not available');
+    try {
+      await remoteClientService.connect(`wss://${host}:${port}`);
+      // Send pairing auth
+      remoteClientService.sendAuth({ method: 'pair', code });
+      return ok(undefined);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
+  ipcMain.handle(Channels.DISCONNECT_REMOTE, () => {
+    if (!remoteClientService) return err('Remote client service not available');
+    remoteClientService.disconnect();
+    return ok(undefined);
+  });
+
+  ipcMain.handle(Channels.GET_REMOTE_STATE, () => {
+    if (!remoteClientService) return err('Remote client service not available');
+    return ok({ status: remoteClientService.getConnectionStatus() });
+  });
+
+  ipcMain.handle(Channels.REMOTE_SESSION_COMMAND, async (_event, action: string, params: Record<string, unknown>) => {
+    if (!remoteClientService) return err('Remote client service not available');
+    try {
+      remoteClientService.sendCommand(action, params);
+      return ok(undefined);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
+  ipcMain.handle(Channels.FORWARD_PORT, async (_event, remotePort: number, localPort?: number) => {
+    if (!remoteClientService) return err('Remote client service not available');
+    try {
+      const result = await remoteClientService.forwardPort(remotePort, localPort ?? remotePort, remotePort);
+      return result.success ? ok({ localPort: localPort ?? remotePort }) : err(result.error ?? 'Failed to forward port');
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
+  ipcMain.handle(Channels.STOP_FORWARD, (_event, channelId: number) => {
+    if (!remoteClientService) return err('Remote client service not available');
+    remoteClientService.stopForward(channelId);
+    return ok(undefined);
   });
 }

@@ -97,9 +97,10 @@ interface Props {
   onAddWorktree?: (repoName: string, repoRoot: string, workspaceName: string) => void;
   onUnpinRepo?: (workspaceId: string, repoPath: string) => void;
   defaultExpanded?: boolean;
+  isRemote?: boolean;
 }
 
-export function WorkspaceAccordion({ state, headerRef, onAddSession, onPinRepos, onEdit, onRemoveWorktree, onAddWorktree, onUnpinRepo, defaultExpanded = true }: Props) {
+export function WorkspaceAccordion({ state, headerRef, onAddSession, onPinRepos, onEdit, onRemoveWorktree, onAddWorktree, onUnpinRepo, defaultExpanded = true, isRemote }: Props) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [plusDropdownOpen, setPlusDropdownOpen] = useState(false);
   const plusDropdownRef = useRef<HTMLDivElement>(null);

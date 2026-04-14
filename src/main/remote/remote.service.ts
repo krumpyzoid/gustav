@@ -1,0 +1,415 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { RemoteServerAdapter } from './remote-server.adapter';
+import { AuthService, type AuthStorage } from './auth.service';
+import { CommandDispatcher } from './command-dispatcher';
+import { PtyManager } from './pty-manager';
+import { TunnelManager } from './tunnel-manager';
+import { generateSelfSignedCert, type TlsCert } from './crypto';
+import { decodeControlMessage, encodeControlMessage, ChannelType, decodeBinaryFrame } from './protocol';
+import type { StateService } from '../services/state.service';
+import type { SessionService } from '../services/session.service';
+import type { WorkspaceService } from '../services/workspace.service';
+import type { ConfigService } from '../services/config.service';
+import type { GitPort } from '../ports/git.port';
+import type { TmuxPort } from '../ports/tmux.port';
+import type { ShellPort } from '../ports/shell.port';
+
+export type RemoteServiceDeps = {
+  stateService: StateService;
+  sessionService: SessionService;
+  workspaceService: WorkspaceService;
+  configService: ConfigService;
+  git: GitPort;
+  tmux: TmuxPort;
+  shell: ShellPort;
+  dataDir: string;
+};
+
+export type HostInfo = {
+  enabled: boolean;
+  port: number | null;
+  pairingCode: string | null;
+  pairingExpiresAt: number | null;
+  clientConnected: boolean;
+  clientAddress: string | null;
+};
+
+export class RemoteService {
+  private server: RemoteServerAdapter | null = null;
+  private auth: AuthService | null = null;
+  private dispatcher: CommandDispatcher;
+  private ptyManager: PtyManager | null = null;
+  private tunnelManager: TunnelManager | null = null;
+  private port: number | null = null;
+  private authenticated = false;
+  private clientAddress: string | null = null;
+  private messageQueue = Promise.resolve();
+
+  constructor(private deps: RemoteServiceDeps) {
+    this.dispatcher = new CommandDispatcher({
+      stateService: deps.stateService,
+      sessionService: deps.sessionService,
+      workspaceService: deps.workspaceService,
+      configService: deps.configService,
+      git: deps.git,
+      tmux: deps.tmux,
+      isAllowedDirectory: (dir) => this.isAllowedDirectory(dir),
+    });
+  }
+
+  async start(port: number): Promise<void> {
+    this.port = port;
+    const remoteDir = join(this.deps.dataDir, 'remote');
+    if (!existsSync(remoteDir)) mkdirSync(remoteDir, { recursive: true });
+
+    // Load or generate TLS cert
+    const tlsCert = this.loadOrGenerateCert(remoteDir);
+
+    // Create auth service with file-backed storage
+    const authStorage: AuthStorage = {
+      read: (path) => {
+        const fullPath = join(remoteDir, path);
+        try { return readFileSync(fullPath, 'utf-8'); } catch { return null; }
+      },
+      write: (path, data) => {
+        writeFileSync(join(remoteDir, path), data, { encoding: 'utf-8', mode: 0o600 });
+      },
+    };
+    this.auth = new AuthService(authStorage);
+    this.auth.generatePairingCode();
+
+    // Create server
+    this.server = new RemoteServerAdapter({ port, cert: tlsCert.cert, key: tlsCert.key });
+
+    // Wire up server events
+    this.server.onConnection(() => {
+      this.authenticated = false;
+      this.clientAddress = this.server?.getClientAddress() ?? null;
+    });
+
+    this.server.onDisconnection(() => {
+      this.teardownManagers();
+    });
+
+    this.server.onMessage((data) => {
+      // Serialize async message processing to prevent TOCTOU races (C3)
+      this.messageQueue = this.messageQueue
+        .then(() => this.handleTextMessage(data))
+        .catch(() => {});
+    });
+
+    this.server.onBinaryMessage((data) => {
+      this.handleBinaryMessage(data);
+    });
+
+    await this.server.start();
+  }
+
+  async stop(): Promise<void> {
+    this.teardownManagers();
+    await this.server?.stop();
+    this.server = null;
+    this.auth = null;
+    this.port = null;
+    this.authenticated = false;
+    this.clientAddress = null;
+  }
+
+  getHostInfo(): HostInfo {
+    if (!this.server || !this.auth) {
+      return { enabled: false, port: null, pairingCode: null, pairingExpiresAt: null, clientConnected: false, clientAddress: null };
+    }
+
+    const code = this.auth.getCurrentPairingCode();
+    return {
+      enabled: true,
+      port: this.port,
+      pairingCode: code?.code ?? null,
+      pairingExpiresAt: code?.expiresAt ?? null,
+      clientConnected: this.server.hasClient() && this.authenticated,
+      clientAddress: this.clientAddress,
+    };
+  }
+
+  regenerateCode(): void {
+    this.auth?.generatePairingCode();
+  }
+
+  disconnectClient(): void {
+    this.server?.disconnectClient();
+  }
+
+  broadcastState(state: unknown): void {
+    if (!this.server?.hasClient() || !this.authenticated) return;
+    this.server.sendText(encodeControlMessage({
+      type: 'state-update',
+      id: `state-${Date.now()}`,
+      payload: state as Record<string, unknown>,
+    }));
+  }
+
+  // ── Private ────────────────────────────────────────────────────────
+  private async handleTextMessage(data: string): Promise<void> {
+    try {
+      const msg = decodeControlMessage(data);
+
+      if (msg.type === 'auth') {
+        await this.handleAuth(msg.payload);
+        return;
+      }
+
+      if (!this.authenticated) {
+        this.server?.sendText(encodeControlMessage({
+          type: 'error',
+          id: msg.id,
+          payload: { message: 'Not authenticated' },
+        }));
+        return;
+      }
+
+      if (msg.type === 'session-command') {
+        const { action, ...params } = msg.payload as Record<string, unknown>;
+        if (action === 'attach-pty') {
+          this.handleAttachPty(msg.id, params);
+          return;
+        }
+        if (action === 'detach-pty') {
+          this.handleDetachPty(params);
+          return;
+        }
+        if (action === 'resize-pty') {
+          this.handleResizePty(params);
+          return;
+        }
+        // Dispatch as a regular command
+        const result = await this.dispatcher.dispatch(action as string, params);
+        this.server?.sendText(encodeControlMessage({
+          type: 'session-command',
+          id: msg.id,
+          payload: result as unknown as Record<string, unknown>,
+        }));
+        return;
+      }
+
+      if (msg.type === 'port-event') {
+        await this.handlePortEvent(msg.id, msg.payload);
+        return;
+      }
+
+      // Default: try to dispatch as a command
+      const result = await this.dispatcher.dispatch(msg.type, msg.payload);
+      this.server?.sendText(encodeControlMessage({
+        type: msg.type,
+        id: msg.id,
+        payload: result as unknown as Record<string, unknown>,
+      }));
+    } catch (e) {
+      // Ignore malformed messages
+    }
+  }
+
+  private async handleAuth(payload: Record<string, unknown>): Promise<void> {
+    if (!this.auth || !this.server) return;
+
+    const clientIp = this.server.getClientAddress() ?? 'unknown';
+
+    // S2: Enforce rate limiting before processing auth
+    if (this.server.isRateLimited(clientIp)) {
+      this.server.sendText(encodeControlMessage({
+        type: 'auth',
+        id: 'rate-limited',
+        payload: { success: false, message: 'Too many failed attempts. Try again later.' },
+      }));
+      return;
+    }
+
+    const method = payload.method as string;
+
+    if (method === 'pair') {
+      const code = payload.code as string;
+      if (this.auth.verifyPairingCode(code)) {
+        const clientPubKey = payload.publicKey as string;
+        const clientId = this.auth.completePairing(clientPubKey);
+        this.authenticated = true;
+        this.server.sendText(encodeControlMessage({
+          type: 'auth',
+          id: 'pair-ok',
+          payload: {
+            success: true,
+            clientId,
+            serverPublicKey: this.auth.getServerPublicKey(),
+          },
+        }));
+      } else {
+        this.server.recordFailedAuth(clientIp);
+        this.server.sendText(encodeControlMessage({
+          type: 'auth',
+          id: 'pair-fail',
+          payload: { success: false, message: 'Invalid pairing code' },
+        }));
+      }
+      return;
+    }
+
+    if (method === 'challenge-response') {
+      const nonce = this.auth.generateChallenge();
+      this.server.sendText(encodeControlMessage({
+        type: 'auth',
+        id: 'challenge',
+        payload: { nonce },
+      }));
+      return;
+    }
+
+    if (method === 'verify') {
+      const { publicKey, signature } = payload as { publicKey: string; signature: string };
+      // S3: Sign the server's own current challenge, not client-supplied nonce
+      const serverSig = this.auth.signCurrentChallenge();
+      if (this.auth.verifyChallengeResponse(publicKey, signature)) {
+        this.authenticated = true;
+        this.server.sendText(encodeControlMessage({
+          type: 'auth',
+          id: 'verify-ok',
+          payload: { success: true, serverSignature: serverSig },
+        }));
+      } else {
+        this.server.recordFailedAuth(clientIp);
+        this.server.sendText(encodeControlMessage({
+          type: 'auth',
+          id: 'verify-fail',
+          payload: { success: false, message: 'Authentication failed' },
+        }));
+      }
+    }
+  }
+
+  private handleAttachPty(msgId: string, params: Record<string, unknown>): void {
+    if (!this.ptyManager) {
+      this.ptyManager = new PtyManager((frame) => {
+        this.server?.sendBinary(frame);
+      });
+    }
+
+    const session = params.tmuxSession as string;
+
+    // S4: Validate tmux session name — only allow Gustav-managed sessions
+    if (!this.isKnownSession(session)) {
+      this.server?.sendText(encodeControlMessage({
+        type: 'session-command',
+        id: msgId,
+        payload: { success: false, error: 'Unknown or invalid session' },
+      }));
+      return;
+    }
+
+    const cols = (params.cols as number) || 80;
+    const rows = (params.rows as number) || 24;
+    const channelId = this.ptyManager.attach(session, cols, rows);
+
+    this.server?.sendText(encodeControlMessage({
+      type: 'session-command',
+      id: msgId,
+      payload: { success: true, channelId },
+    }));
+  }
+
+  private handleDetachPty(params: Record<string, unknown>): void {
+    const channelId = params.channelId as number;
+    this.ptyManager?.detach(channelId);
+  }
+
+  private handleResizePty(params: Record<string, unknown>): void {
+    const channelId = params.channelId as number;
+    const cols = params.cols as number;
+    const rows = params.rows as number;
+    this.ptyManager?.resize(channelId, cols, rows);
+  }
+
+  private handleBinaryMessage(data: Buffer): void {
+    const frame = decodeBinaryFrame(data);
+    if (frame.channelType === ChannelType.PTY_INPUT) {
+      this.ptyManager?.handleInput(data);
+    } else if (frame.channelType === ChannelType.PORT_TUNNEL) {
+      this.tunnelManager?.handleData(data);
+    }
+  }
+
+  private async handlePortEvent(msgId: string, payload: Record<string, unknown>): Promise<void> {
+    const action = payload.action as string;
+
+    if (action === 'forward') {
+      if (!this.tunnelManager) {
+        this.tunnelManager = new TunnelManager((frame) => {
+          this.server?.sendBinary(frame);
+        });
+      }
+      const port = payload.port as number;
+      const result = await this.tunnelManager.createTunnel(port);
+      this.server?.sendText(encodeControlMessage({
+        type: 'port-event',
+        id: msgId,
+        payload: result as unknown as Record<string, unknown>,
+      }));
+      return;
+    }
+
+    if (action === 'stop-forward') {
+      const channelId = payload.channelId as number;
+      this.tunnelManager?.destroyTunnel(channelId);
+      this.server?.sendText(encodeControlMessage({
+        type: 'port-event',
+        id: msgId,
+        payload: { success: true },
+      }));
+    }
+  }
+
+  private teardownManagers(): void {
+    this.authenticated = false;
+    this.clientAddress = null;
+    this.ptyManager?.destroyAll();
+    this.tunnelManager?.destroyAll();
+    this.ptyManager = null;
+    this.tunnelManager = null;
+  }
+
+  /** S4: Check if a tmux session name is managed by Gustav */
+  private isKnownSession(session: string): boolean {
+    // Must match pattern: workspace/repo/branch, workspace/repo/_dir, workspace/_ws, _standalone/label
+    if (!/^[\w\-. /]+$/.test(session)) return false;
+    // Check against known workspaces and persisted sessions
+    const ws = this.deps.workspaceService.findBySessionPrefix(session);
+    if (ws) return true;
+    if (session.startsWith('_standalone/')) return true;
+    return false;
+  }
+
+  /** S5: Validate directory is within a known workspace root */
+  private isAllowedDirectory(dir: string): boolean {
+    const resolved = resolve(dir);
+    const workspaces = this.deps.workspaceService.list();
+    return workspaces.some((ws) => {
+      const root = ws.directory.endsWith('/') ? ws.directory : ws.directory + '/';
+      return resolved === ws.directory || resolved.startsWith(root);
+    });
+  }
+
+  private loadOrGenerateCert(dir: string): TlsCert {
+    const certPath = join(dir, 'server.cert');
+    const keyPath = join(dir, 'server.key');
+
+    try {
+      const cert = readFileSync(certPath, 'utf-8');
+      const key = readFileSync(keyPath, 'utf-8');
+      if (cert && key) return { cert, key };
+    } catch {
+      // Generate new cert
+    }
+
+    const tlsCert = generateSelfSignedCert();
+    writeFileSync(certPath, tlsCert.cert);
+    writeFileSync(keyPath, tlsCert.key, { mode: 0o600 });
+    return tlsCert;
+  }
+}

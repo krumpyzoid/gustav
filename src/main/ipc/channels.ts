@@ -46,6 +46,28 @@ export const Channels = {
   PTY_INPUT: 'pty-input',
   PTY_RESIZE: 'pty-resize',
 
+  // Remote server commands
+  ENABLE_REMOTE: 'enable-remote',
+  DISABLE_REMOTE: 'disable-remote',
+  GET_HOST_INFO: 'get-host-info',
+  DISCONNECT_REMOTE_CLIENT: 'disconnect-remote-client',
+  REGENERATE_PAIRING_CODE: 'regenerate-pairing-code',
+
+  // Remote client commands
+  CONNECT_REMOTE: 'connect-remote',
+  DISCONNECT_REMOTE: 'disconnect-remote',
+  GET_REMOTE_STATE: 'get-remote-state',
+  REMOTE_SESSION_COMMAND: 'remote-session-command',
+  REMOTE_PTY_INPUT: 'remote-pty-input',
+  REMOTE_PTY_RESIZE: 'remote-pty-resize',
+  FORWARD_PORT: 'forward-port',
+  STOP_FORWARD: 'stop-forward',
+
+  // Remote events (main → renderer)
+  REMOTE_STATE_UPDATE: 'remote-state-update',
+  REMOTE_PTY_DATA: 'remote-pty-data',
+  REMOTE_CONNECTION_STATUS: 'remote-connection-status',
+
   // Events (main → renderer)
   STATE_UPDATE: 'state-update',
   THEME_UPDATE: 'theme-update',

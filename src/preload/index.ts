@@ -68,4 +68,41 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('theme-update', handler);
     return () => ipcRenderer.removeListener('theme-update', handler);
   },
+
+  // Remote server
+  enableRemote: (port: number) => ipcRenderer.invoke('enable-remote', port),
+  disableRemote: () => ipcRenderer.invoke('disable-remote'),
+  getHostInfo: () => ipcRenderer.invoke('get-host-info'),
+  disconnectRemoteClient: () => ipcRenderer.invoke('disconnect-remote-client'),
+  regeneratePairingCode: () => ipcRenderer.invoke('regenerate-pairing-code'),
+
+  // Remote client
+  connectRemote: (host: string, port: number, code: string) =>
+    ipcRenderer.invoke('connect-remote', host, port, code),
+  disconnectRemote: () => ipcRenderer.invoke('disconnect-remote'),
+  getRemoteState: () => ipcRenderer.invoke('get-remote-state'),
+  remoteSessionCommand: (action: string, params: any) =>
+    ipcRenderer.invoke('remote-session-command', action, params),
+  sendRemotePtyInput: (channelId: number, data: string) =>
+    ipcRenderer.send('remote-pty-input', channelId, data),
+  sendRemotePtyResize: (channelId: number, cols: number, rows: number) =>
+    ipcRenderer.send('remote-pty-resize', channelId, cols, rows),
+  forwardPort: (remotePort: number, localPort?: number) =>
+    ipcRenderer.invoke('forward-port', remotePort, localPort),
+  stopForward: (channelId: number) => ipcRenderer.invoke('stop-forward', channelId),
+  onRemoteStateUpdate: (cb: (state: any) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, state: any) => cb(state);
+    ipcRenderer.on('remote-state-update', handler);
+    return () => ipcRenderer.removeListener('remote-state-update', handler);
+  },
+  onRemotePtyData: (cb: (data: any) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: any) => cb(data);
+    ipcRenderer.on('remote-pty-data', handler);
+    return () => ipcRenderer.removeListener('remote-pty-data', handler);
+  },
+  onRemoteConnectionStatus: (cb: (status: string) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, status: string) => cb(status);
+    ipcRenderer.on('remote-connection-status', handler);
+    return () => ipcRenderer.removeListener('remote-connection-status', handler);
+  },
 });

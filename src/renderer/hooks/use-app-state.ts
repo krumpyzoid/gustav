@@ -10,14 +10,35 @@ const emptyWorkspace: WorkspaceState = {
   status: 'none',
 };
 
+export type RemoteConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+
+export type ForwardedPort = {
+  remotePort: number;
+  localPort: number;
+  channelId: number;
+};
+
 interface AppStore {
   defaultWorkspace: WorkspaceState;
   workspaces: WorkspaceState[];
   activeSession: string | null;
   windows: WindowInfo[];
+  // Remote state
+  remoteState: WorkspaceAppState | null;
+  remoteActiveSession: string | null;
+  remoteConnectionStatus: RemoteConnectionStatus;
+  forwardedPorts: ForwardedPort[];
+  isRemoteSession: boolean;
+  remotePtyChannelId: number | null;
   setFromState: (state: WorkspaceAppState) => void;
   setActiveSession: (session: string | null) => void;
   setWindows: (windows: WindowInfo[]) => void;
+  setRemoteState: (state: WorkspaceAppState | null) => void;
+  setRemoteActiveSession: (session: string | null) => void;
+  setRemoteConnectionStatus: (status: RemoteConnectionStatus) => void;
+  setForwardedPorts: (ports: ForwardedPort[]) => void;
+  setIsRemoteSession: (isRemote: boolean) => void;
+  setRemotePtyChannelId: (id: number | null) => void;
 }
 
 export const useAppStore = create<AppStore>((set) => ({
@@ -25,6 +46,12 @@ export const useAppStore = create<AppStore>((set) => ({
   workspaces: [],
   activeSession: null,
   windows: [],
+  remoteState: null,
+  remoteActiveSession: null,
+  remoteConnectionStatus: 'disconnected',
+  forwardedPorts: [],
+  isRemoteSession: false,
+  remotePtyChannelId: null,
   setFromState: (state) => {
     const grouped = groupByWorkspace(state);
     set({
@@ -35,6 +62,12 @@ export const useAppStore = create<AppStore>((set) => ({
   },
   setActiveSession: (activeSession) => set({ activeSession }),
   setWindows: (windows) => set({ windows }),
+  setRemoteState: (remoteState) => set({ remoteState }),
+  setRemoteActiveSession: (remoteActiveSession) => set({ remoteActiveSession }),
+  setRemoteConnectionStatus: (remoteConnectionStatus) => set({ remoteConnectionStatus }),
+  setForwardedPorts: (forwardedPorts) => set({ forwardedPorts }),
+  setIsRemoteSession: (isRemoteSession) => set({ isRemoteSession }),
+  setRemotePtyChannelId: (remotePtyChannelId) => set({ remotePtyChannelId }),
 }));
 
 export function useAppStateSubscription() {
@@ -64,11 +97,25 @@ export function useAppStateSubscription() {
     });
 
     // Subscribe to updates
-    const cleanup = window.api.onStateUpdate((state: WorkspaceAppState) => {
+    const cleanupState = window.api.onStateUpdate((state: WorkspaceAppState) => {
       setFromState(state);
     });
 
-    return cleanup;
+    // Subscribe to remote state updates
+    const cleanupRemote = window.api.onRemoteStateUpdate?.((state: WorkspaceAppState) => {
+      useAppStore.getState().setRemoteState(state);
+    });
+
+    // Subscribe to remote connection status
+    const cleanupStatus = window.api.onRemoteConnectionStatus?.((status: string) => {
+      useAppStore.getState().setRemoteConnectionStatus(status as RemoteConnectionStatus);
+    });
+
+    return () => {
+      cleanupState();
+      cleanupRemote?.();
+      cleanupStatus?.();
+    };
   }, [setFromState, setWindows]);
 }
 

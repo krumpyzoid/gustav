@@ -12,6 +12,7 @@ import { NewWorktreeDialog } from './components/dialogs/NewWorktreeDialog';
 import { PinReposDialog } from './components/dialogs/PinReposDialog';
 import { RemoveWorktreeDialog } from './components/dialogs/RemoveWorktreeDialog';
 import { CleanWorktreesDialog } from './components/dialogs/CleanWorktreesDialog';
+import { ConnectRemoteDialog } from './components/dialogs/ConnectRemoteDialog';
 import { useAppStateSubscription, refreshState } from './hooks/use-app-state';
 import { useKeyboardShortcuts } from './hooks/use-keyboard-shortcuts';
 import { focusTerminal } from './hooks/use-terminal';
@@ -44,6 +45,7 @@ export function App() {
   const [newWorktreeWorkspaceName, setNewWorktreeWorkspaceName] = useState('');
   const [removeTab, setRemoveTab] = useState<SessionTab | null>(null);
   const [removeRepoRoot, setRemoveRepoRoot] = useState<string | null>(null);
+  const [connectRemoteOpen, setConnectRemoteOpen] = useState(false);
 
   return (
     <div className="flex h-screen bg-bg">
@@ -63,6 +65,7 @@ export function App() {
             onAddWorktree={(repoName, repoRoot, workspaceName) => { setNewWorktreeRepo(repoName); setNewWorktreeRoot(repoRoot); setNewWorktreeWorkspaceName(workspaceName); setNewWorktreeOpen(true); }}
             onUnpinRepo={async (workspaceId, repoPath) => { await window.api.unpinRepo(workspaceId, repoPath); refreshState(); }}
             onOpenSettings={() => setView('settings')}
+            onConnectRemote={() => setConnectRemoteOpen(true)}
           />
         ) : (
           <SettingsSidebar
@@ -123,6 +126,10 @@ export function App() {
       <CleanWorktreesDialog
         open={cleanOpen}
         onClose={() => setCleanOpen(false)}
+      />
+      <ConnectRemoteDialog
+        open={connectRemoteOpen}
+        onClose={() => setConnectRemoteOpen(false)}
       />
     </div>
   );

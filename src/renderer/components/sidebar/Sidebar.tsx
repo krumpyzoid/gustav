@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Moon, Plus, Settings } from 'lucide-react';
+import { Moon, Plus, Settings, Wifi } from 'lucide-react';
 import { useAppStore, refreshState } from '../../hooks/use-app-state';
+import { RemoteSection } from './RemoteSection';
 import { WorkspaceAccordion } from './WorkspaceAccordion';
 import { DraggableWorkspace } from './DraggableWorkspace';
 import type { SessionTab as SessionTabType } from '../../../main/domain/types';
@@ -48,9 +49,10 @@ interface Props {
   onAddWorktree: (repoName: string, repoRoot: string, workspaceName: string) => void;
   onUnpinRepo: (workspaceId: string, repoPath: string) => void;
   onOpenSettings: () => void;
+  onConnectRemote?: () => void;
 }
 
-export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRepos, onEditWorkspace, onRemoveWorktree, onAddWorktree, onUnpinRepo, onOpenSettings }: Props) {
+export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRepos, onEditWorkspace, onRemoveWorktree, onAddWorktree, onUnpinRepo, onOpenSettings, onConnectRemote }: Props) {
   const { defaultWorkspace, workspaces } = useAppStore();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -104,6 +106,14 @@ export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRe
   return (
     <>
       <div className="flex items-center justify-end gap-2 pb-4" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
+        <button
+          onClick={onConnectRemote}
+          className="bg-transparent -none text-foreground/60 hover:text-foreground cursor-pointer p-0.5 transition-colors flex items-center"
+          title="Connect to Remote"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
+          <Wifi size={14} />
+        </button>
         <button
           onClick={handleSleepAll}
           className="bg-transparent -none text-foreground/60 hover:text-foreground cursor-pointer p-0.5 transition-colors flex items-center"
@@ -167,6 +177,9 @@ export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRe
             onUnpinRepo={onUnpinRepo}
           />
         ))}
+
+        {/* Remote section */}
+        <RemoteSection />
       </div>
 
     </>
