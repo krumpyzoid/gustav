@@ -10,6 +10,7 @@ Connect remotely over Tailscale to operate your workstation from anywhere.
 ## Getting Started
 
 ```bash
+npm install
 npx electron-vite dev
 ```
 
