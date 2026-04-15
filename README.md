@@ -1,125 +1,151 @@
 # Gustav
 
-A desktop app for managing Git worktrees with integrated tmux sessions. Each worktree gets a tmux session with Claude Code, Lazygit, and a shell — plus any custom windows you define.
+A desktop app for managing your development sessions. Each project gets a tmux session with Claude Code, Lazygit, and a shell — and you can control everything from the sidebar while Claude's status updates in real time across all your sessions.
 
-Built with Electron, React 19, and xterm.js.
+Connect remotely over Tailscale to operate your workstation from anywhere.
 
-## Prerequisites
-
-- Node.js 18+
-- git
-- tmux
-- lazygit (optional, used in the Git window)
-
-## Setup
+## Getting Started
 
 ```bash
 npm install
 npm run dev
 ```
 
-## How It Works
+Requires Node.js 18+, git, tmux, and optionally lazygit.
 
-Gustav manages Git worktrees and ties each one to a tmux session. When you create a worktree through the UI, Gustav:
+## Workspaces
 
-1. Runs `git worktree add` to create the worktree in `.worktrees/<branch>`
-2. Copies files, writes `.env`, and runs install commands (all configurable)
-3. Launches a tmux session named `<repo>/<branch>` with default windows:
-   - **Claude Code** — runs `claude`
-   - **Git** — runs `lazygit`
-   - **Shell** — plain shell
+A workspace is a project folder. When you create one, Gustav discovers the git repos inside it and lets you pin the ones you work on.
 
-The embedded terminal (xterm.js + node-pty) attaches to tmux, so you switch between sessions directly in the app. A 5-second polling loop detects Claude Code status (busy/waiting for approval/done) and shows it in the sidebar.
+Each pinned repo appears in the sidebar with its sessions underneath. You can drag to reorder workspaces, repos, and sessions.
 
-## The `.wt` Config File
+**To create a workspace:** Click `+` in the top bar > New Workspace > pick a directory.
 
-Drop a `.wt` file in your repo root to configure worktree behavior. It uses a simple INI format — all sections are optional.
+**To pin repos:** Click the pin icon on a workspace > select repos from the list.
+
+## Sessions
+
+Click any session in the sidebar to switch to it. The terminal attaches instantly.
+
+| Type | What it's for |
+|------|---------------|
+| **Directory** | Work on a repo's main branch. Opens with Claude Code, Lazygit, and a shell. |
+| **Worktree** | Work on a feature branch in an isolated copy. Same windows as directory. |
+| **Workspace** | General tasks at the workspace level. Claude Code and a shell. |
+| **Standalone** | Quick session in any folder. |
+
+### Sleep & Wake
+
+Put a session to sleep when you're not using it — it frees the tmux session but remembers everything: window layout, Claude session IDs, running commands. Wake it later and it restores exactly where you left off.
+
+**Sleep All** (moon icon in the top bar) pauses every active session.
+
+### Worktrees
+
+Create a worktree from the sidebar: pick a branch (or create one), choose a base ref, and Gustav handles the git commands, file copying, and environment setup. The new worktree gets its own session immediately.
+
+**Cleaning up:** Gustav detects worktrees where the branch was merged or the remote was deleted. Batch-clean them from Settings.
+
+## Claude Code
+
+Every session starts with a Claude Code window. Gustav tracks Claude's status across all sessions and shows it in the sidebar:
+
+- **Spinning** — Claude is working
+- **Orange dot** — Claude needs your approval
+- **Green dot** — Claude is done
+
+When you wake a session, Gustav resumes your Claude conversation automatically.
+
+## Terminal
+
+The embedded terminal attaches directly to tmux. Keyboard shortcuts:
+
+| Shortcut | Action |
+|----------|--------|
+| **Ctrl + / -** | Zoom in/out (terminal and sidebar scale together) |
+| **Ctrl + 0** | Reset zoom |
+| **Alt + Up/Down** | Switch between sessions |
+| **Alt + Left/Right** | Switch between windows in the current session |
+
+Text you select is automatically copied to your clipboard. Mouse scroll works for tmux scrollback.
+
+### Window Tabs
+
+Each session has named tabs above the terminal (Claude Code, Git, Shell, plus any custom ones from your config). Click to switch, and you can add or remove windows on the fly.
+
+## Remote Control
+
+Access your desktop's Gustav from your laptop over the internet. Pair once, then reconnect with one click.
+
+### First Time Setup
+
+**On your desktop:**
+1. Go to Settings > Remote Host
+2. Click "Enable Remote Access"
+3. Copy the connection string (looks like `100.64.0.1:7777:ABC123`)
+
+**On your laptop:**
+1. Click the wifi icon in the sidebar
+2. Paste the connection string
+3. Done — remote workspaces appear in the sidebar
+
+The connection is saved automatically. Next time, just click your desktop in the saved servers list.
+
+### What You Can Do Remotely
+
+- See all your workspaces and sessions with live Claude status
+- Click a remote session to attach — the terminal streams in real time
+- Create, sleep, wake, and destroy remote sessions
+- Forward dev server ports: if something runs on `localhost:5173` on your desktop, forward it so your laptop can access it too
+
+### Network
+
+Designed for Tailscale (free tier works). Both machines get stable IPs and can reach each other directly — no port forwarding needed.
+
+## Themes
+
+Six built-in themes: System, Gruvbox Dark, Gruvbox Light, Nord, Rose Pine, and Claude. Change in Settings > Appearance. The theme applies to both the terminal and the sidebar.
+
+## Configuration
+
+Drop a `.gustav` file in a repo root to customize session behavior. All sections are optional.
 
 ```ini
-# Environment variables written to .env in new worktrees
+# Environment variables for new worktrees
 [env]
 DATABASE_URL=postgres://localhost/myapp_dev
-REDIS_URL=redis://localhost:6379
 
-# Files/directories to copy from repo root into new worktrees
+# Files to copy from repo root into new worktrees
 [copy]
 config/.env.local
-scripts/setup.sh
 .claude/settings.local.json
 
-# Command to run after worktree creation (when "Run install" is checked)
+# Install command (runs when "Run install" is checked)
 [install]
-cmd=npm ci && npm run build
+cmd=npm ci
 
 # Default base branch for new worktrees
 [new]
 base=origin/main
 
-# Lifecycle hooks — receive WT_BRANCH and WT_PATH env vars
-# pre_ hooks abort on failure, post_ hooks warn and continue
+# Lifecycle hooks (receive WT_BRANCH and WT_PATH)
 [hooks]
-pre_new=echo "Creating $WT_BRANCH"
 post_new=npm install
-pre_rm=echo "Removing $WT_BRANCH"
-post_rm=echo "Done"
-pre_clean=git gc
-post_clean=echo "Clean complete"
 
-# Extra tmux windows (format: Name:command or just Name)
+# Extra tmux windows added after Claude/Git/Shell
 [tmux]
 window=Tests:npm run test:watch
-window=Docs:open ./docs/index.html
 window=Build
 
-# Branch to check against when finding stale worktrees to clean
+# Branch for detecting merged worktrees during cleanup
 [clean]
 merged_into=origin/staging
 ```
 
-### Section Reference
-
-| Section | Purpose |
-|---------|---------|
-| `[env]` | Key=value pairs written as `.env` in the worktree. If empty, copies root `.env` instead |
-| `[copy]` | Relative paths to copy from repo root to worktree |
-| `[install]` | `cmd=` shell command to run after setup |
-| `[new]` | `base=` default base ref (fallback: `origin/main`) |
-| `[hooks]` | `pre_new`, `post_new`, `pre_rm`, `post_rm`, `pre_clean`, `post_clean` |
-| `[tmux]` | `window=Name:command` entries — added after the default Claude/Git/Shell windows |
-| `[clean]` | `merged_into=` branch for merged-branch detection (default: `origin/staging`) |
-
-### Worktree Lifecycle
-
-**Create** — `.wt` is parsed, then: `git fetch` -> `git worktree add` -> `pre_new` hook -> copy `.claude/settings.local.json` -> write `.env` -> copy `[copy]` files -> run `[install]` -> `post_new` hook -> launch tmux session.
-
-**Remove** — `pre_rm` hook -> `git worktree remove --force` -> kill tmux session -> optionally `git branch -d` -> `post_rm` hook.
-
-**Clean** — finds worktrees where the branch is merged into `merged_into` or the remote branch was deleted. Then: `pre_clean` hook -> remove each worktree + session -> `git worktree prune` -> `post_clean` hook.
-
-## tmux Session Layout
-
-Each worktree session is named `<repo>/<branch>` (e.g. `myapp/feat-auth`). Default windows:
-
-```
-Window 0: Claude Code  ->  runs `claude`
-Window 1: Git          ->  runs `lazygit`
-Window 2: Shell        ->  plain shell
-Window 3+: [tmux]      ->  from .wt config
-```
-
-Sessions without the `repo/branch` pattern show up as "Standalone" in the sidebar.
-
-## Project Registry
-
-Gustav stores pinned projects in `~/.local/share/wt/repos.json`. Pin a project through the sidebar's `+` button — it recursively discovers git repos in the selected folder. Pinned repos are grouped in the sidebar as Active (has sessions), Idle (no sessions), or Standalone.
-
 ## Scripts
 
-| Command | Description |
+| Command | What it does |
 |---------|-------------|
-| `npm run dev` | Development with HMR |
-| `npm run build` | Compile to `out/` |
-| `npm run start` | Run the built app |
-| `npm run make` | Package for distribution (deb, zip) |
+| `npm run dev` | Run in development mode with hot reload |
+| `npm run make` | Build and package the app |
 | `npm test` | Run tests |
-| `npm run test:watch` | Tests in watch mode |
