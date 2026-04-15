@@ -4,14 +4,18 @@ A desktop app for managing your development sessions. Each project gets a tmux s
 
 Connect remotely over Tailscale to operate your workstation from anywhere.
 
+<img width="4110" height="2576" alt="image" src="https://github.com/user-attachments/assets/c5a2e346-546e-493a-85b9-c62207e7607a" />
+
+
 ## Getting Started
 
 ```bash
-npm install
-npm run dev
+npx electron-vite dev
 ```
 
-Requires Node.js 18+, git, tmux, and optionally lazygit.
+Or just ask Claude to build the app :) There are instructions for macOS and Arch Linux.
+
+Requires Node.js 18+, git, tmux, and lazygit.
 
 ## Workspaces
 
