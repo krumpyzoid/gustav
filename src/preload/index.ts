@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('api', {
   createWorkspace: (name: string, directory: string) => ipcRenderer.invoke('create-workspace', name, directory),
   renameWorkspace: (id: string, newName: string) => ipcRenderer.invoke('rename-workspace', id, newName),
   removeWorkspace: (id: string) => ipcRenderer.invoke('remove-workspace', id),
+  deleteWorkspace: (id: string, deleteWorktrees: boolean) => ipcRenderer.invoke('delete-workspace', id, deleteWorktrees),
   reorderWorkspaces: (ids: string[]) => ipcRenderer.invoke('reorder-workspaces', ids),
   reorderWithinWorkspace: (workspaceId: string, ordering: Record<string, unknown>) =>
     ipcRenderer.invoke('reorder-within-workspace', workspaceId, ordering),

@@ -158,6 +158,42 @@ export function registerHandlers(deps: {
     }
   });
 
+  ipcMain.handle(Channels.DELETE_WORKSPACE, async (_event, id: string, deleteWorktrees: boolean) => {
+    try {
+      const ws = workspaceService.list().find((w) => w.id === id);
+      if (!ws) return err('Workspace not found');
+
+      // Kill all tmux sessions belonging to this workspace
+      const sessions = await tmux.listSessions();
+      for (const s of sessions) {
+        if (s.startsWith(`${ws.name}/`)) {
+          try { await tmux.killSession(s); } catch {}
+        }
+      }
+
+      // Optionally remove worktrees from disk
+      if (deleteWorktrees && ws.pinnedRepos) {
+        for (const repo of ws.pinnedRepos) {
+          try {
+            const wtDir = git.getWorktreeDir(repo.path);
+            const worktrees = await git.listWorktrees(repo.path, wtDir);
+            for (const wt of worktrees) {
+              if (wt.branch) {
+                try { await worktreeService.remove(repo.path, wt.branch, false); } catch {}
+              }
+            }
+          } catch {}
+        }
+      }
+
+      // Remove the workspace from storage
+      await workspaceService.remove(id);
+      return ok(undefined);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
   ipcMain.handle(Channels.REORDER_WORKSPACES, async (_event, ids: string[]) => {
     try {
       await workspaceService.reorder(ids);

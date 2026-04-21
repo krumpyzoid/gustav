@@ -98,15 +98,29 @@ interface Props {
   onRemoveWorktree?: (tab: SessionTabType, repoRoot: string) => void;
   onAddWorktree?: (repoName: string, repoRoot: string, workspaceName: string) => void;
   onUnpinRepo?: (workspaceId: string, repoPath: string) => void;
+  onDeleteWorkspace?: () => void;
   defaultExpanded?: boolean;
   isRemote?: boolean;
 }
 
-export function WorkspaceAccordion({ state, headerRef, onAddSession, onPinRepos, onEdit, onRemoveWorktree, onAddWorktree, onUnpinRepo, defaultExpanded = true, isRemote }: Props) {
+export function WorkspaceAccordion({ state, headerRef, onAddSession, onPinRepos, onEdit, onRemoveWorktree, onAddWorktree, onUnpinRepo, onDeleteWorkspace, defaultExpanded = true, isRemote }: Props) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [plusDropdownOpen, setPlusDropdownOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const plusDropdownRef = useRef<HTMLDivElement>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
   const isDefault = state.workspace === null;
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    function handleClick(e: MouseEvent) {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setContextMenu(null);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [contextMenu]);
 
   useEffect(() => {
     if (!plusDropdownOpen) return;
@@ -156,6 +170,12 @@ export function WorkspaceAccordion({ state, headerRef, onAddSession, onPinRepos,
       <button
         ref={headerRef}
         onClick={() => setExpanded((v) => !v)}
+        onContextMenu={(e) => {
+          if (!isDefault && !isRemote && onDeleteWorkspace) {
+            e.preventDefault();
+            setContextMenu({ x: e.clientX, y: e.clientY });
+          }
+        }}
         className="flex items-center gap-1.5 w-full px-3 py-1.5 text-sm font-bold tracking-widest uppercase text-foreground bg-transparent cursor-pointer hover:text-foreground transition-colors"
       >
         <ChevronRight
@@ -213,6 +233,21 @@ export function WorkspaceAccordion({ state, headerRef, onAddSession, onPinRepos,
           </div>
         )}
       </button>
+
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="fixed bg-popover text-popover-foreground border border-border rounded-md shadow-lg z-50 min-w-[10rem] py-1"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            onClick={() => { setContextMenu(null); onDeleteWorkspace?.(); }}
+            className="w-full px-3 py-1.5 text-sm text-left hover:bg-destructive/10 text-destructive cursor-pointer bg-transparent border-none"
+          >
+            Delete Workspace
+          </button>
+        </div>
+      )}
 
       {expanded && (
         <div className="pl-4">
