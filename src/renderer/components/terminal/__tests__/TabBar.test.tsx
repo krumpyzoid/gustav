@@ -142,4 +142,27 @@ describe('TabBar', () => {
 
     expect(focusTerminal).toHaveBeenCalledOnce();
   });
+
+  it('focuses the terminal after creating a new window tab', async () => {
+    render(<TabBar />);
+
+    // Open the input
+    await userEvent.click(screen.getByRole('button', { name: '+' }));
+    const input = screen.getByPlaceholderText(/tab name/i) as HTMLInputElement;
+    await userEvent.type(input, 'Notes{Enter}');
+
+    expect(api.newWindow).toHaveBeenCalledWith('Dev/_ws', 'Notes');
+    expect(focusTerminal).toHaveBeenCalledOnce();
+  });
+
+  it('does not focus the terminal when handleAdd early-returns on empty input', async () => {
+    render(<TabBar />);
+
+    await userEvent.click(screen.getByRole('button', { name: '+' }));
+    const input = screen.getByPlaceholderText(/tab name/i) as HTMLInputElement;
+    await userEvent.type(input, '   {Enter}');
+
+    expect(api.newWindow).not.toHaveBeenCalled();
+    expect(focusTerminal).not.toHaveBeenCalled();
+  });
 });

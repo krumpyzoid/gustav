@@ -83,6 +83,7 @@ export function TabBar() {
       { index: nextIndex, name: trimmed, active: true },
     ]);
     await window.api.newWindow(activeSession, trimmed);
+    focusTerminal();
   }
 
   async function handleClose(e: React.MouseEvent, windowIndex: number) {
