@@ -3,25 +3,45 @@ import { draggable, dropTargetForElements } from '@atlaskit/pragmatic-drag-and-d
 import { combine } from '@atlaskit/pragmatic-drag-and-drop/combine';
 import { focusTerminal } from '../../hooks/use-terminal';
 
-type DragState = 'idle' | 'dragging' | 'over-top' | 'over-bottom';
+type DragState = 'idle' | 'dragging' | 'over-start' | 'over-end';
 
 interface Props {
   dragType: string;
   itemId: string;
   scope: string; // e.g. workspaceId or workspaceId:repoName — prevents cross-container drops
   dragHandleRef?: React.RefObject<HTMLElement | null>;
+  /** Visual layout of the list. Controls which axis the drop indicator uses. Defaults to vertical. */
+  orientation?: 'vertical' | 'horizontal';
   children: React.ReactNode;
   onReorder: (draggedId: string, targetId: string, edge: 'top' | 'bottom') => void;
   onDropEffect?: () => void;
 }
 
-export function SortableItem({ dragType, itemId, scope, dragHandleRef, children, onReorder, onDropEffect }: Props) {
+export function SortableItem({
+  dragType,
+  itemId,
+  scope,
+  dragHandleRef,
+  orientation = 'vertical',
+  children,
+  onReorder,
+  onDropEffect,
+}: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [dragState, setDragState] = useState<DragState>('idle');
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+
+    function isBefore(rect: DOMRect, x: number, y: number): boolean {
+      if (orientation === 'horizontal') {
+        const mid = rect.left + rect.width / 2;
+        return x < mid;
+      }
+      const mid = rect.top + rect.height / 2;
+      return y < mid;
+    }
 
     return combine(
       draggable({
@@ -40,30 +60,34 @@ export function SortableItem({ dragType, itemId, scope, dragHandleRef, children,
         getData: () => ({ type: dragType, itemId, scope }),
         onDragEnter: ({ location }) => {
           const rect = el.getBoundingClientRect();
-          const mid = rect.top + rect.height / 2;
-          setDragState(location.current.input.clientY < mid ? 'over-top' : 'over-bottom');
+          const before = isBefore(rect, location.current.input.clientX, location.current.input.clientY);
+          setDragState(before ? 'over-start' : 'over-end');
         },
         onDrag: ({ location }) => {
           const rect = el.getBoundingClientRect();
-          const mid = rect.top + rect.height / 2;
-          setDragState(location.current.input.clientY < mid ? 'over-top' : 'over-bottom');
+          const before = isBefore(rect, location.current.input.clientX, location.current.input.clientY);
+          setDragState(before ? 'over-start' : 'over-end');
         },
         onDragLeave: () => setDragState('idle'),
         onDrop: ({ source, location }) => {
           setDragState('idle');
           const draggedId = source.data.itemId as string;
           const rect = el.getBoundingClientRect();
-          const mid = rect.top + rect.height / 2;
-          const edge = location.current.input.clientY < mid ? 'top' : 'bottom';
-          onReorder(draggedId, itemId, edge);
+          const before = isBefore(rect, location.current.input.clientX, location.current.input.clientY);
+          // 'top' = before target, 'bottom' = after target. Names are kept for
+          // backwards compatibility with reorderList; for horizontal lists they
+          // mean left/right.
+          onReorder(draggedId, itemId, before ? 'top' : 'bottom');
         },
       }),
     );
-  }, [dragType, itemId, scope, dragHandleRef, onReorder, onDropEffect]);
+  }, [dragType, itemId, scope, dragHandleRef, orientation, onReorder, onDropEffect]);
 
+  const indicatorBefore = orientation === 'horizontal' ? 'border-l-2 border-l-accent' : 'border-t-2 border-t-accent';
+  const indicatorAfter = orientation === 'horizontal' ? 'border-r-2 border-r-accent' : 'border-b-2 border-b-accent';
   const indicator =
-    dragState === 'over-top' ? 'border-t-2 border-t-accent' :
-    dragState === 'over-bottom' ? 'border-b-2 border-b-accent' :
+    dragState === 'over-start' ? indicatorBefore :
+    dragState === 'over-end' ? indicatorAfter :
     '';
 
   return (

@@ -38,6 +38,7 @@ export const Channels = {
   SELECT_WINDOW: 'select-window',
   NEW_WINDOW: 'new-window',
   KILL_WINDOW: 'kill-window',
+  SET_WINDOW_ORDER: 'set-window-order',
 
   // Preferences
   GET_PREFERENCES: 'get-preferences',

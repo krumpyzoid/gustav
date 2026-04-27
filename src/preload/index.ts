@@ -55,6 +55,7 @@ contextBridge.exposeInMainWorld('api', {
   selectWindow: (session: string, window: string) => ipcRenderer.invoke('select-window', session, window),
   newWindow: (session: string, name: string) => ipcRenderer.invoke('new-window', session, name),
   killWindow: (session: string, windowIndex: number) => ipcRenderer.invoke('kill-window', session, windowIndex),
+  setWindowOrder: (session: string, names: string[]) => ipcRenderer.invoke('set-window-order', session, names),
   getBranches: (repoRoot: string) => ipcRenderer.invoke('get-branches', repoRoot),
   getCleanCandidates: () => ipcRenderer.invoke('get-clean-candidates'),
 

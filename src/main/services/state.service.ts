@@ -3,6 +3,7 @@ import type { TmuxPort } from '../ports/tmux.port';
 import type { WorkspaceService } from './workspace.service';
 import type { ClaudeStatus, WorkspaceAppState, WorkspaceState, SessionTab, RepoGroupState } from '../domain/types';
 import { worstStatus } from '../domain/types';
+import { applyPersistedWindowOrder } from '../ipc/apply-persisted-window-order';
 
 /** Sort items by a persisted key order. Items not in the order list are appended, optionally with a fallback sort. */
 function applyOrder<T>(
@@ -305,9 +306,15 @@ export class StateService {
       status: worstStatus(defaultAllStatuses),
     };
 
-    const windows = activeSession
-      ? await this.tmux.listWindows(activeSession)
-      : [];
+    let windows: { index: number; name: string; active: boolean }[] = [];
+    if (activeSession) {
+      const live = await this.tmux.listWindows(activeSession);
+      const ws = this.workspaceService.findBySessionPrefix(activeSession);
+      const persisted = ws
+        ? this.workspaceService.getPersistedSessions(ws.id).find((s) => s.tmuxSession === activeSession)
+        : undefined;
+      windows = applyPersistedWindowOrder(live, persisted?.windows ?? []);
+    }
 
     return { defaultWorkspace, workspaces: workspaceStates, windows };
   }

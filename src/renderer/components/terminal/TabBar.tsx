@@ -1,9 +1,65 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useAppStore } from '../../hooks/use-app-state';
+import { focusTerminal } from '../../hooks/use-terminal';
+import { SortableItem } from '../sidebar/SortableItem';
+import { reorderList } from '../../lib/reorder-list';
+import type { WindowInfo } from '../../../main/domain/types';
+
+interface WindowTabProps {
+  win: WindowInfo;
+  scope: string;
+  onClick: (name: string) => void;
+  onClose: (e: React.MouseEvent, index: number) => void;
+  onReorder: (draggedName: string, targetName: string, edge: 'top' | 'bottom') => void;
+}
+
+function WindowTab({ win, scope, onClick, onClose, onReorder }: WindowTabProps) {
+  return (
+    <SortableItem
+      dragType="window-tab"
+      itemId={win.name}
+      scope={scope}
+      orientation="horizontal"
+      onReorder={onReorder}
+      onDropEffect={focusTerminal}
+    >
+      <button
+        onClick={() => onClick(win.name)}
+        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        className={`group/tab relative px-4 py-3.5 text-sm transition-colors border-b-2
+          ${win.active
+            ? 'border-b-accent text-foreground'
+            : 'border-b-transparent text-foreground/60 hover:text-foreground hover:bg-muted'
+          }`}
+      >
+        {win.name}
+        <span
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={(e) => onClose(e, win.index)}
+          className="absolute top-1 right-0.5 w-4 h-4 flex items-center justify-center rounded text-xs leading-none text-foreground/40 hover:text-foreground hover:bg-muted opacity-0 group-hover/tab:opacity-100 transition-opacity"
+        >
+          ×
+        </span>
+      </button>
+    </SortableItem>
+  );
+}
 
 export function TabBar() {
   const { windows, activeSession, setWindows, setActiveSession } = useAppStore();
   const [isAdding, setIsAdding] = useState(false);
+
+  const handleReorder = useCallback(
+    async (draggedName: string, targetName: string, edge: 'top' | 'bottom') => {
+      if (!activeSession) return;
+      const names = windows.map((w) => w.name);
+      const next = reorderList(names, draggedName, targetName, edge);
+      const byName = new Map(windows.map((w) => [w.name, w]));
+      setWindows(next.map((name) => byName.get(name)!).filter(Boolean));
+      await window.api.setWindowOrder(activeSession, next);
+    },
+    [activeSession, windows, setWindows],
+  );
 
   if (windows.length === 0) return null;
 
@@ -11,6 +67,10 @@ export function TabBar() {
     if (!activeSession) return;
     setWindows(windows.map((w) => ({ ...w, active: w.name === windowName })));
     await window.api.selectWindow(activeSession, windowName);
+    // The button briefly steals focus on mousedown — restore it to the terminal
+    // so the user can keep typing. (This used to be done by preventDefault on
+    // mousedown, but that path blocks pragmatic-drag-and-drop's drag-start.)
+    focusTerminal();
   }
 
   async function handleAdd(name: string) {
@@ -41,29 +101,19 @@ export function TabBar() {
     }
   }
 
+  const scope = `window-tabs:${activeSession ?? ''}`;
+
   return (
     <div className="flex justify-center bg-bg px-2 gap-0.5 shrink-0" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
       {windows.map((w) => (
-        <button
+        <WindowTab
           key={w.index}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => handleClick(w.name)}
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-          className={`group/tab relative px-4 py-3.5 text-sm transition-colors border-b-2
-            ${w.active
-              ? 'border-b-accent text-foreground'
-              : 'border-b-transparent text-foreground/60 hover:text-foreground hover:bg-muted'
-            }`}
-        >
-          {w.name}
-          <span
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={(e) => handleClose(e, w.index)}
-            className="absolute top-1 right-0.5 w-4 h-4 flex items-center justify-center rounded text-xs leading-none text-foreground/40 hover:text-foreground hover:bg-muted opacity-0 group-hover/tab:opacity-100 transition-opacity"
-          >
-            ×
-          </span>
-        </button>
+          win={w}
+          scope={scope}
+          onClick={handleClick}
+          onClose={handleClose}
+          onReorder={handleReorder}
+        />
       ))}
 
       {isAdding ? (

@@ -287,6 +287,74 @@ describe('snapshotSessionWindows', () => {
     ]);
   });
 
+  // ── Persisted-order preservation ──
+
+  it('returns windows in the persisted order, not tmux index order', async () => {
+    const tmux = makeMockTmux(
+      [
+        { index: 0, name: 'A', active: false },
+        { index: 1, name: 'B', active: true },
+        { index: 2, name: 'C', active: false },
+      ],
+      [
+        { paneId: '%0', windowName: 'A', paneCommand: 'zsh', panePid: 100 },
+        { paneId: '%1', windowName: 'B', paneCommand: 'zsh', panePid: 101 },
+        { paneId: '%2', windowName: 'C', paneCommand: 'zsh', panePid: 102 },
+      ],
+    );
+
+    const existing = [
+      { name: 'C', kind: 'command' as const },
+      { name: 'A', kind: 'command' as const },
+      { name: 'B', kind: 'command' as const },
+    ];
+
+    const result = await snapshotSessionWindows(tmux, 'Dev/_ws', existing);
+
+    expect(result.map((w) => w.name)).toEqual(['C', 'A', 'B']);
+  });
+
+  it('appends live windows that are not in the persisted order at the end', async () => {
+    const tmux = makeMockTmux(
+      [
+        { index: 0, name: 'A', active: false },
+        { index: 1, name: 'B', active: true },
+        { index: 2, name: 'C', active: false },
+      ],
+      [
+        { paneId: '%0', windowName: 'A', paneCommand: 'zsh', panePid: 100 },
+        { paneId: '%1', windowName: 'B', paneCommand: 'zsh', panePid: 101 },
+        { paneId: '%2', windowName: 'C', paneCommand: 'zsh', panePid: 102 },
+      ],
+    );
+
+    const existing = [
+      { name: 'B', kind: 'command' as const },
+      { name: 'A', kind: 'command' as const },
+    ];
+
+    const result = await snapshotSessionWindows(tmux, 'Dev/_ws', existing);
+
+    expect(result.map((w) => w.name)).toEqual(['B', 'A', 'C']);
+  });
+
+  it('falls back to live order when no persisted order is given', async () => {
+    const tmux = makeMockTmux(
+      [
+        { index: 0, name: 'A', active: false },
+        { index: 1, name: 'B', active: true },
+      ],
+      [
+        { paneId: '%0', windowName: 'A', paneCommand: 'zsh', panePid: 100 },
+        { paneId: '%1', windowName: 'B', paneCommand: 'zsh', panePid: 101 },
+      ],
+    );
+
+    const result = await snapshotSessionWindows(tmux, 'Dev/_ws', []);
+
+    expect(result.map((w) => w.name)).toEqual(['A', 'B']);
+  });
+
   it('preserves args and claudeSessionId from existing claude spec', async () => {
     const tmux = makeMockTmux(
       [{ index: 0, name: 'Claude Code', active: true }],

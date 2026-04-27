@@ -146,6 +146,41 @@ export class WorkspaceService {
     });
   }
 
+  /**
+   * Reorder a persisted session's windows array so that names appear in the
+   * given order. Names not present in the persisted session are ignored.
+   * Persisted windows whose name is not in `names` are appended at the end,
+   * preserving their existing relative order. No-op for unknown workspace
+   * or unknown session.
+   */
+  async setSessionWindowOrder(id: string, tmuxSession: string, names: string[]): Promise<void> {
+    return this.enqueue(async () => {
+      const workspaces = this.list();
+      const ws = workspaces.find((w) => w.id === id);
+      if (!ws) return;
+      const session = (ws.sessions ?? []).find((s) => s.tmuxSession === tmuxSession);
+      if (!session) return;
+
+      const byName = new Map(session.windows.map((w) => [w.name, w]));
+      const ordered: typeof session.windows = [];
+      const seen = new Set<string>();
+
+      for (const name of names) {
+        const win = byName.get(name);
+        if (!win || seen.has(name)) continue;
+        seen.add(name);
+        ordered.push(win);
+      }
+      for (const win of session.windows) {
+        if (seen.has(win.name)) continue;
+        ordered.push(win);
+      }
+
+      session.windows = ordered;
+      await this.persist(workspaces);
+    });
+  }
+
   async removeSession(id: string, tmuxSession: string): Promise<void> {
     return this.enqueue(async () => {
       const workspaces = this.list();

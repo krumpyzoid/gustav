@@ -46,6 +46,8 @@ function makeMockWorkspaceService(workspaces: Workspace[] = []): WorkspaceServic
     rename: vi.fn(),
     remove: vi.fn(),
     findByDirectory: vi.fn(),
+    findBySessionPrefix: vi.fn().mockReturnValue(undefined),
+    getPersistedSessions: vi.fn().mockReturnValue([]),
     discoverGitRepos: vi.fn().mockReturnValue([]),
   } as unknown as WorkspaceService;
 }

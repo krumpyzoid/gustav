@@ -49,6 +49,7 @@ interface ElectronAPI {
   selectWindow: (session: string, window: string) => Promise<Result<void>>;
   newWindow: (session: string, name: string) => Promise<Result<void>>;
   killWindow: (session: string, windowIndex: number) => Promise<Result<void>>;
+  setWindowOrder: (session: string, names: string[]) => Promise<Result<void>>;
 
   // Worktrees
   createWorktree: (params: CreateWorktreeParams) => Promise<Result<void>>;

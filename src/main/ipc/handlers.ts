@@ -15,6 +15,7 @@ import type { CreateWorktreeParams, CleanTarget, Result, PersistedSession, Sessi
 import type { TabConfig } from '../domain/tab-config';
 import { snapshotSessionWindows } from './snapshot-windows';
 import { buildWindowSpecs } from './build-window-specs';
+import { applyPersistedWindowOrder } from './apply-persisted-window-order';
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -89,6 +90,15 @@ export function registerHandlers(deps: {
       await sessionService.switchTo(session, tty);
       setActiveSession(session);
     }
+  }
+
+  /** Return live tmux windows ordered by the user's saved visual order, falling back to tmux index order. */
+  async function getOrderedWindows(session: string) {
+    const live = await tmux.listWindows(session);
+    const ws = workspaceService.findBySessionPrefix(session);
+    if (!ws) return live;
+    const persisted = workspaceService.getPersistedSessions(ws.id).find((s) => s.tmuxSession === session);
+    return applyPersistedWindowOrder(live, persisted?.windows ?? []);
   }
 
   /** Snapshot current tmux windows and persist to workspace storage. */
@@ -272,7 +282,7 @@ export function registerHandlers(deps: {
       if (!tty) return err('No PTY client TTY available');
       await sessionService.switchTo(session, tty);
       setActiveSession(session);
-      const windows = await tmux.listWindows(session);
+      const windows = await getOrderedWindows(session);
       return ok(windows);
     } catch (e) {
       return err((e as Error).message);
@@ -300,7 +310,7 @@ export function registerHandlers(deps: {
         if (persisted) {
           await sessionService.restoreSession(persisted);
           await switchAfterPty(session);
-          const windows = await tmux.listWindows(session);
+          const windows = await getOrderedWindows(session);
           return ok(windows);
         }
       }
@@ -541,6 +551,21 @@ export function registerHandlers(deps: {
         await tmux.killWindow(session, windowIndex);
         await snapshotAndPersist(session);
       }
+      return ok(undefined);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
+  ipcMain.handle(Channels.SET_WINDOW_ORDER, async (_event, session: string, names: unknown) => {
+    try {
+      if (typeof session !== 'string' || !session) return err('Invalid session');
+      if (!Array.isArray(names) || !names.every((n) => typeof n === 'string')) {
+        return err('Invalid names payload');
+      }
+      const ws = workspaceService.findBySessionPrefix(session);
+      if (!ws) return err('Workspace not found for session');
+      await workspaceService.setSessionWindowOrder(ws.id, session, names as string[]);
       return ok(undefined);
     } catch (e) {
       return err((e as Error).message);

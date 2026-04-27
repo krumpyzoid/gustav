@@ -295,6 +295,75 @@ describe('WorkspaceService', () => {
     });
   });
 
+  describe('setSessionWindowOrder', () => {
+    async function seed(svc: WorkspaceService) {
+      const ws = await svc.create('Dev', '/path/dev');
+      await svc.persistSession(ws.id, {
+        tmuxSession: 'Dev/api/_dir',
+        type: 'directory',
+        directory: '/path/dev/api',
+        windows: [
+          { name: 'A', kind: 'command' },
+          { name: 'B', kind: 'command', command: 'lazygit' },
+          { name: 'C', kind: 'command' },
+        ],
+      });
+      return ws;
+    }
+
+    it('reorders the persisted windows array to match the given names', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      const ws = await seed(svc);
+
+      await svc.setSessionWindowOrder(ws.id, 'Dev/api/_dir', ['B', 'A', 'C']);
+
+      const session = svc.getPersistedSessions(ws.id)[0];
+      expect(session.windows.map((w) => w.name)).toEqual(['B', 'A', 'C']);
+      // Spec metadata is preserved (not just the names).
+      expect(session.windows.find((w) => w.name === 'B')).toMatchObject({
+        kind: 'command',
+        command: 'lazygit',
+      });
+    });
+
+    it('ignores names that are not in the persisted session', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      const ws = await seed(svc);
+
+      await svc.setSessionWindowOrder(ws.id, 'Dev/api/_dir', ['B', 'GHOST', 'A', 'C']);
+
+      const session = svc.getPersistedSessions(ws.id)[0];
+      expect(session.windows.map((w) => w.name)).toEqual(['B', 'A', 'C']);
+    });
+
+    it('appends persisted names that are not in the new order', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      const ws = await seed(svc);
+
+      await svc.setSessionWindowOrder(ws.id, 'Dev/api/_dir', ['C']);
+
+      const session = svc.getPersistedSessions(ws.id)[0];
+      expect(session.windows.map((w) => w.name)).toEqual(['C', 'A', 'B']);
+    });
+
+    it('is a no-op for an unknown workspace', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      await expect(
+        svc.setSessionWindowOrder('does-not-exist', 'Dev/api/_dir', ['A']),
+      ).resolves.toBeUndefined();
+    });
+
+    it('is a no-op for an unknown session', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      const ws = await seed(svc);
+
+      await svc.setSessionWindowOrder(ws.id, 'unknown-session', ['A']);
+
+      const session = svc.getPersistedSessions(ws.id)[0];
+      expect(session.windows.map((w) => w.name)).toEqual(['A', 'B', 'C']);
+    });
+  });
+
   describe('default tabs override', () => {
     it('persists tabs on a workspace and reads them back', async () => {
       const svc = new WorkspaceService(makeFsPort(), storageDir);
