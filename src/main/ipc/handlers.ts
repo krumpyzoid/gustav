@@ -6,14 +6,35 @@ import type { SessionService } from '../services/session.service';
 import type { StateService } from '../services/state.service';
 import type { ThemeService } from '../services/theme.service';
 import type { WorkspaceService } from '../services/workspace.service';
-import type { ConfigService } from '../services/config.service';
+import type { RepoConfigService } from '../services/repo-config.service';
 import type { GitPort } from '../ports/git.port';
 import type { TmuxPort } from '../ports/tmux.port';
 import type { ShellPort } from '../ports/shell.port';
 import type { PreferenceService } from '../services/preference.service';
 import type { CreateWorktreeParams, CleanTarget, Result, PersistedSession, SessionType, Preferences, WindowSpec } from '../domain/types';
-import { normalizeWindows } from '../domain/types';
+import type { TabConfig } from '../domain/tab-config';
 import { snapshotSessionWindows } from './snapshot-windows';
+import { buildWindowSpecs } from './build-window-specs';
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function isTabConfigArray(v: unknown): v is TabConfig[] {
+  if (!Array.isArray(v)) return false;
+  return v.every((t) => {
+    if (typeof t !== 'object' || t === null) return false;
+    const tab = t as Record<string, unknown>;
+    if (typeof tab.id !== 'string' || typeof tab.name !== 'string') return false;
+    if (tab.kind !== 'claude' && tab.kind !== 'command') return false;
+    if (
+      tab.appliesTo !== 'standalone' &&
+      tab.appliesTo !== 'repository' &&
+      tab.appliesTo !== 'both'
+    ) return false;
+    return true;
+  });
+}
 
 function ok<T>(data: T): Result<T> {
   return { success: true, data };
@@ -27,37 +48,13 @@ function err(message: string): Result<never> {
   return { success: false, error: message };
 }
 
-function buildWindowSpecs(
-  type: 'workspace' | 'directory' | 'worktree',
-  gustavTmuxEntries: string[],
-  claudeSessionId?: string,
-): WindowSpec[] {
-  const specs: WindowSpec[] = [{ name: 'Claude Code', command: 'claude', ...(claudeSessionId ? { claudeSessionId } : {}) }];
-
-  if (type === 'directory' || type === 'worktree') {
-    specs.push({ name: 'Git', command: 'lazygit' });
-  }
-
-  specs.push({ name: 'Shell' });
-
-  for (const entry of gustavTmuxEntries) {
-    const colonIdx = entry.indexOf(':');
-    const name = colonIdx > -1 ? entry.slice(0, colonIdx) : entry;
-    const cmd = colonIdx > -1 ? entry.slice(colonIdx + 1) : undefined;
-    specs.push(cmd ? { name, command: cmd } : { name });
-  }
-
-  return specs;
-}
-
 /** Look up the Claude session ID from a previously persisted session. */
 function findClaudeSessionId(workspaceService: WorkspaceService, session: string): string | undefined {
   const ws = workspaceService.findBySessionPrefix(session);
   if (!ws) return undefined;
   const persisted = workspaceService.getPersistedSessions(ws.id).find((s) => s.tmuxSession === session);
   if (!persisted) return undefined;
-  const specs = normalizeWindows(persisted.windows);
-  const claude = specs.find((s) => s.name === 'Claude Code');
+  const claude = persisted.windows.find((s) => s.name === 'Claude Code');
   return claude?.claudeSessionId;
 }
 
@@ -67,7 +64,7 @@ export function registerHandlers(deps: {
   stateService: StateService;
   themeService: ThemeService;
   workspaceService: WorkspaceService;
-  configService: ConfigService;
+  repoConfigService: RepoConfigService;
   tmux: TmuxPort;
   shell: ShellPort;
   git: GitPort;
@@ -81,7 +78,7 @@ export function registerHandlers(deps: {
   remoteClientService?: import('../remote/remote-client.service').RemoteClientService;
   broadcastToRenderer?: (channel: string, ...args: unknown[]) => void;
 }): void {
-  const { worktreeService, sessionService, stateService, themeService, workspaceService, configService, preferenceService, tmux, shell, git, getPtyClientTty, getActiveSession, setActiveSession, ensurePty, broadcastTheme, remoteService, remoteClientService, broadcastToRenderer } = deps;
+  const { worktreeService, sessionService, stateService, themeService, workspaceService, repoConfigService, preferenceService, tmux, shell, git, getPtyClientTty, getActiveSession, setActiveSession, ensurePty, broadcastTheme, remoteService, remoteClientService, broadcastToRenderer } = deps;
 
   /** Ensure PTY is running, switch tmux client to the given session, and mark it active. */
   async function switchAfterPty(session: string): Promise<void> {
@@ -221,12 +218,17 @@ export function registerHandlers(deps: {
       if (ws) {
         for (const repoRoot of repoPaths) {
           try {
-            const config = await configService.parse(repoRoot);
             const repoName = basename(repoRoot);
             const sessionName = sessionService.getSessionName(ws.name, { type: 'directory', repoName });
             const prevClaudeId = findClaudeSessionId(workspaceService, sessionName);
-            const session = await sessionService.launchDirectorySession(ws.name, repoRoot, config, prevClaudeId);
-            const windows = buildWindowSpecs('directory', config.tmux, prevClaudeId);
+            const windows = buildWindowSpecs({
+              type: 'directory',
+              workspace: ws,
+              preferences: preferenceService.load(),
+              repoConfig: repoConfigService.get(repoRoot),
+              claudeSessionId: prevClaudeId,
+            });
+            const session = await sessionService.launchSession(sessionName, repoRoot, windows);
             await workspaceService.persistSession(ws.id, { tmuxSession: session, type: 'directory', directory: repoRoot, windows });
           } catch {}
         }
@@ -327,14 +329,21 @@ export function registerHandlers(deps: {
 
   ipcMain.handle(Channels.CREATE_WORKSPACE_SESSION, async (_event, workspaceName: string, workspaceDir: string, label?: string) => {
     try {
-      const config = await configService.parse(workspaceDir);
       const sessionName = sessionService.getSessionName(workspaceName, { type: 'workspace', label });
+      if (await tmux.hasSession(sessionName)) {
+        return err(`Session "${label ?? '_ws'}" already exists in workspace "${workspaceName}"`);
+      }
       const prevClaudeId = findClaudeSessionId(workspaceService, sessionName);
-      const session = await sessionService.launchWorkspaceSession(workspaceName, workspaceDir, config, label, prevClaudeId);
-      // Persist session definition
-      const ws = workspaceService.findBySessionPrefix(session);
+      const ws = workspaceService.list().find((w) => w.name === workspaceName) ?? null;
+      const windows = buildWindowSpecs({
+        type: 'workspace',
+        workspace: ws,
+        preferences: preferenceService.load(),
+        repoConfig: null,
+        claudeSessionId: prevClaudeId,
+      });
+      const session = await sessionService.launchSession(sessionName, workspaceDir, windows);
       if (ws) {
-        const windows = buildWindowSpecs('workspace', config.tmux, prevClaudeId);
         await workspaceService.persistSession(ws.id, { tmuxSession: session, type: 'workspace', directory: workspaceDir, windows });
       }
       await switchAfterPty(session);
@@ -351,45 +360,42 @@ export function registerHandlers(deps: {
     mode: 'directory' | 'worktree',
     branch?: string,
     base?: string,
-    install?: boolean,
   ) => {
     try {
-      const config = await configService.parse(repoRoot);
-      let session: string;
-
+      const repoName = basename(repoRoot);
       let sessionType: SessionType;
       let sessionDir: string;
-      let prevClaudeId: string | undefined;
+      let sessionName: string;
+
       if (mode === 'directory') {
-        const repoName = basename(repoRoot);
-        const sessionName = sessionService.getSessionName(workspaceName, { type: 'directory', repoName });
-        prevClaudeId = findClaudeSessionId(workspaceService, sessionName);
-        session = await sessionService.launchDirectorySession(workspaceName, repoRoot, config, prevClaudeId);
         sessionType = 'directory';
         sessionDir = repoRoot;
+        sessionName = sessionService.getSessionName(workspaceName, { type: 'directory', repoName });
       } else {
         if (!branch) return err('Branch name required for worktree session');
-        // Create worktree first
         await worktreeService.create({
-          repo: basename(repoRoot),
+          repo: repoName,
           repoRoot,
           branch,
-          base: base ?? config.base ?? 'origin/main',
-          install: install ?? false,
+          base: base ?? repoConfigService.get(repoRoot)?.baseBranch ?? 'origin/main',
         });
-        const wtPath = join(git.getWorktreeDir(repoRoot), branch);
-        const repoName = basename(repoRoot);
-        const sessionName = sessionService.getSessionName(workspaceName, { type: 'worktree', repoName, branch });
-        prevClaudeId = findClaudeSessionId(workspaceService, sessionName);
-        session = await sessionService.launchWorktreeSession(workspaceName, repoRoot, branch, wtPath, config, prevClaudeId);
         sessionType = 'worktree';
-        sessionDir = wtPath;
+        sessionDir = join(git.getWorktreeDir(repoRoot), branch);
+        sessionName = sessionService.getSessionName(workspaceName, { type: 'worktree', repoName, branch });
       }
 
-      // Persist session definition
-      const ws = workspaceService.findBySessionPrefix(session);
+      const prevClaudeId = findClaudeSessionId(workspaceService, sessionName);
+      const ws = workspaceService.list().find((w) => w.name === workspaceName) ?? null;
+      const windows = buildWindowSpecs({
+        type: sessionType,
+        workspace: ws,
+        preferences: preferenceService.load(),
+        repoConfig: repoConfigService.get(repoRoot),
+        claudeSessionId: prevClaudeId,
+      });
+      const session = await sessionService.launchSession(sessionName, sessionDir, windows);
+
       if (ws) {
-        const windows = buildWindowSpecs(sessionType, config.tmux, prevClaudeId);
         await workspaceService.persistSession(ws.id, { tmuxSession: session, type: sessionType, directory: sessionDir, windows });
       }
 
@@ -408,15 +414,19 @@ export function registerHandlers(deps: {
     worktreePath: string,
   ) => {
     try {
-      const config = await configService.parse(repoRoot);
       const repoName = basename(repoRoot);
       const sessionName = sessionService.getSessionName(workspaceName, { type: 'worktree', repoName, branch });
       const prevClaudeId = findClaudeSessionId(workspaceService, sessionName);
-      const session = await sessionService.launchWorktreeSession(workspaceName, repoRoot, branch, worktreePath, config, prevClaudeId);
-      // Persist session definition
-      const ws = workspaceService.findBySessionPrefix(session);
+      const ws = workspaceService.list().find((w) => w.name === workspaceName) ?? null;
+      const windows = buildWindowSpecs({
+        type: 'worktree',
+        workspace: ws,
+        preferences: preferenceService.load(),
+        repoConfig: repoConfigService.get(repoRoot),
+        claudeSessionId: prevClaudeId,
+      });
+      const session = await sessionService.launchSession(sessionName, worktreePath, windows);
       if (ws) {
-        const windows = buildWindowSpecs('worktree', config.tmux, prevClaudeId);
         await workspaceService.persistSession(ws.id, { tmuxSession: session, type: 'worktree', directory: worktreePath, windows });
       }
       await switchAfterPty(session);
@@ -428,7 +438,14 @@ export function registerHandlers(deps: {
 
   ipcMain.handle(Channels.CREATE_STANDALONE_SESSION, async (_event, label: string, dir: string) => {
     try {
-      const session = await sessionService.launchStandaloneSession(label, dir);
+      const sessionName = sessionService.getSessionName(null, { type: 'workspace', label });
+      const windows = buildWindowSpecs({
+        type: 'workspace',
+        workspace: null,
+        preferences: preferenceService.load(),
+        repoConfig: null,
+      });
+      const session = await sessionService.launchSession(sessionName, dir, windows);
       await switchAfterPty(session);
       return ok(session);
     } catch (e) {
@@ -451,16 +468,23 @@ export function registerHandlers(deps: {
     }
   });
 
-  // (Legacy CREATE_SESSION and START_SESSION removed — use workspace/repo/standalone session handlers)
-
   // ── Worktree commands ───────────────────────────────────────
   ipcMain.handle(Channels.CREATE_WORKTREE, async (_event, params: CreateWorktreeParams) => {
     try {
       await worktreeService.create(params);
-      // Launch a legacy tmux session (no workspace context available here)
-      const config = await configService.parse(params.repoRoot);
       const wtPath = join(git.getWorktreeDir(params.repoRoot), params.branch);
-      await sessionService.launch(params.repoRoot, params.branch, wtPath, config);
+      const sessionName = sessionService.getSessionName(null, {
+        type: 'worktree',
+        repoName: basename(params.repoRoot),
+        branch: params.branch,
+      });
+      const windows = buildWindowSpecs({
+        type: 'worktree',
+        workspace: null,
+        preferences: preferenceService.load(),
+        repoConfig: repoConfigService.get(params.repoRoot),
+      });
+      await sessionService.launchSession(sessionName, wtPath, windows);
       return ok(undefined);
     } catch (e) {
       return err((e as Error).message);
@@ -532,6 +556,37 @@ export function registerHandlers(deps: {
     const prefs = preferenceService.set(key, value as any);
     if (key === 'theme') broadcastTheme();
     return prefs;
+  });
+
+  ipcMain.handle(Channels.SET_DEFAULT_TABS, (_event, tabs: unknown) => {
+    if (!isTabConfigArray(tabs)) return err('Invalid tabs payload');
+    preferenceService.setDefaultTabs(tabs);
+    return ok(preferenceService.load());
+  });
+
+  ipcMain.handle(Channels.SET_WORKSPACE_DEFAULT_TABS, async (_event, workspaceId: string, tabs: unknown) => {
+    if (tabs !== null && !isTabConfigArray(tabs)) return err('Invalid tabs payload');
+    try {
+      await workspaceService.setDefaultTabs(workspaceId, tabs);
+      return ok(undefined);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  });
+
+  // ── Repo config ────────────────────────────────────────────────────
+  ipcMain.handle(Channels.GET_REPO_CONFIG, (_event, repoRoot: string) => {
+    return repoConfigService.get(repoRoot);
+  });
+
+  ipcMain.handle(Channels.SET_REPO_CONFIG, async (_event, repoRoot: string, config: unknown) => {
+    if (config !== null && !isPlainObject(config)) return err('Invalid config payload');
+    try {
+      await repoConfigService.set(repoRoot, config as never);
+      return ok(undefined);
+    } catch (e) {
+      return err((e as Error).message);
+    }
   });
 
   // ── Remote server commands ────────────────────────────────────────

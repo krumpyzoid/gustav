@@ -1,7 +1,7 @@
 import type { TmuxPort } from '../ports/tmux.port';
 import type { ShellPort } from '../ports/shell.port';
 import type { WindowSpec } from '../domain/types';
-import { normalizeWindows } from '../domain/types';
+import { stripResumeContinueFlags } from '../domain/claude-command';
 
 const SHELLS = new Set(['zsh', 'fish', 'bash', 'sh', 'tcsh', 'csh', 'ksh', 'dash', 'login']);
 
@@ -14,7 +14,6 @@ async function resolveChildCommand(shell: ShellPort, panePid: number): Promise<s
   try {
     const childPids = (await shell.exec(`pgrep -P ${panePid}`)).trim();
     if (!childPids) return null;
-    // Take the first child (foreground process)
     const childPid = childPids.split('\n')[0];
     const raw = (await shell.exec(`ps -p ${childPid} -o args=`)).trim();
     if (!raw) return null;
@@ -25,24 +24,46 @@ async function resolveChildCommand(shell: ShellPort, panePid: number): Promise<s
   }
 }
 
+type InferredFields = Pick<WindowSpec, 'kind' | 'command' | 'args'>;
+
+/**
+ * Infer kind/command/args from the resolved child command and the pane's
+ * foreground process name. Used for windows that have no preserved kind
+ * (legacy specs or freshly-discovered windows).
+ */
+function inferKindFromCommand(childCmd: string | null, paneCommand: string): InferredFields {
+  if (childCmd) {
+    const tokens = childCmd.trim().split(/\s+/);
+    if (tokens[0] === 'claude') {
+      const args = stripResumeContinueFlags(tokens.slice(1).join(' '));
+      return args ? { kind: 'claude', args } : { kind: 'claude' };
+    }
+    return { kind: 'command', command: childCmd };
+  }
+  if (paneCommand === 'claude') {
+    return { kind: 'claude' };
+  }
+  if (!SHELLS.has(paneCommand)) {
+    return { kind: 'command', command: paneCommand };
+  }
+  return { kind: 'command' };
+}
+
 /**
  * Snapshot the current window state of a tmux session, merging live pane info
- * with existing persisted specs. Existing commands and claudeSessionIds are
- * preserved; new/bare windows get their running command resolved from the
- * shell's child process (full command line, not just the process name).
- * Per-window working directories are also captured.
+ * with existing persisted specs. Claude tabs preserve their kind/args/session-id;
+ * other tabs re-resolve their command from the running process.
  */
 export async function snapshotSessionWindows(
   tmux: TmuxPort,
   session: string,
-  existingWindows: (string | WindowSpec)[],
+  existingWindows: WindowSpec[],
   shell?: ShellPort,
 ): Promise<WindowSpec[]> {
-  const existingSpecs = normalizeWindows(existingWindows);
+  const existingSpecs = existingWindows;
   const liveWindows = await tmux.listWindows(session);
   const panes = await tmux.listPanesExtended(session);
 
-  // Build a map of windowName → first pane info
   const paneByWindow = new Map<string, { command: string; pid: number; cwd: string }>();
   for (const pane of panes) {
     if (!paneByWindow.has(pane.windowName)) {
@@ -57,37 +78,47 @@ export async function snapshotSessionWindows(
     const pane = paneByWindow.get(win.name);
     const directory = pane?.cwd || undefined;
 
-    if (existing?.command === 'claude') {
-      // Claude windows have special restore logic (--resume/--continue) — preserve as-is
-      merged.push({ ...existing, ...(directory ? { directory } : {}) });
-    } else if (pane && shell) {
-      // Resolve command from the shell's child process for the full command line
-      // (pane_current_command only gives the process name, e.g. 'node' for 'pnpm run dev')
-      const childCmd = await resolveChildCommand(shell, pane.pid);
-      // Fall back to pane_current_command if child resolution fails (process exited between pgrep and ps)
-      const command = childCmd ?? (!SHELLS.has(pane.command) ? pane.command : undefined);
+    if (existing?.kind === 'claude') {
+      // Preserve claude tab as-is — user-supplied args + tracked session id own continuity.
       merged.push({
         name: win.name,
-        ...(command ? { command } : {}),
-        ...(existing?.claudeSessionId ? { claudeSessionId: existing.claudeSessionId } : {}),
+        kind: 'claude',
+        ...(existing.args ? { args: existing.args } : {}),
+        ...(existing.claudeSessionId ? { claudeSessionId: existing.claudeSessionId } : {}),
         ...(directory ? { directory } : {}),
       });
-    } else if (pane && !SHELLS.has(pane.command)) {
-      // No shell port — fall back to process name for non-shell processes
-      merged.push({
-        name: win.name,
-        command: pane.command,
-        ...(existing?.claudeSessionId ? { claudeSessionId: existing.claudeSessionId } : {}),
-        ...(directory ? { directory } : {}),
-      });
-    } else {
-      // No pane info or shell at prompt without shell port
-      merged.push({
-        name: win.name,
-        ...(existing?.claudeSessionId ? { claudeSessionId: existing.claudeSessionId } : {}),
-        ...(directory ? { directory } : {}),
-      });
+      continue;
     }
+
+    if (pane && shell) {
+      const childCmd = await resolveChildCommand(shell, pane.pid);
+      const inferred = inferKindFromCommand(childCmd, pane.command);
+      merged.push({
+        name: win.name,
+        ...inferred,
+        ...(existing?.claudeSessionId && inferred.kind === 'claude'
+          ? { claudeSessionId: existing.claudeSessionId }
+          : {}),
+        ...(directory ? { directory } : {}),
+      });
+      continue;
+    }
+
+    if (pane) {
+      const inferred = inferKindFromCommand(null, pane.command);
+      merged.push({
+        name: win.name,
+        ...inferred,
+        ...(directory ? { directory } : {}),
+      });
+      continue;
+    }
+
+    merged.push({
+      name: win.name,
+      kind: 'command',
+      ...(directory ? { directory } : {}),
+    });
   }
 
   return merged;

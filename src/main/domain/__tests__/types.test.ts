@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { worstStatus, normalizeWindows } from '../types';
+import { worstStatus } from '../types';
 import type { ClaudeStatus, PinnedRepo, PersistedSession, Workspace, RepoGroupState, WindowSpec } from '../types';
 
 describe('worstStatus', () => {
@@ -50,7 +50,11 @@ describe('PersistedSession type', () => {
       tmuxSession: 'Work/api/_dir',
       type: 'directory',
       directory: '/home/user/api',
-      windows: ['Claude Code', 'Git', 'Shell'],
+      windows: [
+        { name: 'Claude Code', kind: 'claude' },
+        { name: 'Git', kind: 'command', command: 'lazygit' },
+        { name: 'Shell', kind: 'command' },
+      ],
     };
     expect(session.tmuxSession).toBe('Work/api/_dir');
     expect(session.type).toBe('directory');
@@ -69,7 +73,10 @@ describe('Workspace type extensions', () => {
         tmuxSession: 'Test/repo/_dir',
         type: 'directory',
         directory: '/tmp/repo',
-        windows: ['Claude Code', 'Shell'],
+        windows: [
+          { name: 'Claude Code', kind: 'claude' },
+          { name: 'Shell', kind: 'command' },
+        ],
       }],
     };
     expect(ws.pinnedRepos).toHaveLength(1);
@@ -89,30 +96,3 @@ describe('RepoGroupState type', () => {
   });
 });
 
-describe('normalizeWindows', () => {
-  it('converts string input to { name }', () => {
-    const result = normalizeWindows(['Claude Code']);
-    expect(result).toEqual([{ name: 'Claude Code' }]);
-  });
-
-  it('passes through WindowSpec objects unchanged', () => {
-    const spec: WindowSpec = { name: 'Git', command: 'lazygit' };
-    const result = normalizeWindows([spec]);
-    expect(result).toEqual([{ name: 'Git', command: 'lazygit' }]);
-  });
-
-  it('handles mixed array of strings and WindowSpec objects', () => {
-    const result = normalizeWindows(['Shell', { name: 'Claude Code', command: 'claude' }]);
-    expect(result).toEqual([{ name: 'Shell' }, { name: 'Claude Code', command: 'claude' }]);
-  });
-
-  it('returns empty array for empty input', () => {
-    expect(normalizeWindows([])).toEqual([]);
-  });
-
-  it('preserves claudeSessionId when present', () => {
-    const spec: WindowSpec = { name: 'Claude Code', command: 'claude', claudeSessionId: 'abc-123' };
-    const result = normalizeWindows([spec]);
-    expect(result).toEqual([{ name: 'Claude Code', command: 'claude', claudeSessionId: 'abc-123' }]);
-  });
-});

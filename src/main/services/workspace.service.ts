@@ -4,6 +4,7 @@ import { readdirSync, statSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { FileSystemPort } from '../ports/filesystem.port';
 import type { Workspace, WorkspaceOrdering, PinnedRepo, PersistedSession } from '../domain/types';
+import type { TabConfig } from '../domain/tab-config';
 
 const DEFAULT_STORAGE_DIR = join(homedir(), '.local', 'share', 'gustav');
 
@@ -111,6 +112,23 @@ export class WorkspaceService {
       const ws = workspaces.find((w) => w.id === id);
       if (!ws) throw new Error(`Workspace "${id}" not found`);
       ws.pinnedRepos = (ws.pinnedRepos ?? []).filter((r) => r.path !== repoPath);
+      await this.persist(workspaces);
+    });
+  }
+
+  /** Set or clear the per-workspace default-tabs override. `null` clears the
+   * field (resolver falls back to globals); any array — including empty — is
+   * preserved as an explicit override. */
+  async setDefaultTabs(id: string, tabs: TabConfig[] | null): Promise<void> {
+    return this.enqueue(async () => {
+      const workspaces = this.list();
+      const ws = workspaces.find((w) => w.id === id);
+      if (!ws) throw new Error(`Workspace "${id}" not found`);
+      if (tabs === null) {
+        delete ws.defaultTabs;
+      } else {
+        ws.defaultTabs = tabs;
+      }
       await this.persist(workspaces);
     });
   }

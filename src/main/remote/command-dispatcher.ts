@@ -1,16 +1,19 @@
 import type { StateService } from '../services/state.service';
 import type { SessionService } from '../services/session.service';
 import type { WorkspaceService } from '../services/workspace.service';
-import type { ConfigService } from '../services/config.service';
+import type { RepoConfigService } from '../services/repo-config.service';
+import type { PreferenceService } from '../services/preference.service';
 import type { GitPort } from '../ports/git.port';
 import type { TmuxPort } from '../ports/tmux.port';
 import type { Result } from '../domain/types';
+import { buildWindowSpecs } from '../ipc/build-window-specs';
 
 export type DispatcherDeps = {
   stateService: StateService;
   sessionService: SessionService;
   workspaceService: WorkspaceService;
-  configService: ConfigService;
+  repoConfigService: RepoConfigService;
+  preferenceService: PreferenceService;
   git: GitPort;
   tmux: TmuxPort;
   /** Validates directory is within allowed workspace roots */
@@ -93,26 +96,37 @@ export class CommandDispatcher {
           if (this.deps.isAllowedDirectory && !this.deps.isAllowedDirectory(workspaceDir)) {
             return err('Directory not within any workspace root');
           }
-          const config = await this.deps.configService.parse(workspaceDir);
-          const session = await this.deps.sessionService.launchWorkspaceSession(
-            workspaceName, workspaceDir, config, label,
-          );
+          const sessionName = this.deps.sessionService.getSessionName(workspaceName, { type: 'workspace', label });
+          const ws = this.deps.workspaceService.list().find((w) => w.name === workspaceName) ?? null;
+          const windows = buildWindowSpecs({
+            type: 'workspace',
+            workspace: ws,
+            preferences: this.deps.preferenceService.load(),
+            repoConfig: null,
+          });
+          const session = await this.deps.sessionService.launchSession(sessionName, workspaceDir, windows);
           return ok(session);
         }
 
         case 'create-repo-session': {
-          const { workspaceName, repoRoot, mode, branch, base } = params as {
+          const { workspaceName, repoRoot, mode, branch } = params as {
             workspaceName: string; repoRoot: string; mode: string;
             branch?: string; base?: string;
           };
           if (this.deps.isAllowedDirectory && !this.deps.isAllowedDirectory(repoRoot)) {
             return err('Directory not within any workspace root');
           }
-          const config = await this.deps.configService.parse(repoRoot);
           if (mode === 'directory') {
-            const session = await this.deps.sessionService.launchDirectorySession(
-              workspaceName, repoRoot, config,
-            );
+            const repoName = repoRoot.split('/').pop() ?? repoRoot;
+            const sessionName = this.deps.sessionService.getSessionName(workspaceName, { type: 'directory', repoName });
+            const ws = this.deps.workspaceService.list().find((w) => w.name === workspaceName) ?? null;
+            const windows = buildWindowSpecs({
+              type: 'directory',
+              workspace: ws,
+              preferences: this.deps.preferenceService.load(),
+              repoConfig: this.deps.repoConfigService.get(repoRoot),
+            });
+            const session = await this.deps.sessionService.launchSession(sessionName, repoRoot, windows);
             return ok(session);
           }
           if (!branch) return err('Branch required for worktree session');
@@ -125,7 +139,14 @@ export class CommandDispatcher {
           if (this.deps.isAllowedDirectory && !this.deps.isAllowedDirectory(dir)) {
             return err('Directory not within any workspace root');
           }
-          const session = await this.deps.sessionService.launchStandaloneSession(label, dir);
+          const sessionName = this.deps.sessionService.getSessionName(null, { type: 'workspace', label });
+          const windows = buildWindowSpecs({
+            type: 'workspace',
+            workspace: null,
+            preferences: this.deps.preferenceService.load(),
+            repoConfig: null,
+          });
+          const session = await this.deps.sessionService.launchSession(sessionName, dir, windows);
           return ok(session);
         }
 

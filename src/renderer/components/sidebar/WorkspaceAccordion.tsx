@@ -24,13 +24,27 @@ interface RepoGroupProps {
   onRemoveWorktree?: (tab: SessionTabType, repoRoot: string) => void;
   onAddWorktree?: (repoName: string, repoRoot: string, workspaceName: string) => void;
   onUnpinRepo?: (repoPath: string) => void;
+  onEditRepoSettings?: (repoRoot: string, repoName: string, workspaceId: string | null) => void;
   onReorderRepoSession: (repoName: string, newOrder: string[]) => void;
   isRemote?: boolean;
 }
 
-function RepoGroup({ repoName, repoRoot, workspaceName, sessions, workspaceId, onRemoveWorktree, onAddWorktree, onUnpinRepo, onReorderRepoSession, isRemote }: RepoGroupProps) {
+function RepoGroup({ repoName, repoRoot, workspaceName, sessions, workspaceId, onRemoveWorktree, onAddWorktree, onUnpinRepo, onEditRepoSettings, onReorderRepoSession, isRemote }: RepoGroupProps) {
   const headerRef = useRef<HTMLDivElement>(null);
   const scope = `${workspaceId}:${repoName}`;
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    function handleClick(e: MouseEvent) {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setContextMenu(null);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [contextMenu]);
 
   const handleReorder = useCallback((draggedId: string, targetId: string, edge: 'top' | 'bottom') => {
     const currentOrder = sessions.map((s) => s.tmuxSession);
@@ -42,6 +56,12 @@ function RepoGroup({ repoName, repoRoot, workspaceName, sessions, workspaceId, o
     <div className="mb-1">
       <div
         ref={headerRef}
+        onContextMenu={(e) => {
+          if (!isRemote && onEditRepoSettings) {
+            e.preventDefault();
+            setContextMenu({ x: e.clientX, y: e.clientY });
+          }
+        }}
         className="flex items-center justify-between px-3 pl-7 pt-1.5 pb-0.5 text-sm font-normal text-foreground/60 group/repo"
       >
         <span className="truncate">{repoName}</span>
@@ -66,6 +86,20 @@ function RepoGroup({ repoName, repoRoot, workspaceName, sessions, workspaceId, o
           )}
         </div>
       </div>
+      {contextMenu && onEditRepoSettings && (
+        <div
+          ref={contextMenuRef}
+          className="fixed bg-popover text-popover-foreground border border-border rounded-md shadow-lg z-50 min-w-[10rem] py-1"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            onClick={() => { setContextMenu(null); onEditRepoSettings(repoRoot, repoName, workspaceId === '__default' ? null : workspaceId); }}
+            className="w-full px-3 py-1.5 text-sm text-left hover:bg-muted cursor-pointer bg-transparent border-none text-popover-foreground"
+          >
+            Edit settings
+          </button>
+        </div>
+      )}
       {sessions.map((tab) => (
         <SortableItem
           key={tab.tmuxSession}
@@ -99,11 +133,13 @@ interface Props {
   onAddWorktree?: (repoName: string, repoRoot: string, workspaceName: string) => void;
   onUnpinRepo?: (workspaceId: string, repoPath: string) => void;
   onDeleteWorkspace?: () => void;
+  onEditSettings?: () => void;
+  onEditRepoSettings?: (repoRoot: string, repoName: string, workspaceId: string | null) => void;
   defaultExpanded?: boolean;
   isRemote?: boolean;
 }
 
-export function WorkspaceAccordion({ state, headerRef, onAddSession, onPinRepos, onEdit, onRemoveWorktree, onAddWorktree, onUnpinRepo, onDeleteWorkspace, defaultExpanded = true, isRemote }: Props) {
+export function WorkspaceAccordion({ state, headerRef, onAddSession, onPinRepos, onEdit, onRemoveWorktree, onAddWorktree, onUnpinRepo, onDeleteWorkspace, onEditSettings, onEditRepoSettings, defaultExpanded = true, isRemote }: Props) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [plusDropdownOpen, setPlusDropdownOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -171,7 +207,7 @@ export function WorkspaceAccordion({ state, headerRef, onAddSession, onPinRepos,
         ref={headerRef}
         onClick={() => setExpanded((v) => !v)}
         onContextMenu={(e) => {
-          if (!isDefault && !isRemote && onDeleteWorkspace) {
+          if (!isDefault && !isRemote && (onDeleteWorkspace || onEditSettings)) {
             e.preventDefault();
             setContextMenu({ x: e.clientX, y: e.clientY });
           }
@@ -240,12 +276,22 @@ export function WorkspaceAccordion({ state, headerRef, onAddSession, onPinRepos,
           className="fixed bg-popover text-popover-foreground border border-border rounded-md shadow-lg z-50 min-w-[10rem] py-1"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
-          <button
-            onClick={() => { setContextMenu(null); onDeleteWorkspace?.(); }}
-            className="w-full px-3 py-1.5 text-sm text-left hover:bg-destructive/10 text-destructive cursor-pointer bg-transparent border-none"
-          >
-            Delete Workspace
-          </button>
+          {onEditSettings && (
+            <button
+              onClick={() => { setContextMenu(null); onEditSettings(); }}
+              className="w-full px-3 py-1.5 text-sm text-left hover:bg-muted cursor-pointer bg-transparent border-none text-popover-foreground"
+            >
+              Edit settings
+            </button>
+          )}
+          {onDeleteWorkspace && (
+            <button
+              onClick={() => { setContextMenu(null); onDeleteWorkspace(); }}
+              className="w-full px-3 py-1.5 text-sm text-left hover:bg-destructive/10 text-destructive cursor-pointer bg-transparent border-none"
+            >
+              Delete Workspace
+            </button>
+          )}
         </div>
       )}
 
@@ -287,6 +333,7 @@ export function WorkspaceAccordion({ state, headerRef, onAddSession, onPinRepos,
                 onRemoveWorktree={onRemoveWorktree}
                 onAddWorktree={onAddWorktree}
                 onUnpinRepo={onUnpinRepo ? (repoPath) => onUnpinRepo(workspaceId, repoPath) : undefined}
+                onEditRepoSettings={onEditRepoSettings}
                 onReorderRepoSession={handleReorderRepoSession}
                 isRemote={isRemote}
               />

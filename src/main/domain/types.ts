@@ -13,29 +13,14 @@ export type WindowInfo = {
   active: boolean;
 };
 
-// ── Session / state ───────────────────────────────────────────────
-export type SessionEntry = {
-  repo: string;
-  branch: string;
-  tmuxSession: string | null;
-  status: ClaudeStatus;
-  worktreePath: string | null;
-  isMainWorktree: boolean;
-  upstream: string | null;
-};
-
-export type AppState = {
-  entries: SessionEntry[];
-  repos: [name: string, path: string][];
-  windows: WindowInfo[];
-};
-
 // ── Theme ─────────────────────────────────────────────────────────
 export type ThemeColors = Record<string, string>;
 
 // ── Preferences ──────────────────────────────────────────────────
+import type { TabConfig } from './tab-config';
 export interface Preferences {
   theme?: string; // 'system' | built-in theme slug
+  defaultTabs?: TabConfig[];
 }
 
 // ── Branch info (for new worktree dialog) ─────────────────────────
@@ -51,7 +36,6 @@ export type CreateWorktreeParams = {
   repoRoot: string;
   branch: string;
   base: string;
-  install: boolean;
 };
 
 export type CleanCandidate = {
@@ -88,7 +72,9 @@ export type PinnedRepo = {
 
 export type WindowSpec = {
   name: string;
+  kind: 'claude' | 'command';
   command?: string;
+  args?: string;
   claudeSessionId?: string;
   directory?: string;
 };
@@ -97,15 +83,8 @@ export type PersistedSession = {
   tmuxSession: string;
   type: SessionType;
   directory: string;
-  windows: (string | WindowSpec)[];
+  windows: WindowSpec[];
 };
-
-// Normalizes the mixed windows field from persisted sessions into a uniform
-// WindowSpec array, supporting both the legacy string[] format and the new
-// WindowSpec[] format for backward compatibility.
-export function normalizeWindows(windows: (string | WindowSpec)[]): WindowSpec[] {
-  return windows.map((w) => (typeof w === 'string' ? { name: w } : w));
-}
 
 export type Workspace = {
   id: string;
@@ -114,6 +93,7 @@ export type Workspace = {
   ordering?: WorkspaceOrdering;
   pinnedRepos?: PinnedRepo[];
   sessions?: PersistedSession[];
+  defaultTabs?: TabConfig[];
 };
 
 export type SessionType = 'workspace' | 'directory' | 'worktree';
@@ -167,17 +147,6 @@ export function worstStatus(statuses: ClaudeStatus[]): ClaudeStatus {
   }
   return worst;
 }
-
-// ── .wt config ────────────────────────────────────────────────────
-export type GustavConfig = {
-  env: Record<string, string>;
-  copy: string[];
-  install: string;
-  base: string;
-  hooks: Record<string, string>;
-  tmux: string[];
-  cleanMergedInto: string;
-};
 
 // ── Git types used by ports ───────────────────────────────────────
 export type WorktreeEntry = {

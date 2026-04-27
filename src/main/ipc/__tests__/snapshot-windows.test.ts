@@ -64,24 +64,20 @@ describe('snapshotSessionWindows', () => {
       ],
     );
 
-    // Git pane (pid 101) has child 'lazygit'
     const shell = makeMockShell({ 101: 'lazygit' });
 
     const existing = [
-      { name: 'Claude Code', command: 'claude', claudeSessionId: 'abc-123' },
-      { name: 'Git', command: 'lazygit' },
-      { name: 'Shell' },
+      { name: 'Claude Code', kind: 'claude' as const, claudeSessionId: 'abc-123' },
+      { name: 'Git', kind: 'command' as const, command: 'lazygit' },
+      { name: 'Shell', kind: 'command' as const },
     ];
 
     const result = await snapshotSessionWindows(tmux, 'Dev/_ws', existing, shell);
 
     expect(result).toEqual([
-      // claude preserved as-is (special restore logic)
-      { name: 'Claude Code', command: 'claude', claudeSessionId: 'abc-123', directory: '/home/user/api' },
-      // lazygit re-resolved from live pane
-      { name: 'Git', command: 'lazygit', directory: '/home/user/api' },
-      // shell at prompt, no child → no command
-      { name: 'Shell', directory: '/home/user/api/src' },
+      { name: 'Claude Code', kind: 'claude', claudeSessionId: 'abc-123', directory: '/home/user/api' },
+      { name: 'Git', kind: 'command', command: 'lazygit', directory: '/home/user/api' },
+      { name: 'Shell', kind: 'command', directory: '/home/user/api/src' },
     ]);
   });
 
@@ -91,16 +87,14 @@ describe('snapshotSessionWindows', () => {
       [{ paneId: '%0', windowName: 'Dev Server', paneCommand: 'node', panePid: 200, paneCwd: '/home/user/app' }],
     );
 
-    // Shell child resolves to the actual command
     const shell = makeMockShell({ 200: 'pnpm run dev' });
 
-    // Existing spec has stale 'node' from a previous broken snapshot
-    const existing = [{ name: 'Dev Server', command: 'node' }];
+    const existing = [{ name: 'Dev Server', kind: 'command' as const, command: 'node' }];
 
     const result = await snapshotSessionWindows(tmux, 'Dev/_ws', existing, shell);
 
     expect(result).toEqual([
-      { name: 'Dev Server', command: 'pnpm run dev', directory: '/home/user/app' },
+      { name: 'Dev Server', kind: 'command', command: 'pnpm run dev', directory: '/home/user/app' },
     ]);
   });
 
@@ -112,24 +106,22 @@ describe('snapshotSessionWindows', () => {
       ],
       [
         { paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 100 },
-        // pane_current_command shows 'node' but user ran 'pnpm run dev'
         { paneId: '%1', windowName: 'Dev Server', paneCommand: 'node', panePid: 101 },
       ],
     );
 
-    // Shell PID 101 has child 'pnpm run dev'
     const shell = makeMockShell({ 101: 'pnpm run dev' });
 
     const existing = [
-      { name: 'Claude Code', command: 'claude' },
-      { name: 'Dev Server' },
+      { name: 'Claude Code', kind: 'claude' as const },
+      { name: 'Dev Server', kind: 'command' as const },
     ];
 
     const result = await snapshotSessionWindows(tmux, 'Dev/_ws', existing, shell);
 
     expect(result).toEqual([
-      { name: 'Claude Code', command: 'claude', directory: '/home/user' },
-      { name: 'Dev Server', command: 'pnpm run dev', directory: '/home/user' },
+      { name: 'Claude Code', kind: 'claude', directory: '/home/user' },
+      { name: 'Dev Server', kind: 'command', command: 'pnpm run dev', directory: '/home/user' },
     ]);
   });
 
@@ -147,11 +139,16 @@ describe('snapshotSessionWindows', () => {
 
     const shell = makeMockShell({ 102: 'npm run dev' });
 
-    const result = await snapshotSessionWindows(tmux, 'Dev/_ws', [{ name: 'Shell' }, { name: 'Dev Server' }], shell);
+    const result = await snapshotSessionWindows(
+      tmux,
+      'Dev/_ws',
+      [{ name: 'Shell', kind: 'command' as const }, { name: 'Dev Server', kind: 'command' as const }],
+      shell,
+    );
 
     expect(result).toEqual([
-      { name: 'Shell', directory: '/home/user' },
-      { name: 'Dev Server', command: 'npm run dev', directory: '/home/user' },
+      { name: 'Shell', kind: 'command', directory: '/home/user' },
+      { name: 'Dev Server', kind: 'command', command: 'npm run dev', directory: '/home/user' },
     ]);
   });
 
@@ -166,7 +163,7 @@ describe('snapshotSessionWindows', () => {
     const result = await snapshotSessionWindows(tmux, 'Dev/_ws', [], shell);
 
     expect(result).toEqual([
-      { name: 'Dev', command: 'npm run dev', directory: '/home/user' },
+      { name: 'Dev', kind: 'command', command: 'npm run dev', directory: '/home/user' },
     ]);
   });
 
@@ -184,13 +181,13 @@ describe('snapshotSessionWindows', () => {
 
     const shell = makeMockShell({});
 
-    const existing = [{ name: 'Claude Code', command: 'claude' }];
+    const existing = [{ name: 'Claude Code', kind: 'claude' as const }];
 
     const result = await snapshotSessionWindows(tmux, 'Dev/_ws', existing, shell);
 
     expect(result).toEqual([
-      { name: 'Claude Code', command: 'claude', directory: '/home/user' },
-      { name: 'Scratch', directory: '/home/user' },
+      { name: 'Claude Code', kind: 'claude', directory: '/home/user' },
+      { name: 'Scratch', kind: 'command', directory: '/home/user' },
     ]);
   });
 
@@ -206,12 +203,11 @@ describe('snapshotSessionWindows', () => {
       ],
     );
 
-    // No shell port → can't resolve children
     const result = await snapshotSessionWindows(tmux, 'Dev/_ws', []);
 
     expect(result).toEqual([
-      { name: 'Logs', command: 'tail', directory: '/home/user' },
-      { name: 'Prompt', directory: '/home/user' },
+      { name: 'Logs', kind: 'command', command: 'tail', directory: '/home/user' },
+      { name: 'Prompt', kind: 'command', directory: '/home/user' },
     ]);
   });
 
@@ -222,37 +218,102 @@ describe('snapshotSessionWindows', () => {
     );
 
     const existing = [
-      { name: 'Claude Code', command: 'claude' },
-      { name: 'Git', command: 'lazygit' },
-      { name: 'Shell' },
+      { name: 'Claude Code', kind: 'claude' as const },
+      { name: 'Git', kind: 'command' as const, command: 'lazygit' },
+      { name: 'Shell', kind: 'command' as const },
     ];
 
     const result = await snapshotSessionWindows(tmux, 'Dev/_ws', existing);
 
     expect(result).toEqual([
-      { name: 'Claude Code', command: 'claude', directory: '/home/user' },
+      { name: 'Claude Code', kind: 'claude', directory: '/home/user' },
     ]);
   });
 
-  it('handles legacy string[] window format', async () => {
+  // ── Step 5 additions: kind/args inference ──
+
+  it('infers kind:claude with args from a running claude command with flags', async () => {
     const tmux = makeMockTmux(
-      [
-        { index: 0, name: 'Claude Code', active: true },
-        { index: 1, name: 'Shell', active: false },
-      ],
-      [
-        { paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 100 },
-        { paneId: '%1', windowName: 'Shell', paneCommand: 'zsh', panePid: 101 },
-      ],
+      [{ index: 0, name: 'Claude Code', active: true }],
+      [{ paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 100, paneCwd: '/home/user/api' }],
     );
 
-    const existing = ['Claude Code', 'Git', 'Shell'];
+    const shell = makeMockShell({ 100: 'claude --dangerously-skip-permissions' });
 
-    const result = await snapshotSessionWindows(tmux, 'Dev/_ws', existing);
+    const result = await snapshotSessionWindows(tmux, 'Dev/_ws', [], shell);
 
     expect(result).toEqual([
-      { name: 'Claude Code', command: 'claude', directory: '/home/user' },
-      { name: 'Shell', directory: '/home/user' },
+      {
+        name: 'Claude Code',
+        kind: 'claude',
+        args: '--dangerously-skip-permissions',
+        directory: '/home/user/api',
+      },
+    ]);
+  });
+
+  it('strips --resume token from inferred claude args', async () => {
+    const tmux = makeMockTmux(
+      [{ index: 0, name: 'Claude Code', active: true }],
+      [{ paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 100 }],
+    );
+
+    const shell = makeMockShell({ 100: 'claude --resume oldid --dangerously-skip-permissions' });
+
+    const result = await snapshotSessionWindows(tmux, 'Dev/_ws', [], shell);
+
+    expect(result).toEqual([
+      {
+        name: 'Claude Code',
+        kind: 'claude',
+        args: '--dangerously-skip-permissions',
+        directory: '/home/user',
+      },
+    ]);
+  });
+
+  it('infers kind:claude without args when claude runs bare', async () => {
+    const tmux = makeMockTmux(
+      [{ index: 0, name: 'Claude Code', active: true }],
+      [{ paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 100 }],
+    );
+
+    const shell = makeMockShell({ 100: 'claude' });
+
+    const result = await snapshotSessionWindows(tmux, 'Dev/_ws', [], shell);
+
+    expect(result).toEqual([
+      { name: 'Claude Code', kind: 'claude', directory: '/home/user' },
+    ]);
+  });
+
+  it('preserves args and claudeSessionId from existing claude spec', async () => {
+    const tmux = makeMockTmux(
+      [{ index: 0, name: 'Claude Code', active: true }],
+      [{ paneId: '%0', windowName: 'Claude Code', paneCommand: 'claude', panePid: 100 }],
+    );
+
+    const shell = makeMockShell({ 100: 'claude --resume current-id' });
+
+    const existing = [
+      {
+        name: 'Claude Code',
+        kind: 'claude' as const,
+        args: '--dangerously-skip-permissions',
+        claudeSessionId: 'sticky-id',
+      },
+    ];
+
+    const result = await snapshotSessionWindows(tmux, 'Dev/_ws', existing, shell);
+
+    expect(result).toEqual([
+      {
+        name: 'Claude Code',
+        kind: 'claude',
+        args: '--dangerously-skip-permissions',
+        claudeSessionId: 'sticky-id',
+        directory: '/home/user',
+      },
     ]);
   });
 });

@@ -40,7 +40,7 @@ import { ShellAdapter } from './adapters/shell.adapter';
 import { GitAdapter } from './adapters/git.adapter';
 import { TmuxAdapter } from './adapters/tmux.adapter';
 
-import { ConfigService } from './services/config.service';
+import { RepoConfigService } from './services/repo-config.service';
 import { WorkspaceService } from './services/workspace.service';
 import { SessionService } from './services/session.service';
 import { ThemeService } from './services/theme.service';
@@ -65,7 +65,7 @@ const gitAdapter = new GitAdapter(shellAdapter);
 const tmuxAdapter = new TmuxAdapter(shellAdapter);
 
 // ── Services ──────────────────────────────────────────────────────
-const configService = new ConfigService(fsAdapter);
+const repoConfigService = new RepoConfigService();
 const workspaceService = new WorkspaceService(fsAdapter);
 const sessionService = new SessionService(tmuxAdapter);
 const preferenceService = new PreferenceService();
@@ -74,7 +74,8 @@ const stateService = new StateService(gitAdapter, tmuxAdapter, workspaceService)
 const claudeTracker = new ClaudeSessionTracker(tmuxAdapter, shellAdapter, fsAdapter, workspaceService);
 const dataDir = require('node:path').join(require('node:os').homedir(), '.local', 'share', 'gustav');
 const remoteService = new RemoteService({
-  stateService, sessionService, workspaceService, configService,
+  stateService, sessionService, workspaceService,
+  repoConfigService, preferenceService,
   git: gitAdapter, tmux: tmuxAdapter, shell: shellAdapter, dataDir,
 });
 const remoteClientService = new RemoteClientService(dataDir);
@@ -82,7 +83,7 @@ const remoteClientService = new RemoteClientService(dataDir);
 // Apply saved theme preference at startup
 themeService.setPreference(preferenceService.load().theme);
 const worktreeService = new WorktreeService(
-  gitAdapter, fsAdapter, shellAdapter, configService, sessionService, workspaceService,
+  gitAdapter, fsAdapter, shellAdapter, repoConfigService, sessionService, workspaceService,
 );
 
 // ── PTY ───────────────────────────────────────────────────────────
@@ -195,7 +196,7 @@ app.on('ready', () => {
     stateService,
     themeService,
     workspaceService,
-    configService,
+    repoConfigService,
     preferenceService,
     tmux: tmuxAdapter,
     shell: shellAdapter,

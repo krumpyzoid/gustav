@@ -9,7 +9,10 @@ import type {
   CleanReport,
   Result,
   WindowInfo,
+  Preferences,
 } from '../main/domain/types';
+import type { TabConfig } from '../main/domain/tab-config';
+import type { RepoConfig } from '../main/domain/repo-config';
 
 interface ElectronAPI {
   // PTY
@@ -57,6 +60,16 @@ interface ElectronAPI {
   // Theme
   getTheme: () => Promise<ThemeColors>;
   onThemeUpdate: (cb: (colors: ThemeColors) => void) => () => void;
+
+  // Preferences
+  getPreferences: () => Promise<Preferences>;
+  setPreference: (key: string, value: unknown) => Promise<Preferences>;
+  setDefaultTabs: (tabs: TabConfig[]) => Promise<Result<Preferences>>;
+  setWorkspaceDefaultTabs: (workspaceId: string, tabs: TabConfig[] | null) => Promise<Result<void>>;
+
+  // Repo config
+  getRepoConfig: (repoRoot: string) => Promise<RepoConfig | null>;
+  setRepoConfig: (repoRoot: string, config: RepoConfig | null) => Promise<Result<void>>;
 }
 
 declare global {

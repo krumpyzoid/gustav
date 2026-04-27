@@ -4,7 +4,6 @@ import type { StateService } from '../../services/state.service';
 import type { SessionService } from '../../services/session.service';
 import type { WorkspaceService } from '../../services/workspace.service';
 import type { WorktreeService } from '../../services/worktree.service';
-import type { ConfigService } from '../../services/config.service';
 import type { GitPort } from '../../ports/git.port';
 import type { TmuxPort } from '../../ports/tmux.port';
 
@@ -18,10 +17,7 @@ function makeMockDeps() {
   } as unknown as StateService;
 
   const sessionService = {
-    launchWorkspaceSession: vi.fn().mockResolvedValue('ws/session'),
-    launchDirectorySession: vi.fn().mockResolvedValue('ws/repo/_dir'),
-    launchWorktreeSession: vi.fn().mockResolvedValue('ws/repo/branch'),
-    launchStandaloneSession: vi.fn().mockResolvedValue('_standalone/test'),
+    launchSession: vi.fn().mockResolvedValue('ws/session'),
     switchTo: vi.fn(),
     getSessionName: vi.fn().mockReturnValue('ws/session'),
     restoreSession: vi.fn(),
@@ -43,15 +39,19 @@ function makeMockDeps() {
     listWindows: vi.fn().mockResolvedValue([]),
   } as unknown as TmuxPort;
 
-  const configService = {
-    parse: vi.fn().mockResolvedValue({ env: {}, copy: [], install: '', base: '', hooks: {}, tmux: [], cleanMergedInto: '' }),
-  } as unknown as ConfigService;
+  const repoConfigService = {
+    get: vi.fn().mockReturnValue(null),
+  } as unknown as import('../../services/repo-config.service').RepoConfigService;
+
+  const preferenceService = {
+    load: vi.fn().mockReturnValue({ defaultTabs: [] }),
+  } as unknown as import('../../services/preference.service').PreferenceService;
 
   const git = {
     listBranches: vi.fn().mockResolvedValue([]),
   } as unknown as GitPort;
 
-  return { stateService, sessionService, workspaceService, tmux, configService, git };
+  return { stateService, sessionService, workspaceService, tmux, repoConfigService, preferenceService, git };
 }
 
 describe('CommandDispatcher', () => {

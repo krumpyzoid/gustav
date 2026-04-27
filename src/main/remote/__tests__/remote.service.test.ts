@@ -12,9 +12,7 @@ function makeMockDeps(): RemoteServiceDeps {
     },
     sessionService: {
       restoreSession: vi.fn(),
-      launchWorkspaceSession: vi.fn().mockResolvedValue('ws/session'),
-      launchDirectorySession: vi.fn().mockResolvedValue('ws/repo/_dir'),
-      launchStandaloneSession: vi.fn().mockResolvedValue('_standalone/test'),
+      launchSession: vi.fn().mockResolvedValue('session/name'),
       getSessionName: vi.fn(),
     },
     workspaceService: {
@@ -24,8 +22,11 @@ function makeMockDeps(): RemoteServiceDeps {
       removeSession: vi.fn(),
       discoverGitRepos: vi.fn().mockReturnValue([]),
     },
-    configService: {
-      parse: vi.fn().mockResolvedValue({ env: {}, copy: [], install: '', base: '', hooks: {}, tmux: [], cleanMergedInto: '' }),
+    repoConfigService: {
+      get: vi.fn().mockReturnValue(null),
+    },
+    preferenceService: {
+      load: vi.fn().mockReturnValue({ defaultTabs: [] }),
     },
     git: {
       listBranches: vi.fn().mockResolvedValue([]),

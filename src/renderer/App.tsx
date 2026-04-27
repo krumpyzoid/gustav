@@ -14,6 +14,8 @@ import { RemoveWorktreeDialog } from './components/dialogs/RemoveWorktreeDialog'
 import { CleanWorktreesDialog } from './components/dialogs/CleanWorktreesDialog';
 import { ConnectRemoteDialog } from './components/dialogs/ConnectRemoteDialog';
 import { DeleteWorkspaceDialog } from './components/dialogs/DeleteWorkspaceDialog';
+import { WorkspaceSettingsDialog } from './components/workspace/WorkspaceSettingsDialog';
+import { RepoSettingsDialog } from './components/repo/RepoSettingsDialog';
 import { useAppStateSubscription, refreshState } from './hooks/use-app-state';
 import { useKeyboardShortcuts } from './hooks/use-keyboard-shortcuts';
 import { focusTerminal } from './hooks/use-terminal';
@@ -49,6 +51,8 @@ export function App() {
   const [removeRepoRoot, setRemoveRepoRoot] = useState<string | null>(null);
   const [connectRemoteOpen, setConnectRemoteOpen] = useState(false);
   const [deleteWorkspace, setDeleteWorkspace] = useState<WorkspaceState | null>(null);
+  const [settingsWorkspaceId, setSettingsWorkspaceId] = useState<string | null>(null);
+  const [repoSettings, setRepoSettings] = useState<{ repoRoot: string; repoName: string; workspaceId: string | null } | null>(null);
 
   return (
     <div className="flex h-screen bg-bg">
@@ -68,6 +72,8 @@ export function App() {
               const ws = useAppStore.getState().workspaces.find((w) => w.workspace?.id === wsId);
               if (ws) setDeleteWorkspace(ws);
             }}
+            onEditSettings={(wsId) => setSettingsWorkspaceId(wsId)}
+            onEditRepoSettings={(repoRoot, repoName, workspaceId) => setRepoSettings({ repoRoot, repoName, workspaceId })}
             onRemoveWorktree={(tab, repoRoot) => { setRemoveTab(tab); setRemoveRepoRoot(repoRoot); }}
             onAddWorktree={(repoName, repoRoot, workspaceName) => { setNewWorktreeRepo(repoName); setNewWorktreeRoot(repoRoot); setNewWorktreeWorkspaceName(workspaceName); setNewWorktreeOpen(true); }}
             onUnpinRepo={async (workspaceId, repoPath) => { await window.api.unpinRepo(workspaceId, repoPath); refreshState(); }}
@@ -143,6 +149,28 @@ export function App() {
         onClose={() => setDeleteWorkspace(null)}
         workspace={deleteWorkspace}
       />
+      {(() => {
+        const ws = useAppStore.getState().workspaces.find((w) => w.workspace?.id === settingsWorkspaceId)?.workspace;
+        if (!ws) return null;
+        return (
+          <WorkspaceSettingsDialog
+            workspace={ws}
+            open={settingsWorkspaceId !== null}
+            onOpenChange={(open) => { if (!open) setSettingsWorkspaceId(null); }}
+            onSaved={refreshState}
+          />
+        );
+      })()}
+      {repoSettings && (
+        <RepoSettingsDialog
+          repoRoot={repoSettings.repoRoot}
+          repoName={repoSettings.repoName}
+          workspaceId={repoSettings.workspaceId}
+          open
+          onOpenChange={(open) => { if (!open) setRepoSettings(null); }}
+          onSaved={refreshState}
+        />
+      )}
     </div>
   );
 }

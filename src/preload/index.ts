@@ -37,8 +37,8 @@ contextBridge.exposeInMainWorld('api', {
   destroySession: (session: string) => ipcRenderer.invoke('destroy-session', session),
   createWorkspaceSession: (workspaceName: string, workspaceDir: string, label?: string) =>
     ipcRenderer.invoke('create-workspace-session', workspaceName, workspaceDir, label),
-  createRepoSession: (workspaceName: string, repoRoot: string, mode: string, branch?: string, base?: string, install?: boolean) =>
-    ipcRenderer.invoke('create-repo-session', workspaceName, repoRoot, mode, branch, base, install),
+  createRepoSession: (workspaceName: string, repoRoot: string, mode: string, branch?: string, base?: string) =>
+    ipcRenderer.invoke('create-repo-session', workspaceName, repoRoot, mode, branch, base),
   launchWorktreeSession: (workspaceName: string, repoRoot: string, branch: string, worktreePath: string) =>
     ipcRenderer.invoke('launch-worktree-session', workspaceName, repoRoot, branch, worktreePath),
   createStandaloneSession: (label: string, dir: string) =>
@@ -61,6 +61,14 @@ contextBridge.exposeInMainWorld('api', {
   // Preferences
   getPreferences: () => ipcRenderer.invoke('get-preferences'),
   setPreference: (key: string, value: unknown) => ipcRenderer.invoke('set-preference', key, value),
+  setDefaultTabs: (tabs: unknown[]) => ipcRenderer.invoke('set-default-tabs', tabs),
+  setWorkspaceDefaultTabs: (workspaceId: string, tabs: unknown[] | null) =>
+    ipcRenderer.invoke('set-workspace-default-tabs', workspaceId, tabs),
+
+  // Repo config
+  getRepoConfig: (repoRoot: string) => ipcRenderer.invoke('get-repo-config', repoRoot),
+  setRepoConfig: (repoRoot: string, config: unknown) =>
+    ipcRenderer.invoke('set-repo-config', repoRoot, config),
 
   // Theme
   getTheme: () => ipcRenderer.invoke('get-theme'),

@@ -9,7 +9,6 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -32,7 +31,6 @@ interface Props {
 export function NewWorktreeDialog({ open, onClose, repo, repoRoot, workspaceName }: Props) {
   const [branch, setBranch] = useState('');
   const [base, setBase] = useState('origin/main');
-  const [install, setInstall] = useState(true);
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -50,9 +48,9 @@ export function NewWorktreeDialog({ open, onClose, repo, repoRoot, workspaceName
 
     let result;
     if (workspaceName) {
-      result = await window.api.createRepoSession(workspaceName, repoRoot, 'worktree', branch.trim(), base, install);
+      result = await window.api.createRepoSession(workspaceName, repoRoot, 'worktree', branch.trim(), base);
     } else {
-      result = await window.api.createWorktree({ repo, repoRoot, branch: branch.trim(), base, install });
+      result = await window.api.createWorktree({ repo, repoRoot, branch: branch.trim(), base });
     }
     setLoading(false);
 
@@ -109,14 +107,6 @@ export function NewWorktreeDialog({ open, onClose, repo, repoRoot, workspaceName
             </Select>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="install"
-              checked={install}
-              onCheckedChange={(v) => setInstall(v === true)}
-            />
-            <Label htmlFor="install" className="text-sm">Run install command</Label>
-          </div>
 
           {error && (
             <div className="text-c1 text-sm bg-c1/10 p-2 rounded">{error}</div>

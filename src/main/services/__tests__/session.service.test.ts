@@ -23,16 +23,6 @@ function makeMockTmux(): TmuxPort {
   };
 }
 
-const emptyConfig = {
-  env: {},
-  copy: [],
-  install: '',
-  base: '',
-  hooks: {},
-  tmux: [],
-  cleanMergedInto: 'origin/staging',
-};
-
 describe('SessionService naming', () => {
   it('names workspace sessions as workspaceName/_ws', () => {
     const svc = new SessionService(makeMockTmux());
@@ -61,92 +51,71 @@ describe('SessionService naming', () => {
   });
 });
 
-describe('SessionService.launchWorkspaceSession', () => {
-  it('creates session with claude and shell windows', async () => {
+describe('SessionService.launchSession', () => {
+  it('creates a tmux session with the first window as the initial window', async () => {
     const tmux = makeMockTmux();
     const svc = new SessionService(tmux);
 
-    await svc.launchWorkspaceSession('myproject', '/home/user/myproject', emptyConfig);
+    await svc.launchSession('Dev/api/_dir', '/home/user/api', [
+      { name: 'Claude Code', kind: 'claude' },
+      { name: 'Shell', kind: 'command' },
+    ]);
 
-    expect(tmux.newSession).toHaveBeenCalledWith('myproject/_ws', {
-      windowName: 'Claude Code',
-      cwd: '/home/user/myproject',
-    });
-    expect(tmux.sendKeys).toHaveBeenCalledWith("myproject/_ws:Claude Code", 'claude');
-    expect(tmux.newWindow).toHaveBeenCalledWith('myproject/_ws', 'Shell', '/home/user/myproject');
-  });
-
-  it('creates additional windows from .gustav config', async () => {
-    const tmux = makeMockTmux();
-    const svc = new SessionService(tmux);
-    const config = { ...emptyConfig, tmux: ['Tests:npm test', 'Docs:npm run docs'] };
-
-    await svc.launchWorkspaceSession('myproject', '/home/user/myproject', config);
-
-    expect(tmux.newWindow).toHaveBeenCalledWith('myproject/_ws', 'Tests', '/home/user/myproject');
-    expect(tmux.sendKeys).toHaveBeenCalledWith('myproject/_ws:Tests', 'npm test');
-    expect(tmux.newWindow).toHaveBeenCalledWith('myproject/_ws', 'Docs', '/home/user/myproject');
-    expect(tmux.sendKeys).toHaveBeenCalledWith('myproject/_ws:Docs', 'npm run docs');
-  });
-
-  it('does not create a Git window (unlike old repo sessions)', async () => {
-    const tmux = makeMockTmux();
-    const svc = new SessionService(tmux);
-
-    await svc.launchWorkspaceSession('myproject', '/home/user/myproject', emptyConfig);
-
-    const windowCalls = vi.mocked(tmux.newWindow).mock.calls;
-    expect(windowCalls.some(([_, name]) => name === 'Git')).toBe(false);
-  });
-});
-
-describe('SessionService.launchDirectorySession', () => {
-  it('creates session with claude, git, and shell windows', async () => {
-    const tmux = makeMockTmux();
-    const svc = new SessionService(tmux);
-
-    await svc.launchDirectorySession('myws', '/home/user/api', emptyConfig);
-
-    const sessionName = 'myws/api/_dir';
-    expect(tmux.newSession).toHaveBeenCalledWith(sessionName, {
+    expect(tmux.newSession).toHaveBeenCalledWith('Dev/api/_dir', {
       windowName: 'Claude Code',
       cwd: '/home/user/api',
     });
-    expect(tmux.sendKeys).toHaveBeenCalledWith(`${sessionName}:Claude Code`, 'claude');
-    expect(tmux.newWindow).toHaveBeenCalledWith(sessionName, 'Git', '/home/user/api');
-    expect(tmux.sendKeys).toHaveBeenCalledWith(`${sessionName}:Git`, 'lazygit');
-    expect(tmux.newWindow).toHaveBeenCalledWith(sessionName, 'Shell', '/home/user/api');
+    expect(tmux.sendKeys).toHaveBeenCalledWith('Dev/api/_dir:Claude Code', 'claude');
+    expect(tmux.newWindow).toHaveBeenCalledWith('Dev/api/_dir', 'Shell', '/home/user/api');
+    expect(tmux.selectWindow).toHaveBeenCalledWith('Dev/api/_dir', 'Claude Code');
   });
-});
 
-describe('SessionService.launchWorktreeSession', () => {
-  it('creates session with worktree naming', async () => {
+  it('attaches --resume <id> to the claude tab when claudeSessionId is set', async () => {
     const tmux = makeMockTmux();
     const svc = new SessionService(tmux);
 
-    await svc.launchWorktreeSession('myws', '/home/user/api', 'feat-auth', '/home/user/api/.worktrees/feat-auth', emptyConfig);
+    await svc.launchSession('Dev/api/_dir', '/home/user/api', [
+      { name: 'Claude Code', kind: 'claude', claudeSessionId: 'abc-123' },
+      { name: 'Shell', kind: 'command' },
+    ]);
 
-    const sessionName = 'myws/api/feat-auth';
-    expect(tmux.newSession).toHaveBeenCalledWith(sessionName, {
-      windowName: 'Claude Code',
-      cwd: '/home/user/api/.worktrees/feat-auth',
-    });
+    expect(tmux.sendKeys).toHaveBeenCalledWith('Dev/api/_dir:Claude Code', 'claude --resume abc-123');
   });
-});
 
-describe('SessionService.launchStandaloneSession', () => {
-  it('creates session with claude and shell only', async () => {
+  it('runs commands for kind:command tabs and skips empty shells', async () => {
     const tmux = makeMockTmux();
     const svc = new SessionService(tmux);
 
-    await svc.launchStandaloneSession('scratch', '/home/user/notes');
+    await svc.launchSession('Dev/_ws', '/home/user/dev', [
+      { name: 'Git', kind: 'command', command: 'lazygit' },
+      { name: 'Shell', kind: 'command' },
+      { name: 'Tests', kind: 'command', command: 'npm test' },
+    ]);
 
-    expect(tmux.newSession).toHaveBeenCalledWith('_standalone/scratch', {
-      windowName: 'Claude Code',
-      cwd: '/home/user/notes',
-    });
-    expect(tmux.sendKeys).toHaveBeenCalledWith('_standalone/scratch:Claude Code', 'claude');
-    expect(tmux.newWindow).toHaveBeenCalledWith('_standalone/scratch', 'Shell', '/home/user/notes');
+    expect(tmux.sendKeys).toHaveBeenCalledWith('Dev/_ws:Git', 'lazygit');
+    expect(tmux.sendKeys).toHaveBeenCalledWith('Dev/_ws:Tests', 'npm test');
+    const sendKeysCalls = vi.mocked(tmux.sendKeys).mock.calls;
+    expect(sendKeysCalls.some(([target]) => target === 'Dev/_ws:Shell')).toBe(false);
+  });
+
+  it('returns existing session name without re-creating when tmux already has it', async () => {
+    const tmux = makeMockTmux();
+    vi.mocked(tmux.hasSession).mockResolvedValue(true);
+    const svc = new SessionService(tmux);
+
+    const result = await svc.launchSession('existing/session', '/tmp', [
+      { name: 'A', kind: 'command' },
+    ]);
+
+    expect(result).toBe('existing/session');
+    expect(tmux.newSession).not.toHaveBeenCalled();
+  });
+
+  it('throws when called with no windows', async () => {
+    const tmux = makeMockTmux();
+    const svc = new SessionService(tmux);
+
+    await expect(svc.launchSession('empty/session', '/tmp', [])).rejects.toThrow();
   });
 });
 
@@ -160,7 +129,11 @@ describe('SessionService.restoreSession', () => {
       tmuxSession: 'Dev/api/_dir',
       type: 'directory',
       directory: '/home/user/api',
-      windows: ['Claude Code', 'Git', 'Shell'],
+      windows: [
+        { name: 'Claude Code', kind: 'claude' },
+        { name: 'Git', kind: 'command', command: 'lazygit' },
+        { name: 'Shell', kind: 'command' },
+      ],
     });
 
     expect(tmux.newSession).toHaveBeenCalledWith('Dev/api/_dir', {
@@ -180,7 +153,10 @@ describe('SessionService.restoreSession', () => {
       tmuxSession: 'Dev/api/_dir',
       type: 'directory',
       directory: '/home/user/api',
-      windows: ['Claude Code', 'Git', 'Shell'],
+      windows: [
+        { name: 'Claude Code', kind: 'claude' },
+        { name: 'Shell', kind: 'command' },
+      ],
     });
 
     expect(tmux.newSession).not.toHaveBeenCalled();
@@ -196,13 +172,13 @@ describe('SessionService.restoreSession', () => {
       type: 'directory',
       directory: '/home/user/api',
       windows: [
-        { name: 'Claude Code', command: 'claude' },
-        { name: 'Git', command: 'lazygit' },
-        { name: 'Shell' },
+        { name: 'Claude Code', kind: 'claude' },
+        { name: 'Git', kind: 'command', command: 'lazygit' },
+        { name: 'Shell', kind: 'command' },
       ] satisfies WindowSpec[],
     });
 
-    expect(tmux.sendKeys).toHaveBeenCalledWith('Dev/api/_dir:Claude Code', 'claude --continue');
+    expect(tmux.sendKeys).toHaveBeenCalledWith('Dev/api/_dir:Claude Code', 'claude');
     expect(tmux.sendKeys).toHaveBeenCalledWith('Dev/api/_dir:Git', 'lazygit');
     const sendKeysCalls = vi.mocked(tmux.sendKeys).mock.calls;
     expect(sendKeysCalls.some(([target]) => target === 'Dev/api/_dir:Shell')).toBe(false);
@@ -218,30 +194,15 @@ describe('SessionService.restoreSession', () => {
       type: 'directory',
       directory: '/home/user/api',
       windows: [
-        { name: 'Claude Code', command: 'claude', claudeSessionId: 'abc-123' },
-        { name: 'Shell' },
+        { name: 'Claude Code', kind: 'claude', claudeSessionId: 'abc-123' },
+        { name: 'Shell', kind: 'command' },
       ] satisfies WindowSpec[],
     });
 
     expect(tmux.sendKeys).toHaveBeenCalledWith('Dev/api/_dir:Claude Code', 'claude --resume abc-123');
   });
 
-  it('sends no commands for legacy string[] windows', async () => {
-    const tmux = makeMockTmux();
-    vi.mocked(tmux.hasSession).mockResolvedValue(false);
-    const svc = new SessionService(tmux);
-
-    await svc.restoreSession({
-      tmuxSession: 'Dev/api/_dir',
-      type: 'directory',
-      directory: '/home/user/api',
-      windows: ['Claude Code', 'Git', 'Shell'],
-    });
-
-    expect(tmux.sendKeys).not.toHaveBeenCalled();
-  });
-
-  it('sends custom .gustav window commands', async () => {
+  it('sends custom command-kind window commands', async () => {
     const tmux = makeMockTmux();
     vi.mocked(tmux.hasSession).mockResolvedValue(false);
     const svc = new SessionService(tmux);
@@ -251,9 +212,9 @@ describe('SessionService.restoreSession', () => {
       type: 'directory',
       directory: '/home/user/api',
       windows: [
-        { name: 'Claude Code', command: 'claude' },
-        { name: 'Dev', command: 'pnpm run dev' },
-        { name: 'Shell' },
+        { name: 'Claude Code', kind: 'claude' },
+        { name: 'Dev', kind: 'command', command: 'pnpm run dev' },
+        { name: 'Shell', kind: 'command' },
       ] satisfies WindowSpec[],
     });
 
@@ -273,8 +234,25 @@ describe('SessionService.restoreAll', () => {
         name: 'Dev',
         directory: '/home/user/dev',
         sessions: [
-          { tmuxSession: 'Dev/_ws', type: 'workspace', directory: '/home/user/dev', windows: ['Claude Code', 'Shell'] },
-          { tmuxSession: 'Dev/api/_dir', type: 'directory', directory: '/home/user/dev/api', windows: ['Claude Code', 'Git', 'Shell'] },
+          {
+            tmuxSession: 'Dev/_ws',
+            type: 'workspace',
+            directory: '/home/user/dev',
+            windows: [
+              { name: 'Claude Code', kind: 'claude' },
+              { name: 'Shell', kind: 'command' },
+            ],
+          },
+          {
+            tmuxSession: 'Dev/api/_dir',
+            type: 'directory',
+            directory: '/home/user/dev/api',
+            windows: [
+              { name: 'Claude Code', kind: 'claude' },
+              { name: 'Git', kind: 'command', command: 'lazygit' },
+              { name: 'Shell', kind: 'command' },
+            ],
+          },
         ],
       },
     ];
@@ -299,28 +277,54 @@ describe('SessionService.restoreAll', () => {
 });
 
 describe('buildRestoreCommand', () => {
-  it('returns "claude --resume <id>" when command is "claude" and claudeSessionId is set', () => {
-    const spec: WindowSpec = { name: 'Claude Code', command: 'claude', claudeSessionId: 'abc-123' };
-    expect(buildRestoreCommand(spec)).toBe('claude --resume abc-123');
+  // ── kind: 'claude' ──
+  it('claude kind with id returns "claude --resume <id>"', () => {
+    const spec: WindowSpec = { name: 'Claude Code', kind: 'claude', claudeSessionId: 'abc' };
+    expect(buildRestoreCommand(spec)).toBe('claude --resume abc');
   });
 
-  it('returns "claude --continue" when command is "claude" and no claudeSessionId', () => {
-    const spec: WindowSpec = { name: 'Claude Code', command: 'claude' };
-    expect(buildRestoreCommand(spec)).toBe('claude --continue');
+  it('claude kind without id returns bare "claude"', () => {
+    const spec: WindowSpec = { name: 'Claude Code', kind: 'claude' };
+    expect(buildRestoreCommand(spec)).toBe('claude');
   });
 
-  it('returns the command as-is for non-claude commands (passthrough)', () => {
-    const spec: WindowSpec = { name: 'Git', command: 'lazygit' };
+  it('claude kind with args and id resumes with both flags', () => {
+    const spec: WindowSpec = {
+      name: 'Claude Code',
+      kind: 'claude',
+      args: '--dangerously-skip-permissions',
+      claudeSessionId: 'abc',
+    };
+    expect(buildRestoreCommand(spec)).toBe('claude --dangerously-skip-permissions --resume abc');
+  });
+
+  it('claude kind with args and no id passes args through', () => {
+    const spec: WindowSpec = {
+      name: 'Claude Code',
+      kind: 'claude',
+      args: '--dangerously-skip-permissions',
+    };
+    expect(buildRestoreCommand(spec)).toBe('claude --dangerously-skip-permissions');
+  });
+
+  it('claude kind strips user-supplied --resume when no id', () => {
+    const spec: WindowSpec = { name: 'Claude Code', kind: 'claude', args: '--resume bogus' };
+    expect(buildRestoreCommand(spec)).toBe('claude');
+  });
+
+  // ── kind: 'command' ──
+  it('command kind with command returns the command', () => {
+    const spec: WindowSpec = { name: 'Git', kind: 'command', command: 'lazygit' };
     expect(buildRestoreCommand(spec)).toBe('lazygit');
   });
 
-  it('returns undefined when command is undefined', () => {
-    const spec: WindowSpec = { name: 'Shell' };
+  it('command kind without command returns undefined (shell)', () => {
+    const spec: WindowSpec = { name: 'Shell', kind: 'command' };
     expect(buildRestoreCommand(spec)).toBeUndefined();
   });
 
-  it('returns custom .gustav commands as-is (passthrough)', () => {
-    const spec: WindowSpec = { name: 'Tests', command: 'npm test' };
+  it('returns custom commands as-is for kind:command tabs', () => {
+    const spec: WindowSpec = { name: 'Tests', kind: 'command', command: 'npm test' };
     expect(buildRestoreCommand(spec)).toBe('npm test');
   });
 });

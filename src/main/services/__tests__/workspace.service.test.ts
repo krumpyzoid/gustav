@@ -212,13 +212,21 @@ describe('WorkspaceService', () => {
         tmuxSession: 'Dev/api/_dir',
         type: 'directory',
         directory: '/path/dev/api',
-        windows: ['Claude Code', 'Git', 'Shell'],
+        windows: [
+          { name: 'Claude Code', kind: 'claude' },
+          { name: 'Git', kind: 'command', command: 'lazygit' },
+          { name: 'Shell', kind: 'command' },
+        ],
       });
 
       const sessions = svc.getPersistedSessions(ws.id);
       expect(sessions).toHaveLength(1);
       expect(sessions[0].tmuxSession).toBe('Dev/api/_dir');
-      expect(sessions[0].windows).toEqual(['Claude Code', 'Git', 'Shell']);
+      expect(sessions[0].windows).toEqual([
+        { name: 'Claude Code', kind: 'claude' },
+        { name: 'Git', kind: 'command', command: 'lazygit' },
+        { name: 'Shell', kind: 'command' },
+      ]);
     });
 
     it('upserts by tmuxSession key', async () => {
@@ -229,18 +237,26 @@ describe('WorkspaceService', () => {
         tmuxSession: 'Dev/api/_dir',
         type: 'directory',
         directory: '/path/dev/api',
-        windows: ['Claude Code', 'Shell'],
+        windows: [
+          { name: 'Claude Code', kind: 'claude' },
+          { name: 'Shell', kind: 'command' },
+        ],
       });
       await svc.persistSession(ws.id, {
         tmuxSession: 'Dev/api/_dir',
         type: 'directory',
         directory: '/path/dev/api',
-        windows: ['Claude Code', 'Git', 'Shell', 'Logs'],
+        windows: [
+          { name: 'Claude Code', kind: 'claude' },
+          { name: 'Git', kind: 'command', command: 'lazygit' },
+          { name: 'Shell', kind: 'command' },
+          { name: 'Logs', kind: 'command', command: 'tail -f log' },
+        ],
       });
 
       const sessions = svc.getPersistedSessions(ws.id);
       expect(sessions).toHaveLength(1);
-      expect(sessions[0].windows).toEqual(['Claude Code', 'Git', 'Shell', 'Logs']);
+      expect(sessions[0].windows).toHaveLength(4);
     });
 
     it('removes a session by tmuxSession name', async () => {
@@ -251,13 +267,19 @@ describe('WorkspaceService', () => {
         tmuxSession: 'Dev/api/_dir',
         type: 'directory',
         directory: '/path/dev/api',
-        windows: ['Claude Code', 'Shell'],
+        windows: [
+          { name: 'Claude Code', kind: 'claude' },
+          { name: 'Shell', kind: 'command' },
+        ],
       });
       await svc.persistSession(ws.id, {
         tmuxSession: 'Dev/debug',
         type: 'workspace',
         directory: '/path/dev',
-        windows: ['Claude Code', 'Shell'],
+        windows: [
+          { name: 'Claude Code', kind: 'claude' },
+          { name: 'Shell', kind: 'command' },
+        ],
       });
 
       await svc.removeSession(ws.id, 'Dev/api/_dir');
@@ -272,4 +294,52 @@ describe('WorkspaceService', () => {
       expect(svc.getPersistedSessions('nonexistent')).toEqual([]);
     });
   });
+
+  describe('default tabs override', () => {
+    it('persists tabs on a workspace and reads them back', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      const ws = await svc.create('Acme', '/path/acme');
+
+      await svc.setDefaultTabs(ws.id, [
+        { id: 't1', name: 'Notes', kind: 'command', appliesTo: 'standalone' },
+      ]);
+
+      const loaded = svc.list().find((w) => w.id === ws.id);
+      expect(loaded?.defaultTabs).toEqual([
+        { id: 't1', name: 'Notes', kind: 'command', appliesTo: 'standalone' },
+      ]);
+    });
+
+    it('preserves an empty list as an explicit zero-tabs override', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      const ws = await svc.create('Acme', '/path/acme');
+      await svc.setDefaultTabs(ws.id, [
+        { id: 't1', name: 'Notes', kind: 'command', appliesTo: 'standalone' },
+      ]);
+
+      await svc.setDefaultTabs(ws.id, []);
+
+      const loaded = svc.list().find((w) => w.id === ws.id);
+      expect(loaded?.defaultTabs).toEqual([]);
+    });
+
+    it('treats null as a clear', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      const ws = await svc.create('Acme', '/path/acme');
+      await svc.setDefaultTabs(ws.id, [
+        { id: 't1', name: 'Notes', kind: 'command', appliesTo: 'standalone' },
+      ]);
+
+      await svc.setDefaultTabs(ws.id, null);
+
+      const loaded = svc.list().find((w) => w.id === ws.id);
+      expect(loaded?.defaultTabs).toBeUndefined();
+    });
+
+    it('throws for an unknown workspace id', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      await expect(svc.setDefaultTabs('nope', [])).rejects.toThrow();
+    });
+  });
+
 });

@@ -42,6 +42,12 @@ export const Channels = {
   // Preferences
   GET_PREFERENCES: 'get-preferences',
   SET_PREFERENCE: 'set-preference',
+  SET_DEFAULT_TABS: 'set-default-tabs',
+  SET_WORKSPACE_DEFAULT_TABS: 'set-workspace-default-tabs',
+
+  // Repo config
+  GET_REPO_CONFIG: 'get-repo-config',
+  SET_REPO_CONFIG: 'set-repo-config',
 
   // Streams (fire-and-forget)
   PTY_INPUT: 'pty-input',

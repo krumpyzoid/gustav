@@ -8,13 +8,15 @@ import type { SessionTab as SessionTabType } from '../../../main/domain/types';
 
 import type { WorkspaceState } from '../../../main/domain/types';
 
-function DraggableWorkspaceItem({ ws, onReorder, onAddSession, onPinRepos, onEditWorkspace, onDeleteWorkspace, onRemoveWorktree, onAddWorktree, onUnpinRepo }: {
+function DraggableWorkspaceItem({ ws, onReorder, onAddSession, onPinRepos, onEditWorkspace, onDeleteWorkspace, onEditSettings, onEditRepoSettings, onRemoveWorktree, onAddWorktree, onUnpinRepo }: {
   ws: WorkspaceState;
   onReorder: (draggedId: string, targetId: string, edge: 'top' | 'bottom') => void;
   onAddSession: (wsId: string) => void;
   onPinRepos: (wsId: string) => void;
   onEditWorkspace: (wsId: string) => void;
   onDeleteWorkspace: (wsId: string) => void;
+  onEditSettings: (wsId: string) => void;
+  onEditRepoSettings: (repoRoot: string, repoName: string, workspaceId: string | null) => void;
   onRemoveWorktree: (tab: SessionTabType, repoRoot: string) => void;
   onAddWorktree: (repoName: string, repoRoot: string, workspaceName: string) => void;
   onUnpinRepo: (workspaceId: string, repoPath: string) => void;
@@ -33,6 +35,8 @@ function DraggableWorkspaceItem({ ws, onReorder, onAddSession, onPinRepos, onEdi
         onPinRepos={() => onPinRepos(ws.workspace!.id)}
         onEdit={() => onEditWorkspace(ws.workspace!.id)}
         onDeleteWorkspace={() => onDeleteWorkspace(ws.workspace!.id)}
+        onEditSettings={() => onEditSettings(ws.workspace!.id)}
+        onEditRepoSettings={onEditRepoSettings}
         onRemoveWorktree={onRemoveWorktree}
         onAddWorktree={onAddWorktree}
         onUnpinRepo={onUnpinRepo}
@@ -51,11 +55,13 @@ interface Props {
   onAddWorktree: (repoName: string, repoRoot: string, workspaceName: string) => void;
   onUnpinRepo: (workspaceId: string, repoPath: string) => void;
   onDeleteWorkspace: (workspaceId: string) => void;
+  onEditSettings: (workspaceId: string) => void;
+  onEditRepoSettings: (repoRoot: string, repoName: string, workspaceId: string | null) => void;
   onOpenSettings: () => void;
   onConnectRemote?: () => void;
 }
 
-export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRepos, onEditWorkspace, onDeleteWorkspace, onRemoveWorktree, onAddWorktree, onUnpinRepo, onOpenSettings, onConnectRemote }: Props) {
+export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRepos, onEditWorkspace, onDeleteWorkspace, onEditSettings, onEditRepoSettings, onRemoveWorktree, onAddWorktree, onUnpinRepo, onOpenSettings, onConnectRemote }: Props) {
   const { defaultWorkspace, workspaces } = useAppStore();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -176,6 +182,8 @@ export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRe
             onPinRepos={onPinRepos}
             onEditWorkspace={onEditWorkspace}
             onDeleteWorkspace={onDeleteWorkspace}
+            onEditSettings={onEditSettings}
+            onEditRepoSettings={onEditRepoSettings}
             onRemoveWorktree={onRemoveWorktree}
             onAddWorktree={onAddWorktree}
             onUnpinRepo={onUnpinRepo}

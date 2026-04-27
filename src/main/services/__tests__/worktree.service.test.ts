@@ -3,19 +3,10 @@ import { WorktreeService } from '../worktree.service';
 import type { GitPort } from '../../ports/git.port';
 import type { FileSystemPort } from '../../ports/filesystem.port';
 import type { ShellPort } from '../../ports/shell.port';
-import type { ConfigService } from '../config.service';
+import type { RepoConfigService } from '../repo-config.service';
+import type { RepoConfig } from '../../domain/repo-config';
 import type { SessionService } from '../session.service';
 import type { WorkspaceService } from '../workspace.service';
-
-const emptyConfig = {
-  env: {},
-  copy: [],
-  install: '',
-  base: '',
-  hooks: {},
-  tmux: [],
-  cleanMergedInto: 'origin/staging',
-};
 
 function makeMockGit(): GitPort {
   return {
@@ -56,21 +47,15 @@ function makeMockShell(): ShellPort {
   };
 }
 
-function makeMockConfig(): ConfigService {
+function makeMockRepoConfig(value: RepoConfig | null = null): RepoConfigService {
   return {
-    parse: vi.fn().mockResolvedValue(emptyConfig),
-  } as unknown as ConfigService;
+    get: vi.fn().mockReturnValue(value),
+  } as unknown as RepoConfigService;
 }
 
 function makeMockSession(): SessionService {
   return {
     kill: vi.fn().mockResolvedValue(undefined),
-    killLegacy: vi.fn().mockResolvedValue(undefined),
-    getLegacySessionName: vi.fn().mockImplementation((repoRoot: string, branch: string) => {
-      const basename = repoRoot.split('/').pop();
-      return `${basename}/${branch}`;
-    }),
-    launch: vi.fn().mockResolvedValue('api/feat-auth'),
     getSessionName: vi.fn().mockImplementation((_ws: string, opts: { type: string; repoName?: string; branch?: string }) => {
       if (opts.type === 'worktree') return `Dev/${opts.repoName}/${opts.branch}`;
       return '';
@@ -108,12 +93,11 @@ describe('WorktreeService.create', () => {
     vi.mocked(fs.exists).mockReturnValue(false);
     vi.mocked(git.branchExists).mockResolvedValue(null);
 
-    const svc = new WorktreeService(git, fs, makeMockShell(), makeMockConfig(), session, workspaces);
+    const svc = new WorktreeService(git, fs, makeMockShell(), makeMockRepoConfig(), session, workspaces);
 
-    await svc.create({ repo: 'api', repoRoot: '/home/user/api', branch: 'feat-auth', base: 'origin/main', install: false });
+    await svc.create({ repo: 'api', repoRoot: '/home/user/api', branch: 'feat-auth', base: 'origin/main' });
 
     // Should NOT call any session launch methods
-    expect(session.launch).not.toHaveBeenCalled();
     expect(session.kill).not.toHaveBeenCalled();
 
     // Should have created the git worktree
@@ -136,7 +120,7 @@ describe('WorktreeService.remove', () => {
       },
     ]);
 
-    const svc = new WorktreeService(git, makeMockFs(), makeMockShell(), makeMockConfig(), session, workspaces);
+    const svc = new WorktreeService(git, makeMockFs(), makeMockShell(), makeMockRepoConfig(), session, workspaces);
 
     await svc.remove('/home/user/api', 'feat-auth', false);
 
@@ -158,7 +142,7 @@ describe('WorktreeService.remove', () => {
       },
     ]);
 
-    const svc = new WorktreeService(git, makeMockFs(), makeMockShell(), makeMockConfig(), session, workspaces);
+    const svc = new WorktreeService(git, makeMockFs(), makeMockShell(), makeMockRepoConfig(), session, workspaces);
 
     await svc.remove('/home/user/api', 'feat-auth', false);
 
@@ -181,25 +165,24 @@ describe('WorktreeService.remove', () => {
       },
     ]);
 
-    const svc = new WorktreeService(git, makeMockFs(), makeMockShell(), makeMockConfig(), session, workspaces);
+    const svc = new WorktreeService(git, makeMockFs(), makeMockShell(), makeMockRepoConfig(), session, workspaces);
 
     // Should not throw even though session.kill rejects
     await expect(svc.remove('/home/user/api', 'feat-auth', false)).rejects.toThrow();
   });
 
-  it('falls back to legacy session name when no persisted session exists', async () => {
+  it('skips kill when no persisted session is tracked for the worktree', async () => {
     const git = makeMockGit();
     const session = makeMockSession();
     const workspaces = makeMockWorkspaces([
       { id: 'ws1', name: 'Dev', directory: '/home/user/dev', sessions: [] },
     ]);
 
-    const svc = new WorktreeService(git, makeMockFs(), makeMockShell(), makeMockConfig(), session, workspaces);
+    const svc = new WorktreeService(git, makeMockFs(), makeMockShell(), makeMockRepoConfig(), session, workspaces);
 
     await svc.remove('/home/user/api', 'feat-auth', false);
 
-    // Should fall back to legacy naming: basename(repoRoot)/branch
-    expect(session.kill).toHaveBeenCalledWith('api/feat-auth');
+    expect(session.kill).not.toHaveBeenCalled();
   });
 });
 
@@ -219,7 +202,7 @@ describe('WorktreeService.clean', () => {
       },
     ]);
 
-    const svc = new WorktreeService(git, makeMockFs(), makeMockShell(), makeMockConfig(), session, workspaces);
+    const svc = new WorktreeService(git, makeMockFs(), makeMockShell(), makeMockRepoConfig(), session, workspaces);
 
     const report = await svc.clean([
       { repoRoot: '/home/user/api', branch: 'feat-a', worktreePath: '/home/user/api/.worktrees/feat-a', deleteBranch: false },
@@ -256,7 +239,7 @@ describe('WorktreeService.remove (orphaned entries)', () => {
       return true;
     });
 
-    const svc = new WorktreeService(git, fs, makeMockShell(), makeMockConfig(), session, workspaces);
+    const svc = new WorktreeService(git, fs, makeMockShell(), makeMockRepoConfig(), session, workspaces);
 
     await svc.remove('/home/user/api', 'feat-auth', false);
 

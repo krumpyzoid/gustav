@@ -10,7 +10,6 @@ import { decodeControlMessage, encodeControlMessage, ChannelType, decodeBinaryFr
 import type { StateService } from '../services/state.service';
 import type { SessionService } from '../services/session.service';
 import type { WorkspaceService } from '../services/workspace.service';
-import type { ConfigService } from '../services/config.service';
 import type { GitPort } from '../ports/git.port';
 import type { TmuxPort } from '../ports/tmux.port';
 import type { ShellPort } from '../ports/shell.port';
@@ -19,7 +18,8 @@ export type RemoteServiceDeps = {
   stateService: StateService;
   sessionService: SessionService;
   workspaceService: WorkspaceService;
-  configService: ConfigService;
+  repoConfigService: import('../services/repo-config.service').RepoConfigService;
+  preferenceService: import('../services/preference.service').PreferenceService;
   git: GitPort;
   tmux: TmuxPort;
   shell: ShellPort;
@@ -52,7 +52,8 @@ export class RemoteService {
       stateService: deps.stateService,
       sessionService: deps.sessionService,
       workspaceService: deps.workspaceService,
-      configService: deps.configService,
+      repoConfigService: deps.repoConfigService,
+      preferenceService: deps.preferenceService,
       git: deps.git,
       tmux: deps.tmux,
       isAllowedDirectory: (dir) => this.isAllowedDirectory(dir),

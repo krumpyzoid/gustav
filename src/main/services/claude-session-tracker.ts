@@ -5,7 +5,6 @@ import type { ShellPort } from '../ports/shell.port';
 import type { FileSystemPort } from '../ports/filesystem.port';
 import type { WorkspaceService } from './workspace.service';
 import type { Workspace, PersistedSession, WindowSpec } from '../domain/types';
-import { normalizeWindows } from '../domain/types';
 
 export class ClaudeSessionTracker {
   constructor(
@@ -38,36 +37,30 @@ export class ClaudeSessionTracker {
 
   private async captureForSession(workspaceId: string, session: PersistedSession): Promise<boolean> {
     const panes = await this.tmux.listPanesExtended(session.tmuxSession);
-    const specs = normalizeWindows(session.windows);
+    const specs = [...session.windows];
     let changed = false;
 
     for (const pane of panes) {
       if (pane.paneCommand !== 'claude') continue;
 
-      const spec = specs.find((s) => s.name === pane.windowName);
-      if (!spec) continue;
+      const idx = specs.findIndex((s) => s.name === pane.windowName);
+      if (idx === -1) continue;
+      const spec = specs[idx];
 
       const sessionId = await this.resolveClaudeSessionId(pane.panePid);
       if (!sessionId) continue;
 
-      if (spec.claudeSessionId !== sessionId) {
-        spec.claudeSessionId = sessionId;
-        changed = true;
-      }
-
-      if (spec.command !== 'claude') {
-        spec.command = 'claude';
+      if (spec.claudeSessionId !== sessionId || spec.kind !== 'claude') {
+        specs[idx] = { ...spec, kind: 'claude', claudeSessionId: sessionId };
         changed = true;
       }
     }
 
     if (changed) {
-      // Cast is safe: we've normalized windows to WindowSpec[] but the persisted
-      // type accepts (string | WindowSpec)[] for backward compatibility.
       await this.workspaceService.persistSession(workspaceId, {
         ...session,
         windows: specs,
-      } as PersistedSession);
+      });
     }
 
     return changed;

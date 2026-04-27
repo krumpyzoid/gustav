@@ -82,7 +82,10 @@ describe('ClaudeSessionTracker', () => {
           tmuxSession: 'Dev/api/_dir',
           type: 'directory',
           directory: '/home/user/dev/api',
-          windows: [{ name: 'Claude Code', command: 'claude' }, { name: 'Shell' }],
+          windows: [
+            { name: 'Claude Code', kind: 'claude' },
+            { name: 'Shell', kind: 'command' },
+          ],
         },
       ],
     };
@@ -125,7 +128,7 @@ describe('ClaudeSessionTracker', () => {
           type: 'directory',
           directory: '/home/user/dev/api',
           // Window already has the session ID captured
-          windows: [{ name: 'Claude Code', command: 'claude', claudeSessionId: 'uuid-abc' }],
+          windows: [{ name: 'Claude Code', kind: 'claude', claudeSessionId: 'uuid-abc' }],
         },
       ],
     };
@@ -142,7 +145,7 @@ describe('ClaudeSessionTracker', () => {
     expect(workspaceService.persistSession).not.toHaveBeenCalled();
   });
 
-  it('updates command to claude when Claude is found in a non-Claude window', async () => {
+  it('promotes a Shell window to kind:claude when Claude runs in it', async () => {
     const tmux = makeMockTmux();
     const shell = makeMockShell();
     const fs = makeMockFs();
@@ -157,8 +160,7 @@ describe('ClaudeSessionTracker', () => {
           tmuxSession: 'Dev/api/_dir',
           type: 'directory',
           directory: '/home/user/dev/api',
-          // Window has no command set — user started Claude manually
-          windows: [{ name: 'Shell' }],
+          windows: [{ name: 'Shell', kind: 'command' }],
         },
       ],
     };
@@ -175,10 +177,8 @@ describe('ClaudeSessionTracker', () => {
     expect(workspaceService.persistSession).toHaveBeenCalledOnce();
 
     const [, calledSession] = vi.mocked(workspaceService.persistSession).mock.calls[0]!;
-    const shellWindow = calledSession.windows.find(
-      (w) => typeof w === 'object' && w.name === 'Shell',
-    ) as { name: string; command?: string; claudeSessionId?: string } | undefined;
-    expect(shellWindow?.command).toBe('claude');
+    const shellWindow = calledSession.windows.find((w) => w.name === 'Shell');
+    expect(shellWindow?.kind).toBe('claude');
     expect(shellWindow?.claudeSessionId).toBe('uuid-xyz');
   });
 
@@ -197,7 +197,7 @@ describe('ClaudeSessionTracker', () => {
           tmuxSession: 'Dev/api/_dir',
           type: 'directory',
           directory: '/home/user/dev/api',
-          windows: [{ name: 'Claude Code', command: 'claude' }],
+          windows: [{ name: 'Claude Code', kind: 'claude' }],
         },
       ],
     };
@@ -229,7 +229,7 @@ describe('ClaudeSessionTracker', () => {
           tmuxSession: 'Dev/api/_dir',
           type: 'directory',
           directory: '/home/user/dev/api',
-          windows: [{ name: 'Claude Code', command: 'claude' }],
+          windows: [{ name: 'Claude Code', kind: 'claude' }],
         },
       ],
     };
@@ -260,7 +260,7 @@ describe('ClaudeSessionTracker', () => {
           tmuxSession: 'Dev/api/_dir',
           type: 'directory',
           directory: '/home/user/dev/api',
-          windows: [{ name: 'Claude Code', command: 'claude' }],
+          windows: [{ name: 'Claude Code', kind: 'claude' }],
         },
       ],
     };
