@@ -63,7 +63,11 @@ export function WorkspaceSettingsDialog({ workspace, open, onOpenChange, onSaved
           {loading ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : (
-            <DefaultTabsList tabs={tabs} onChange={setTabs} />
+            <DefaultTabsList
+              tabs={tabs}
+              scope={`default-tabs:workspace:${workspace.id}`}
+              onChange={setTabs}
+            />
           )}
         </div>
 

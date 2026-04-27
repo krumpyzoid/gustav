@@ -126,7 +126,11 @@ export function RepoSettingsDialog({ repoRoot, repoName, workspaceId, open, onOp
           <div className="space-y-6 py-2">
             <section>
               <h3 className="text-sm font-semibold text-foreground mb-3">Tabs</h3>
-              <DefaultTabsList tabs={tabs} onChange={setTabs} />
+              <DefaultTabsList
+                tabs={tabs}
+                scope={`default-tabs:repo:${repoRoot}`}
+                onChange={setTabs}
+              />
             </section>
 
             <section>

@@ -35,7 +35,7 @@ export function DefaultTabsSettings() {
         Repository for directory and worktree sessions, Both for everything.
       </p>
 
-      <DefaultTabsList tabs={tabs} onChange={handleChange} />
+      <DefaultTabsList tabs={tabs} scope="default-tabs:global" onChange={handleChange} />
     </div>
   );
 }

@@ -12,9 +12,10 @@ interface Props {
   dragHandleRef?: React.RefObject<HTMLElement | null>;
   children: React.ReactNode;
   onReorder: (draggedId: string, targetId: string, edge: 'top' | 'bottom') => void;
+  onDropEffect?: () => void;
 }
 
-export function SortableItem({ dragType, itemId, scope, dragHandleRef, children, onReorder }: Props) {
+export function SortableItem({ dragType, itemId, scope, dragHandleRef, children, onReorder, onDropEffect }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [dragState, setDragState] = useState<DragState>('idle');
 
@@ -28,7 +29,7 @@ export function SortableItem({ dragType, itemId, scope, dragHandleRef, children,
         dragHandle: dragHandleRef?.current ?? el,
         getInitialData: () => ({ type: dragType, itemId, scope }),
         onDragStart: () => setDragState('dragging'),
-        onDrop: () => { setDragState('idle'); focusTerminal(); },
+        onDrop: () => { setDragState('idle'); (onDropEffect ?? focusTerminal)(); },
       }),
       dropTargetForElements({
         element: el,
@@ -58,7 +59,7 @@ export function SortableItem({ dragType, itemId, scope, dragHandleRef, children,
         },
       }),
     );
-  }, [dragType, itemId, scope, dragHandleRef, onReorder]);
+  }, [dragType, itemId, scope, dragHandleRef, onReorder, onDropEffect]);
 
   const indicator =
     dragState === 'over-top' ? 'border-t-2 border-t-accent' :
