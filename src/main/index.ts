@@ -2,6 +2,9 @@ import { app, BrowserWindow, clipboard, ipcMain, Menu } from 'electron';
 import * as pty from 'node-pty';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
+import crypto from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { isHeadless, bootHeadless } from './headless';
 
 // Fix environment for packaged macOS apps launched from Finder/Dock.
 // These inherit a minimal environment that lacks Homebrew PATH and
@@ -176,9 +179,88 @@ ipcMain.on(Channels.CLIPBOARD_WRITE, (_event, text: string) => {
   }
 });
 
+// ── Headless mode detection ───────────────────────────────────────
+// `GUSTAV_HEADLESS=1` (preferred, matches systemd patterns) or `--headless`
+// boots Gustav without a BrowserWindow. The remote protocol is the only
+// client surface in this mode. See `docs/specs/headless-deployment.md`.
+const HEADLESS = isHeadless({ env: process.env, argv: process.argv });
+
+/** Compute the SHA-256 fingerprint of the server's TLS cert, formatted AA:BB:... */
+function getServerCertFingerprint(): string | null {
+  try {
+    const certPath = require('node:path').join(dataDir, 'remote', 'server.cert');
+    const certPem = readFileSync(certPath, 'utf-8');
+    const x509 = new crypto.X509Certificate(certPem);
+    return x509.fingerprint256;
+  } catch {
+    return null;
+  }
+}
+
 // ── App lifecycle ─────────────────────────────────────────────────
-app.on('ready', () => {
+app.on('ready', async () => {
   Menu.setApplicationMenu(null);
+
+  if (HEADLESS) {
+    // Headless boot: no BrowserWindow, no PTY, no renderer. Remote protocol
+    // is the only client. Pairing code & cert fingerprint are printed to
+    // stdout for the operator (journalctl).
+    const remotePort = (() => {
+      const envPort = Number(process.env.GUSTAV_REMOTE_PORT);
+      if (Number.isFinite(envPort) && envPort > 0) return envPort;
+      return 7777;
+    })();
+
+    // Apply theme preference at startup (already done above for the local path)
+    themeService.setPreference(preferenceService.load().theme);
+
+    await bootHeadless({
+      port: remotePort,
+      remoteService,
+      stateService,
+      themeService,
+      registerHandlers: (deps) => registerHandlers({
+        worktreeService,
+        sessionService,
+        stateService,
+        themeService,
+        workspaceService,
+        repoConfigService,
+        preferenceService,
+        tmux: tmuxAdapter,
+        shell: shellAdapter,
+        git: gitAdapter,
+        getPtyClientTty,
+        getActiveSession: () => activeSession,
+        setActiveSession: (session: string) => { activeSession = session; },
+        ensurePty: () => {
+          // No-op in headless: there is no UI to render the local PTY into.
+          // The user's primary terminal is reachable via tmux/supervisor
+          // through the remote protocol's attach-pty path instead.
+        },
+        broadcastTheme: () => {
+          // No-op in headless: themes are resolved per-client by the remote
+          // server when it forwards state, not pushed by the host.
+        },
+        remoteService,
+        remoteClientService,
+        broadcastToRenderer: deps.broadcastToRenderer as (channel: string, ...args: unknown[]) => void,
+      }),
+      registerSupervisorHandlers: (deps) => registerSupervisorHandlers({
+        supervisor: nativeSupervisor,
+        broadcastToRenderer: deps.broadcastToRenderer as (channel: string, ...args: unknown[]) => void,
+      }),
+      getFingerprint: getServerCertFingerprint,
+      log: (line) => console.log(line),
+      onStateTick: async () => {
+        // Mirror the local boot path: scan persisted sessions for Claude
+        // processes and feed their session IDs into the JSONL observer so
+        // status events stay accurate for any client that attaches.
+        await claudeTracker.captureAll(workspaceService.list());
+      },
+    });
+    return;
+  }
 
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -308,9 +390,31 @@ app.on('ready', () => {
 });
 
 app.on('window-all-closed', () => {
+  // In headless mode there are no windows, so this fires only after the
+  // (non-existent) windows close — i.e., never under normal operation.
+  // Do not quit the app from this hook when headless; rely on SIGTERM.
+  if (HEADLESS) return;
   stateService.stopPolling();
   claudeLogObserver.close();
   nativeSupervisor.close();
   ptyProcess?.kill();
   app.quit();
 });
+
+// Graceful shutdown for headless deployments. systemd sends SIGTERM on
+// `systemctl stop`; the process must drain in-flight remote sessions and
+// release supervisor PTYs before exiting.
+function shutdownAndExit(code = 0): void {
+  try { stateService.stopPolling(); } catch {}
+  try { claudeLogObserver.close(); } catch {}
+  try { nativeSupervisor.close(); } catch {}
+  try { ptyProcess?.kill(); } catch {}
+  try { app.quit(); } catch {}
+  // Give the event loop one tick to flush, then force-exit.
+  setTimeout(() => process.exit(code), 100).unref();
+}
+
+if (HEADLESS) {
+  process.on('SIGTERM', () => shutdownAndExit(0));
+  process.on('SIGINT', () => shutdownAndExit(0));
+}
