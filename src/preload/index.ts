@@ -123,4 +123,49 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('remote-connection-status', handler);
     return () => ipcRenderer.removeListener('remote-connection-status', handler);
   },
+
+  // ── Supervisor (Phase 3 strangler) ────────────────────────────────
+  // Mirrors the tmux IPC surface with a `supervisor:` prefix. Routed to
+  // when preferences.sessionSupervisor === 'native'.
+  supervisor: {
+    createSession: (opts: { sessionId: string; cwd: string; windows: unknown[] }) =>
+      ipcRenderer.invoke('supervisor:create-session', opts),
+    killSession: (sessionId: string) =>
+      ipcRenderer.invoke('supervisor:kill-session', sessionId),
+    hasSession: (sessionId: string) =>
+      ipcRenderer.invoke('supervisor:has-session', sessionId),
+    addWindow: (sessionId: string, spec: unknown) =>
+      ipcRenderer.invoke('supervisor:add-window', sessionId, spec),
+    killWindow: (sessionId: string, windowId: string) =>
+      ipcRenderer.invoke('supervisor:kill-window', sessionId, windowId),
+    selectWindow: (sessionId: string, windowId: string) =>
+      ipcRenderer.invoke('supervisor:select-window', sessionId, windowId),
+    listWindows: (sessionId: string) =>
+      ipcRenderer.invoke('supervisor:list-windows', sessionId),
+    sleepSession: (sessionId: string) =>
+      ipcRenderer.invoke('supervisor:sleep', sessionId),
+    wakeSession: (sessionId: string) =>
+      ipcRenderer.invoke('supervisor:wake', sessionId),
+    attachClient: (payload: { sessionId: string; clientId: string; cols: number; rows: number }) =>
+      ipcRenderer.send('supervisor:attach-client', payload),
+    detachClient: (sessionId: string, clientId: string) =>
+      ipcRenderer.send('supervisor:detach-client', sessionId, clientId),
+    resizeClient: (payload: { sessionId: string; clientId: string; cols: number; rows: number }) =>
+      ipcRenderer.send('supervisor:resize-client', payload),
+    sendInput: (sessionId: string, data: string) =>
+      ipcRenderer.send('supervisor:input', sessionId, data),
+    getReplay: (sessionId: string, windowId: string) =>
+      ipcRenderer.invoke('supervisor:replay', sessionId, windowId),
+    onData: (cb: (payload: { sessionId: string; windowId: string; data: string }) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, payload: { sessionId: string; windowId: string; data: string }) =>
+        cb(payload);
+      ipcRenderer.on('supervisor:on-data', handler);
+      return () => ipcRenderer.removeListener('supervisor:on-data', handler);
+    },
+    onStateChange: (cb: (payload: { sessionId: string }) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, payload: { sessionId: string }) => cb(payload);
+      ipcRenderer.on('supervisor:on-state-change', handler);
+      return () => ipcRenderer.removeListener('supervisor:on-state-change', handler);
+    },
+  },
 });

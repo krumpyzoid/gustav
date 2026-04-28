@@ -18,9 +18,20 @@ export type ThemeColors = Record<string, string>;
 
 // ── Preferences ──────────────────────────────────────────────────
 import type { TabConfig } from './tab-config';
+export type SessionSupervisorBackend = 'tmux' | 'native';
 export interface Preferences {
   theme?: string; // 'system' | built-in theme slug
   defaultTabs?: TabConfig[];
+  /**
+   * Strangler flag for the Phase 3 supervisor migration.
+   * - `'tmux'` (default): sessions go through the tmux-backed path (legacy).
+   * - `'native'`: new sessions are owned directly by the in-process
+   *   `NativeSupervisor` (no tmux).
+   *
+   * Existing sessions stay on whichever backend created them. Phase 3 has
+   * no UI control for this — toggle by editing preferences.json.
+   */
+  sessionSupervisor?: SessionSupervisorBackend;
 }
 
 // ── Branch info (for new worktree dialog) ─────────────────────────

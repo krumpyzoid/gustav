@@ -84,4 +84,23 @@ export const Channels = {
   STATE_UPDATE: 'state-update',
   THEME_UPDATE: 'theme-update',
   PTY_DATA: 'pty-data',
+
+  // ── Supervisor (Phase 3 strangler) ─────────────────────────────
+  // Mirrors the tmux-backed surface with a `supervisor:` prefix.
+  SUPERVISOR_CREATE_SESSION: 'supervisor:create-session',
+  SUPERVISOR_KILL_SESSION: 'supervisor:kill-session',
+  SUPERVISOR_HAS_SESSION: 'supervisor:has-session',
+  SUPERVISOR_ADD_WINDOW: 'supervisor:add-window',
+  SUPERVISOR_KILL_WINDOW: 'supervisor:kill-window',
+  SUPERVISOR_SELECT_WINDOW: 'supervisor:select-window',
+  SUPERVISOR_LIST_WINDOWS: 'supervisor:list-windows',
+  SUPERVISOR_SLEEP: 'supervisor:sleep',
+  SUPERVISOR_WAKE: 'supervisor:wake',
+  SUPERVISOR_ATTACH_CLIENT: 'supervisor:attach-client',
+  SUPERVISOR_DETACH_CLIENT: 'supervisor:detach-client',
+  SUPERVISOR_RESIZE_CLIENT: 'supervisor:resize-client',
+  SUPERVISOR_INPUT: 'supervisor:input',
+  SUPERVISOR_REPLAY: 'supervisor:replay',
+  SUPERVISOR_ON_DATA: 'supervisor:on-data',
+  SUPERVISOR_ON_STATE_CHANGE: 'supervisor:on-state-change',
 } as const;

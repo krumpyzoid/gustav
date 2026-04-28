@@ -10,9 +10,11 @@ import type {
   Result,
   WindowInfo,
   Preferences,
+  WindowSpec,
 } from '../main/domain/types';
 import type { TabConfig } from '../main/domain/tab-config';
 import type { RepoConfig } from '../main/domain/repo-config';
+import type { ManagedWindow } from '../main/supervisor/types';
 
 /** Metadata about a saved remote server (returned by getSavedServers). */
 export interface SavedServer {
@@ -117,6 +119,29 @@ interface ElectronAPI {
   onRemoteStateUpdate: (cb: (state: WorkspaceAppState) => void) => () => void;
   onRemotePtyData: (cb: (data: string) => void) => () => void;
   onRemoteConnectionStatus: (cb: (status: string) => void) => () => void;
+
+  // Supervisor (Phase 3 strangler — `supervisor:` IPC surface)
+  supervisor: SupervisorApi;
+}
+
+/** Supervisor IPC surface mirrored on the renderer. */
+export interface SupervisorApi {
+  createSession: (opts: { sessionId: string; cwd: string; windows: WindowSpec[] }) => Promise<Result<void>>;
+  killSession: (sessionId: string) => Promise<Result<void>>;
+  hasSession: (sessionId: string) => Promise<Result<boolean>>;
+  addWindow: (sessionId: string, spec: WindowSpec) => Promise<Result<string>>;
+  killWindow: (sessionId: string, windowId: string) => Promise<Result<void>>;
+  selectWindow: (sessionId: string, windowId: string) => Promise<Result<void>>;
+  listWindows: (sessionId: string) => Promise<Result<ManagedWindow[]>>;
+  sleepSession: (sessionId: string) => Promise<Result<void>>;
+  wakeSession: (sessionId: string) => Promise<Result<void>>;
+  attachClient: (payload: { sessionId: string; clientId: string; cols: number; rows: number }) => void;
+  detachClient: (sessionId: string, clientId: string) => void;
+  resizeClient: (payload: { sessionId: string; clientId: string; cols: number; rows: number }) => void;
+  sendInput: (sessionId: string, data: string) => void;
+  getReplay: (sessionId: string, windowId: string) => Promise<Result<string>>;
+  onData: (cb: (payload: { sessionId: string; windowId: string; data: string }) => void) => () => void;
+  onStateChange: (cb: (payload: { sessionId: string }) => void) => () => void;
 }
 
 declare global {

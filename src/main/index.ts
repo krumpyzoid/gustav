@@ -51,9 +51,12 @@ import { ClaudeSessionTracker } from './services/claude-session-tracker';
 import { ClaudeLogObserver } from './services/claude-log-observer';
 
 import { registerHandlers } from './ipc/handlers';
+import { registerSupervisorHandlers } from './ipc/supervisor-handlers';
 import { Channels } from './ipc/channels';
 import { RemoteService } from './remote/remote.service';
 import { RemoteClientService } from './remote/remote-client.service';
+import { NativeSupervisor } from './supervisor/native-supervisor';
+import { nodePtyFactory } from './supervisor/node-pty-factory';
 
 let mainWindow: BrowserWindow | null = null;
 let ptyProcess: pty.IPty | null = null;
@@ -81,6 +84,14 @@ const remoteService = new RemoteService({
   git: gitAdapter, tmux: tmuxAdapter, shell: shellAdapter, dataDir,
 });
 const remoteClientService = new RemoteClientService(dataDir);
+
+// Phase 3: native session supervisor. Always instantiated (cheap if unused);
+// the strangler flag in preferences (`sessionSupervisor: 'tmux' | 'native'`)
+// determines whether new sessions opt in. Existing tmux sessions stay tmux.
+const nativeSupervisor = new NativeSupervisor({
+  ptyFactory: nodePtyFactory,
+  assistantLog: claudeLogObserver,
+});
 
 // Apply saved theme preference at startup
 themeService.setPreference(preferenceService.load().theme);
@@ -227,6 +238,16 @@ app.on('ready', () => {
     },
   });
 
+  // Wire supervisor IPC and broadcast supervisor events to the renderer.
+  registerSupervisorHandlers({
+    supervisor: nativeSupervisor,
+    broadcastToRenderer: (channel: string, ...args: unknown[]) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(channel, ...args);
+      }
+    },
+  });
+
   // Wire remote client events to renderer
   remoteClientService.onStateUpdate((state) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -289,6 +310,7 @@ app.on('ready', () => {
 app.on('window-all-closed', () => {
   stateService.stopPolling();
   claudeLogObserver.close();
+  nativeSupervisor.close();
   ptyProcess?.kill();
   app.quit();
 });

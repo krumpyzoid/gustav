@@ -111,4 +111,32 @@ describe('PreferenceService', () => {
       expect(existsSync(join(storageDir, 'preferences.json'))).toBe(true);
     });
   });
+
+  describe('sessionSupervisor strangler flag', () => {
+    it('returns undefined by default (callers treat undefined as tmux)', () => {
+      const svc = new PreferenceService(storageDir);
+      expect(svc.load().sessionSupervisor).toBeUndefined();
+    });
+
+    it('round-trips a "native" preference through set/load', () => {
+      const svc = new PreferenceService(storageDir);
+      svc.set('sessionSupervisor', 'native');
+      expect(svc.load().sessionSupervisor).toBe('native');
+
+      // Read from a fresh instance to confirm persistence.
+      expect(new PreferenceService(storageDir).load().sessionSupervisor).toBe('native');
+    });
+
+    it('round-trips a "tmux" preference through set/load', () => {
+      const svc = new PreferenceService(storageDir);
+      svc.set('sessionSupervisor', 'tmux');
+      expect(svc.load().sessionSupervisor).toBe('tmux');
+    });
+
+    it('preserves a user-edited sessionSupervisor across restarts', () => {
+      writePrefsFile({ sessionSupervisor: 'native' });
+      const svc = new PreferenceService(storageDir);
+      expect(svc.load().sessionSupervisor).toBe('native');
+    });
+  });
 });

@@ -303,3 +303,34 @@ Status is derived from each kind's natural signal, not from a regex over a captu
 Direction is locked. The next artifact is a **Phase 1 plan** specifying file-level changes for the `ClaudeLogObserver` and its integration into `ClaudeSessionTracker` / `WorkspaceAppState` / sidebar status. That belongs in a separate planning document, not this one.
 
 Phase 0 (Stop the bleeding) can run in parallel with Phase 1 planning since it requires no architectural decisions.
+
+## Phase 3 — Implementation Notes (2026-04-28)
+
+The Phase 3 supervisor has shipped behind a strangler flag. Highlights:
+
+- `NativeSupervisor` (`src/main/supervisor/native-supervisor.ts`) owns node-pty processes directly. It is Electron-free — no `BrowserWindow`, `app`, or renderer-coupled imports — so a future headless deployment can use it without modification.
+- The supervisor is a pure Node class injected with a `SupervisorPtyFactory`. The production factory wraps `node-pty`; tests inject a fake (`src/main/supervisor/__tests__/fake-pty.ts`).
+- IPC mirroring: every supervisor method has an `supervisor:` IPC channel, registered in `src/main/ipc/supervisor-handlers.ts`. Existing tmux IPC stays untouched.
+- Renderer entry point: `src/renderer/lib/transport/supervisor-client.ts` wraps the IPC surface. Hooks/components migrate at their own pace.
+- Latest-wins resize is enforced by a single arbiter: each `ClientView` has an attach clock; the supervisor picks the highest-clock client's size and emits **one** `pty.resize()` per real change to the active window. Background windows lazy-resize on `selectWindow`.
+- Sleep/wake follows Decision 5: sleep unconditionally kills PTYs and marks windows `exited` while retaining the spec; wake respawns from spec, including `claude --resume <id>` via the existing `composeClaudeCommand`.
+- Per-window scrollback ring buffer (raw bytes, capped at 100KB) so a renderer reattaching to a previously-active session gets immediate content.
+- Claude observer integration: when a `claude`-kind window with a known `claudeSessionId` spawns, `assistantLog.track()` fires. On window/session kill (or PTY exit), `assistantLog.untrack()` fires. Behavior matches `ClaudeSessionTracker` for the tmux path.
+
+### Strangler flag
+
+Preference key: `sessionSupervisor: 'tmux' | 'native'`. Default: `'tmux'` (undefined treated as tmux). No UI control yet — toggle by editing `~/.local/share/gustav/preferences.json`:
+
+```json
+{
+  "sessionSupervisor": "native"
+}
+```
+
+Phase 3 instantiates `NativeSupervisor` always; the IPC surface is live regardless of preference. Whether the renderer routes to it is the consumer's choice. Existing sessions stay on whichever backend created them — once tmux, always tmux until destroyed.
+
+### Deferred to Phase 3.5 / follow-up
+
+- Migrating `use-terminal` (renderer hook) and other consumers to drive `SupervisorClient` directly when the preference is `native`. The IPC surface and client wrapper exist; the consumer migration is mechanical but voluminous.
+- A UI control for the preference (advanced settings panel).
+- Removing tmux: blocked until the native path is dogfood-stable for at least one release.
