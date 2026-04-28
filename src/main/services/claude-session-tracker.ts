@@ -3,15 +3,19 @@ import { homedir } from 'node:os';
 import type { TmuxPort } from '../ports/tmux.port';
 import type { ShellPort } from '../ports/shell.port';
 import type { FileSystemPort } from '../ports/filesystem.port';
+import type { AssistantLogPort } from '../ports/assistant-log.port';
 import type { WorkspaceService } from './workspace.service';
 import type { Workspace, PersistedSession, WindowSpec } from '../domain/types';
 
 export class ClaudeSessionTracker {
+  private trackedSessionIds = new Set<string>();
+
   constructor(
     private tmux: TmuxPort,
     private shell: ShellPort,
     private fs: FileSystemPort,
     private workspaceService: WorkspaceService,
+    private assistantLog?: AssistantLogPort,
   ) {}
 
   /**
@@ -20,9 +24,16 @@ export class ClaudeSessionTracker {
    */
   async captureAll(workspaces: Workspace[]): Promise<boolean> {
     let anyChanged = false;
+    const liveSessionIds = new Set<string>();
 
     for (const ws of workspaces) {
       for (const session of ws.sessions ?? []) {
+        for (const win of session.windows ?? []) {
+          if (win.kind === 'claude' && win.claudeSessionId) {
+            liveSessionIds.add(win.claudeSessionId);
+            this.ensureTracked(win.claudeSessionId, session.directory);
+          }
+        }
         try {
           const changed = await this.captureForSession(ws.id, session);
           if (changed) anyChanged = true;
@@ -32,7 +43,22 @@ export class ClaudeSessionTracker {
       }
     }
 
+    // Untrack sessions that have disappeared from persisted state.
+    for (const id of [...this.trackedSessionIds]) {
+      if (!liveSessionIds.has(id)) {
+        this.assistantLog?.untrack(id);
+        this.trackedSessionIds.delete(id);
+      }
+    }
+
     return anyChanged;
+  }
+
+  private ensureTracked(sessionId: string, cwd: string): void {
+    if (!this.assistantLog) return;
+    if (this.trackedSessionIds.has(sessionId)) return;
+    this.assistantLog.track(sessionId, cwd);
+    this.trackedSessionIds.add(sessionId);
   }
 
   private async captureForSession(workspaceId: string, session: PersistedSession): Promise<boolean> {
@@ -54,6 +80,8 @@ export class ClaudeSessionTracker {
         specs[idx] = { ...spec, kind: 'claude', claudeSessionId: sessionId };
         changed = true;
       }
+
+      this.ensureTracked(sessionId, pane.paneCwd || session.directory);
     }
 
     if (changed) {

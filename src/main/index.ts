@@ -48,6 +48,7 @@ import { PreferenceService } from './services/preference.service';
 import { StateService } from './services/state.service';
 import { WorktreeService } from './services/worktree.service';
 import { ClaudeSessionTracker } from './services/claude-session-tracker';
+import { ClaudeLogObserver } from './services/claude-log-observer';
 
 import { registerHandlers } from './ipc/handlers';
 import { Channels } from './ipc/channels';
@@ -70,8 +71,9 @@ const workspaceService = new WorkspaceService(fsAdapter);
 const sessionService = new SessionService(tmuxAdapter);
 const preferenceService = new PreferenceService();
 const themeService = new ThemeService(fsAdapter);
-const stateService = new StateService(gitAdapter, tmuxAdapter, workspaceService);
-const claudeTracker = new ClaudeSessionTracker(tmuxAdapter, shellAdapter, fsAdapter, workspaceService);
+const claudeLogObserver = new ClaudeLogObserver();
+const stateService = new StateService(gitAdapter, tmuxAdapter, workspaceService, claudeLogObserver);
+const claudeTracker = new ClaudeSessionTracker(tmuxAdapter, shellAdapter, fsAdapter, workspaceService, claudeLogObserver);
 const dataDir = require('node:path').join(require('node:os').homedir(), '.local', 'share', 'gustav');
 const remoteService = new RemoteService({
   stateService, sessionService, workspaceService,
@@ -286,6 +288,7 @@ app.on('ready', () => {
 
 app.on('window-all-closed', () => {
   stateService.stopPolling();
+  claudeLogObserver.close();
   ptyProcess?.kill();
   app.quit();
 });

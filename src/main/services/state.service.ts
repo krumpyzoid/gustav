@@ -1,5 +1,6 @@
 import type { GitPort } from '../ports/git.port';
 import type { TmuxPort } from '../ports/tmux.port';
+import type { AssistantLogPort, AssistantStatus } from '../ports/assistant-log.port';
 import type { WorkspaceService } from './workspace.service';
 import type { ClaudeStatus, WorkspaceAppState, WorkspaceState, SessionTab, RepoGroupState } from '../domain/types';
 import { worstStatus } from '../domain/types';
@@ -59,6 +60,7 @@ export class StateService {
     private git: GitPort,
     private tmux: TmuxPort,
     private workspaceService: WorkspaceService,
+    private assistantLog?: AssistantLogPort,
   ) {}
 
   onChange(listener: (state: WorkspaceAppState) => void): void {
@@ -325,18 +327,30 @@ export class StateService {
 
     // Find all panes running the claude command (by pane_current_command, not window name)
     const claudePaneIds: string[] = [];
+    const paneWindowNames = new Map<string, string>();
     for (const line of panes.split('\n')) {
       if (!line.trim()) continue;
-      const [id, , command] = line.split('|||');
+      const [id, windowName, command] = line.split('|||');
       if (command === 'claude') {
         claudePaneIds.push(id);
+        paneWindowNames.set(id, windowName ?? '');
       }
     }
     if (claudePaneIds.length === 0) return 'none';
 
+    // Resolve per-window claudeSessionId + cwd from persisted state when available.
+    const windowSessionMap = this.resolveWindowSessionMap(session);
+
     // Capture content from all claude panes and compute per-pane status
     const paneStatuses = await Promise.all(
       claudePaneIds.map(async (paneId): Promise<ClaudeStatus> => {
+        const windowName = paneWindowNames.get(paneId) ?? '';
+        const observerStatus = await this.queryObserver(windowName, windowSessionMap);
+        if (observerStatus) {
+          if (observerStatus !== 'new') this.dirtySessions.add(session);
+          return observerStatus;
+        }
+
         const content = await this.tmux.capturePaneContent(paneId);
         const raw = parseRawStatus(content);
 
@@ -351,5 +365,42 @@ export class StateService {
 
     // Return the worst status across all claude panes
     return worstStatus(paneStatuses);
+  }
+
+  private resolveWindowSessionMap(session: string): Map<string, { sessionId: string; cwd: string }> {
+    const map = new Map<string, { sessionId: string; cwd: string }>();
+    if (!this.assistantLog) return map;
+
+    const ws = this.workspaceService.findBySessionPrefix?.(session);
+    if (!ws) return map;
+    const persisted = this.workspaceService
+      .getPersistedSessions(ws.id)
+      .find((s) => s.tmuxSession === session);
+    if (!persisted) return map;
+
+    for (const win of persisted.windows ?? []) {
+      if (win.kind === 'claude' && win.claudeSessionId) {
+        map.set(win.name, { sessionId: win.claudeSessionId, cwd: persisted.directory });
+      }
+    }
+    return map;
+  }
+
+  private async queryObserver(
+    windowName: string,
+    map: Map<string, { sessionId: string; cwd: string }>,
+  ): Promise<ClaudeStatus | null> {
+    if (!this.assistantLog) return null;
+    const entry = map.get(windowName);
+    if (!entry) return null;
+
+    let status: AssistantStatus | null;
+    try {
+      status = await this.assistantLog.getStatus(entry.sessionId, entry.cwd);
+    } catch {
+      return null;
+    }
+    if (!status) return null;
+    return status.kind;
   }
 }
