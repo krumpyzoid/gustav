@@ -33,30 +33,56 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     fitRef.current = fitAddon;
     globalTermRef = term;
 
+    // Buffer incoming PTY data until the first fit completes. Without this the
+    // terminal renders briefly at xterm's default 80x24, then reflows when the
+    // ResizeObserver fires — visible as a flicker on session attach.
+    let firstFitDone = false;
+    const earlyBuffer: string[] = [];
+
     function fit() {
+      if (!containerRef.current) return;
+      // The container may not have laid out yet on first mount. Without dimensions
+      // FitAddon would compute 0 cols/rows.
+      if (containerRef.current.clientWidth === 0 || containerRef.current.clientHeight === 0) return;
       fitAddon.fit();
       window.api.sendPtyResize(term.cols, term.rows);
-      // Also notify remote PTY if attached
       const store = useAppStore.getState();
       if (store.isRemoteSession && store.remotePtyChannelId !== null) {
         window.api.sendRemotePtyResize(store.remotePtyChannelId, term.cols, term.rows);
       }
+      if (!firstFitDone) {
+        firstFitDone = true;
+        if (earlyBuffer.length > 0) {
+          term.write(earlyBuffer.join(''));
+          earlyBuffer.length = 0;
+        }
+      }
     }
 
-    setTimeout(fit, 100);
+    // rAF instead of setTimeout(_, 100) — guarantees layout is computed before
+    // the first fit, no arbitrary delay.
+    let initialFitFrame = requestAnimationFrame(function tryFit() {
+      if (firstFitDone) return;
+      fit();
+      if (!firstFitDone) initialFitFrame = requestAnimationFrame(tryFit);
+    });
+
     const resizeObserver = new ResizeObserver(() => fit());
     resizeObserver.observe(containerRef.current);
 
-    // PTY data (local)
+    // PTY data (local). Buffered until first fit so the terminal never paints at
+    // its default size before reflowing.
     const cleanupPty = window.api.onPtyData((data) => {
-      if (!useAppStore.getState().isRemoteSession) term.write(data);
+      if (useAppStore.getState().isRemoteSession) return;
+      if (firstFitDone) term.write(data);
+      else earlyBuffer.push(data);
     });
 
     // PTY data (remote) — main process already decoded the frame, sends plain string
     const cleanupRemotePty = window.api.onRemotePtyData?.((data: string) => {
-      if (useAppStore.getState().isRemoteSession && data) {
-        term.write(data);
-      }
+      if (!useAppStore.getState().isRemoteSession || !data) return;
+      if (firstFitDone) term.write(data);
+      else earlyBuffer.push(data);
     });
 
     // Custom key handler: Shift+Enter, Alt+Arrows, Ctrl+/-, Ctrl+0
@@ -120,11 +146,13 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       return false;
     });
 
-    // Auto-copy selection to clipboard on mouseup
+    // Auto-copy selection to clipboard on mouseup. Routed through main process
+    // because navigator.clipboard.writeText silently fails on macOS when the
+    // renderer is unfocused.
     term.onSelectionChange(() => {
       const selection = term.getSelection();
       if (selection) {
-        navigator.clipboard.writeText(selection);
+        window.api.writeClipboard(selection);
       }
     });
 
@@ -163,6 +191,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     return () => {
       globalTermRef = null;
+      cancelAnimationFrame(initialFitFrame);
       document.removeEventListener('keydown', handleKeyDown);
       cleanupPty();
       cleanupRemotePty?.();

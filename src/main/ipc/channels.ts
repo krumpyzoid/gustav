@@ -53,6 +53,7 @@ export const Channels = {
   // Streams (fire-and-forget)
   PTY_INPUT: 'pty-input',
   PTY_RESIZE: 'pty-resize',
+  CLIPBOARD_WRITE: 'clipboard-write',
 
   // Remote server commands
   ENABLE_REMOTE: 'enable-remote',

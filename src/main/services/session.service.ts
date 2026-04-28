@@ -98,5 +98,9 @@ export class SessionService {
     await this.tmux.exec(`set-option -t '${session}' status off`);
     await this.tmux.exec(`set-option -t '${session}' prefix None`);
     await this.tmux.exec(`set-option -t '${session}' mouse on`);
+    // Resize policy: latest-active client drives the PTY size, not the largest
+    // attached client. Without this, an idle laptop attached at 80x24 forces the
+    // active desktop's 200x60 window to that size on every redraw.
+    await this.tmux.exec(`set-option -t '${session}' window-size latest`);
   }
 }

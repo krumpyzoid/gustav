@@ -15,6 +15,9 @@ import type { TabConfig } from '../main/domain/tab-config';
 import type { RepoConfig } from '../main/domain/repo-config';
 
 interface ElectronAPI {
+  // Clipboard
+  writeClipboard: (text: string) => void;
+
   // PTY
   onPtyData: (cb: (data: string) => void) => () => void;
   sendPtyInput: (data: string) => void;

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu } from 'electron';
+import { app, BrowserWindow, clipboard, ipcMain, Menu } from 'electron';
 import * as pty from 'node-pty';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
@@ -153,6 +153,14 @@ ipcMain.on(Channels.PTY_INPUT, (_event, data) => {
 
 ipcMain.on(Channels.PTY_RESIZE, (_event, { cols, rows }: { cols: number; rows: number }) => {
   ptyProcess?.resize(cols, rows);
+});
+
+// Clipboard writes go through main because navigator.clipboard.writeText
+// silently fails on macOS when the renderer window is unfocused.
+ipcMain.on(Channels.CLIPBOARD_WRITE, (_event, text: string) => {
+  if (typeof text === 'string' && text.length > 0) {
+    clipboard.writeText(text);
+  }
 });
 
 // ── App lifecycle ─────────────────────────────────────────────────

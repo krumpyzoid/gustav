@@ -36,6 +36,9 @@ export class TmuxAdapter implements TmuxPort {
 
   async newSession(name: string, opts: { windowName: string; cwd: string }): Promise<void> {
     await this.exec(`new-session -d -s '${q(name)}' -n '${q(opts.windowName)}' -c '${q(opts.cwd)}'`);
+    // aggressive-resize is a per-window option that doesn't inherit through tmux's
+    // session defaults, so each new window must set it explicitly. See newWindow.
+    await this.exec(`set-window-option -t '${q(name)}':'${q(opts.windowName)}' aggressive-resize on`);
   }
 
   async killSession(session: string): Promise<void> {
@@ -48,6 +51,7 @@ export class TmuxAdapter implements TmuxPort {
 
   async newWindow(session: string, name: string, cwd: string): Promise<void> {
     await this.exec(`new-window -t '${q(session)}' -n '${q(name)}' -c '${q(cwd)}'`);
+    await this.exec(`set-window-option -t '${q(session)}':'${q(name)}' aggressive-resize on`);
   }
 
   async sendKeys(target: string, keys: string): Promise<void> {

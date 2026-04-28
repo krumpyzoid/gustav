@@ -1,6 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('api', {
+  // Clipboard — main-process write bypasses macOS focus restrictions on
+  // navigator.clipboard.writeText, which silently fails when the window is
+  // unfocused.
+  writeClipboard: (text: string) => ipcRenderer.send('clipboard-write', text),
+
   // PTY
   onPtyData: (cb: (data: string) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, data: string) => cb(data);
