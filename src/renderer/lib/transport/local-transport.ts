@@ -2,6 +2,13 @@ import type { WorkspaceAppState, WindowInfo, Result } from '../../../main/domain
 import type { SessionTransport } from './session-transport';
 
 /**
+ * Hook for the transport to learn the currently focused session id. Defaults
+ * to reading from `window.api.getState()`-driven app store on demand. Tests
+ * inject a no-op or a stub.
+ */
+export type ActiveSessionGetter = () => string | null;
+
+/**
  * LocalTransport — adapts the local IPC bridge (`window.api`) to the
  * `SessionTransport` port. All methods are thin delegators; the entire
  * point of this class is to give the renderer a single dispatch surface
@@ -9,24 +16,73 @@ import type { SessionTransport } from './session-transport';
  *
  * Active subscription cleanups are tracked so `detach()` can release them
  * deterministically when the transport is swapped out.
+ *
+ * Phase 3 strangler: PTY data from the in-process `NativeSupervisor` arrives
+ * on a separate IPC channel (`supervisor:on-data`). LocalTransport
+ * multiplexes both streams into the same `onPtyData` listener so the
+ * terminal hook stays unaware of which backend produced the bytes — the
+ * supervisor stream is filtered by the renderer's currently-active session
+ * id to avoid cross-session bleed.
  */
 export class LocalTransport implements SessionTransport {
   readonly kind = 'local' as const;
 
   private cleanups = new Set<() => void>();
+  private getActiveSession: ActiveSessionGetter;
+
+  constructor(getActiveSession?: ActiveSessionGetter) {
+    this.getActiveSession = getActiveSession ?? defaultActiveSessionGetter;
+  }
 
   // ── PTY data plane ─────────────────────────────────────────────
   sendPtyInput(data: string): void {
+    const active = this.getActiveSession();
+    // If the active session is supervisor-backed, route input there; else
+    // fall through to the legacy tmux PTY. Best-effort detection: the
+    // app store does not yet track per-session backend on the renderer
+    // (Phase 3 follow-up), so we always send to both — the supervisor
+    // ignores input for unknown session ids and tmux is the no-op when
+    // no client is attached.
+    if (active) {
+      try { window.api.supervisor?.sendInput(active, data); } catch { /* noop */ }
+    }
     window.api.sendPtyInput(data);
   }
 
   sendPtyResize(cols: number, rows: number): void {
     window.api.sendPtyResize(cols, rows);
+    // Mirror to the supervisor for the active session so the native PTY
+    // sees the same SIGWINCH the tmux PTY does. The supervisor is the
+    // single arbiter; absent a registered client this is a best-effort
+    // call.
+    const active = this.getActiveSession();
+    if (active) {
+      try {
+        window.api.supervisor?.resizeClient({
+          sessionId: active,
+          clientId: 'local-renderer',
+          cols,
+          rows,
+        });
+      } catch { /* noop */ }
+    }
   }
 
   onPtyData(listener: (data: string) => void): () => void {
-    const cleanup = window.api.onPtyData(listener);
-    return this.track(cleanup);
+    // Tmux-side PTY stream (legacy backend).
+    const tmuxCleanup = window.api.onPtyData(listener);
+    // Supervisor-side stream, filtered by active session so concurrent
+    // sessions on the supervisor don't bleed into the focused terminal.
+    const superCleanup = window.api.supervisor?.onData(({ sessionId, data }) => {
+      const active = this.getActiveSession();
+      if (active && sessionId !== active) return;
+      listener(data);
+    });
+    const composite = () => {
+      tmuxCleanup();
+      superCleanup?.();
+    };
+    return this.track(composite);
   }
 
   // ── State subscription ─────────────────────────────────────────
@@ -40,7 +96,20 @@ export class LocalTransport implements SessionTransport {
   }
 
   // ── Session lifecycle commands ─────────────────────────────────
-  switchSession(session: string): Promise<Result<WindowInfo[]>> {
+  async switchSession(session: string): Promise<Result<WindowInfo[]>> {
+    // Best-effort attach: if the session is supervisor-owned the supervisor
+    // needs a client to drive its latest-wins size policy. Sending an
+    // attach for a tmux-only session is a no-op (the supervisor returns
+    // silently on unknown sessionId via `requireSession` — guarded by a
+    // try/catch here so we never block the switch).
+    try {
+      window.api.supervisor?.attachClient({
+        sessionId: session,
+        clientId: 'local-renderer',
+        cols: 80,
+        rows: 24,
+      });
+    } catch { /* noop */ }
     return window.api.switchSession(session);
   }
 
@@ -88,5 +157,22 @@ export class LocalTransport implements SessionTransport {
     return () => {
       if (this.cleanups.delete(cleanup)) cleanup();
     };
+  }
+}
+
+/**
+ * Lazy reader for the renderer's active session id. Lazy-imports
+ * `use-app-state` to avoid a circular module dependency at construction
+ * time. Falls back to `null` when the store hasn't initialized.
+ */
+function defaultActiveSessionGetter(): string | null {
+  try {
+    // Lazy require to avoid a circular import (use-app-state defaults to
+    // `new LocalTransport()` at module init).
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('../../hooks/use-app-state') as typeof import('../../hooks/use-app-state');
+    return mod.useAppStore.getState().activeSession;
+  } catch {
+    return null;
   }
 }

@@ -3,7 +3,8 @@ import { homedir } from 'node:os';
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { FileSystemPort } from '../ports/filesystem.port';
-import type { Workspace, WorkspaceOrdering, PinnedRepo, PersistedSession } from '../domain/types';
+import type { Workspace, WorkspaceOrdering, PinnedRepo, PersistedSession, SessionBackend } from '../domain/types';
+import { getBackend } from '../domain/types';
 import type { TabConfig } from '../domain/tab-config';
 
 const DEFAULT_STORAGE_DIR = join(homedir(), '.local', 'share', 'gustav');
@@ -202,6 +203,20 @@ export class WorkspaceService {
     if (firstSlash === -1) return undefined;
     const prefix = tmuxSession.slice(0, firstSlash);
     return workspaces.find((w) => w.name === prefix);
+  }
+
+  /**
+   * Look up the backend for a session by id. Returns `null` if the session
+   * is not found in any workspace's persisted entries — callers should
+   * default to `'tmux'` for backward compatibility (legacy sessions
+   * predating the strangler flag are tmux-backed).
+   */
+  findPersistedBackend(sessionId: string): SessionBackend | null {
+    const ws = this.findBySessionPrefix(sessionId);
+    if (!ws) return null;
+    const persisted = this.getPersistedSessions(ws.id).find((s) => s.tmuxSession === sessionId);
+    if (!persisted) return null;
+    return getBackend(persisted);
   }
 
   findByDirectory(directory: string): Workspace | undefined {

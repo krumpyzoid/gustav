@@ -2,9 +2,15 @@ import type { GitPort } from '../ports/git.port';
 import type { TmuxPort } from '../ports/tmux.port';
 import type { AssistantLogPort, AssistantStatus } from '../ports/assistant-log.port';
 import type { WorkspaceService } from './workspace.service';
+import type { SessionSupervisorPort } from '../supervisor/supervisor.port';
 import type { ClaudeStatus, WorkspaceAppState, WorkspaceState, SessionTab, RepoGroupState } from '../domain/types';
 import { worstStatus } from '../domain/types';
 import { applyPersistedWindowOrder } from '../ipc/apply-persisted-window-order';
+
+/** Minimal slice of the supervisor needed by StateService — keeps tests light. */
+export interface StateSupervisorView {
+  listSessions(): string[];
+}
 
 /** Sort items by a persisted key order. Items not in the order list are appended, optionally with a fallback sort. */
 function applyOrder<T>(
@@ -61,6 +67,14 @@ export class StateService {
     private tmux: TmuxPort,
     private workspaceService: WorkspaceService,
     private assistantLog?: AssistantLogPort,
+    /**
+     * Phase 3 strangler hook. When provided, supervisor-owned sessions are
+     * unioned into the listing alongside `tmux.listSessions()`. `_dir` cwd
+     * detection (via `tmux.displayMessage`) tolerates failure for native ids
+     * — those sessions surface with `branch: null` until the supervisor
+     * grows an equivalent (documented limitation, see below).
+     */
+    private supervisor?: StateSupervisorView,
   ) {}
 
   onChange(listener: (state: WorkspaceAppState) => void): void {
@@ -86,7 +100,14 @@ export class StateService {
 
   async collectWorkspaces(activeSession?: string): Promise<WorkspaceAppState> {
     const workspaces = this.workspaceService?.list() ?? [];
-    const sessions = await this.tmux.listSessions();
+    const tmuxSessions = await this.tmux.listSessions();
+    // Phase 3: union supervisor-owned sessions with tmux sessions so
+    // native-backed sessions also surface in the sidebar. The naming
+    // convention is identical (`workspace/repo/_dir`, etc.), so the
+    // downstream parsing path works for both.
+    const supervisorSessions = this.supervisor?.listSessions() ?? [];
+    const sessionSet = new Set<string>([...tmuxSessions, ...supervisorSessions]);
+    const sessions = Array.from(sessionSet);
     const wsNameSet = new Set(workspaces.map((w) => w.name));
 
     // Parse each tmux session into a SessionTab
@@ -165,7 +186,9 @@ export class StateService {
       }
     }
 
-    // Build workspace states
+    // Build workspace states. `liveTmuxSet` is a misnomer post-Phase 3 —
+    // it now contains both live tmux sessions and supervisor-owned ones.
+    // The semantic ("session is active right now") is correct either way.
     const liveTmuxSet = new Set(sessions);
     const workspaceStates: WorkspaceState[] = await Promise.all(workspaces.map(async (ws) => {
       const allTabs = wsSessionMap.get(ws.id) ?? [];
@@ -323,7 +346,12 @@ export class StateService {
 
   private async detectClaudeStatus(session: string): Promise<ClaudeStatus> {
     const panes = await this.tmux.listPanes(session);
-    if (!panes) return 'none';
+    if (!panes) {
+      // No tmux panes — could be a native-supervisor-backed session.
+      // Fall back to querying the observer directly using the persisted
+      // window→sessionId mapping. Returns 'none' if nothing maps.
+      return this.detectNativeClaudeStatus(session);
+    }
 
     // Find all panes running the claude command (by pane_current_command, not window name)
     const claudePaneIds: string[] = [];
@@ -365,6 +393,29 @@ export class StateService {
 
     // Return the worst status across all claude panes
     return worstStatus(paneStatuses);
+  }
+
+  /** Native-session fallback for claude status: ask the observer directly
+   * for each persisted claude window's session id, since there are no tmux
+   * panes to scan for native-backed sessions. */
+  private async detectNativeClaudeStatus(session: string): Promise<ClaudeStatus> {
+    if (!this.assistantLog) return 'none';
+    const map = this.resolveWindowSessionMap(session);
+    if (map.size === 0) return 'none';
+
+    const statuses = await Promise.all(
+      Array.from(map.values()).map(async ({ sessionId, cwd }): Promise<ClaudeStatus> => {
+        try {
+          const s = await this.assistantLog!.getStatus(sessionId, cwd);
+          if (!s) return 'none';
+          if (s.kind !== 'new') this.dirtySessions.add(session);
+          return s.kind;
+        } catch {
+          return 'none';
+        }
+      }),
+    );
+    return worstStatus(statuses);
   }
 
   private resolveWindowSessionMap(session: string): Map<string, { sessionId: string; cwd: string }> {

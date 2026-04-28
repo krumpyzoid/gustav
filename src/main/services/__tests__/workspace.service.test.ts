@@ -295,6 +295,48 @@ describe('WorkspaceService', () => {
     });
   });
 
+  describe('findPersistedBackend (Phase 3 strangler dispatch)', () => {
+    it('returns null for sessions not found in any workspace', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      await svc.create('Dev', '/path/dev');
+      expect(svc.findPersistedBackend('Dev/missing')).toBeNull();
+      expect(svc.findPersistedBackend('UnknownWs/anything')).toBeNull();
+    });
+
+    it('returns "tmux" for legacy entries without a backend field', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      const ws = await svc.create('Dev', '/path/dev');
+      await svc.persistSession(ws.id, {
+        tmuxSession: 'Dev/api/_dir',
+        type: 'directory',
+        directory: '/path/dev/api',
+        windows: [{ name: 'Shell', kind: 'command' }],
+      });
+      expect(svc.findPersistedBackend('Dev/api/_dir')).toBe('tmux');
+    });
+
+    it('returns the persisted backend when set', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      const ws = await svc.create('Dev', '/path/dev');
+      await svc.persistSession(ws.id, {
+        tmuxSession: 'Dev/native-session',
+        type: 'workspace',
+        directory: '/path/dev',
+        windows: [{ name: 'Shell', kind: 'command' }],
+        backend: 'native',
+      });
+      await svc.persistSession(ws.id, {
+        tmuxSession: 'Dev/tmux-session',
+        type: 'workspace',
+        directory: '/path/dev',
+        windows: [{ name: 'Shell', kind: 'command' }],
+        backend: 'tmux',
+      });
+      expect(svc.findPersistedBackend('Dev/native-session')).toBe('native');
+      expect(svc.findPersistedBackend('Dev/tmux-session')).toBe('tmux');
+    });
+  });
+
   describe('setSessionWindowOrder', () => {
     async function seed(svc: WorkspaceService) {
       const ws = await svc.create('Dev', '/path/dev');

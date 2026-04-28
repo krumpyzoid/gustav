@@ -3,6 +3,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { LocalTransport } from '../local-transport';
 import type { WindowInfo, WorkspaceAppState } from '../../../../main/domain/types';
 
+const supervisorApi = {
+  sendInput: vi.fn(),
+  resizeClient: vi.fn(),
+  onData: vi.fn(),
+};
+
 const api = {
   sendPtyInput: vi.fn(),
   sendPtyResize: vi.fn(),
@@ -17,10 +23,16 @@ const api = {
   newWindow: vi.fn(),
   killWindow: vi.fn(),
   setWindowOrder: vi.fn(),
+  supervisor: supervisorApi,
 };
 
 beforeEach(() => {
-  for (const fn of Object.values(api)) fn.mockReset();
+  for (const fn of Object.values(api)) {
+    if (typeof (fn as { mockReset?: () => void }).mockReset === 'function') {
+      (fn as { mockReset: () => void }).mockReset();
+    }
+  }
+  for (const fn of Object.values(supervisorApi)) fn.mockReset();
   // @ts-expect-error — partial window.api for tests
   globalThis.window.api = api;
 });
@@ -106,6 +118,75 @@ describe('LocalTransport', () => {
     expect(api.sleepSession).toHaveBeenCalledWith('s1');
     expect(api.wakeSession).toHaveBeenCalledWith('s1');
     expect(api.destroySession).toHaveBeenCalledWith('s1');
+  });
+
+  describe('Phase 3 supervisor multiplexing', () => {
+    it('forwards supervisor data for the active session into the same listener', () => {
+      let supervisorListener: ((p: { sessionId: string; windowId: string; data: string }) => void) | null = null;
+      api.onPtyData.mockReturnValue(() => {});
+      supervisorApi.onData.mockImplementation((cb) => {
+        supervisorListener = cb;
+        return () => {};
+      });
+
+      const listener = vi.fn();
+      const t = new LocalTransport(() => 'native-session-id');
+      t.onPtyData(listener);
+
+      expect(supervisorListener).not.toBeNull();
+      // Active session: data flows through.
+      supervisorListener!({ sessionId: 'native-session-id', windowId: 'w1', data: 'hello' });
+      expect(listener).toHaveBeenCalledWith('hello');
+    });
+
+    it('drops supervisor data from non-active sessions (cross-session bleed prevention)', () => {
+      let supervisorListener: ((p: { sessionId: string; windowId: string; data: string }) => void) | null = null;
+      api.onPtyData.mockReturnValue(() => {});
+      supervisorApi.onData.mockImplementation((cb) => {
+        supervisorListener = cb;
+        return () => {};
+      });
+
+      const listener = vi.fn();
+      const t = new LocalTransport(() => 'session-a');
+      t.onPtyData(listener);
+
+      supervisorListener!({ sessionId: 'session-b', windowId: 'w1', data: 'leak' });
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('detach() also tears down the supervisor subscription', () => {
+      const tmuxCleanup = vi.fn();
+      const superCleanup = vi.fn();
+      api.onPtyData.mockReturnValue(tmuxCleanup);
+      supervisorApi.onData.mockReturnValue(superCleanup);
+
+      const t = new LocalTransport(() => null);
+      t.onPtyData(vi.fn());
+      t.detach();
+
+      expect(tmuxCleanup).toHaveBeenCalled();
+      expect(superCleanup).toHaveBeenCalled();
+    });
+
+    it('sendPtyInput forwards to the supervisor for the active session as well as legacy PTY', () => {
+      const t = new LocalTransport(() => 'session-x');
+      t.sendPtyInput('abc');
+      expect(api.sendPtyInput).toHaveBeenCalledWith('abc');
+      expect(supervisorApi.sendInput).toHaveBeenCalledWith('session-x', 'abc');
+    });
+
+    it('sendPtyResize mirrors to supervisor.resizeClient for the active session', () => {
+      const t = new LocalTransport(() => 'session-x');
+      t.sendPtyResize(140, 50);
+      expect(api.sendPtyResize).toHaveBeenCalledWith(140, 50);
+      expect(supervisorApi.resizeClient).toHaveBeenCalledWith({
+        sessionId: 'session-x',
+        clientId: 'local-renderer',
+        cols: 140,
+        rows: 50,
+      });
+    });
   });
 
   it('window commands delegate to window.api', async () => {

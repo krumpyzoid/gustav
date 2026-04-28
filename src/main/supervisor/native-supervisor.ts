@@ -153,6 +153,10 @@ export class NativeSupervisor implements SessionSupervisorPort {
     return this.sessions.has(sessionId);
   }
 
+  listSessions(): string[] {
+    return Array.from(this.sessions.keys());
+  }
+
   // ── Window lifecycle ────────────────────────────────────────────
 
   async addWindow(sessionId: string, spec: WindowSpec): Promise<string> {

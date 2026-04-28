@@ -46,6 +46,7 @@ import { TmuxAdapter } from './adapters/tmux.adapter';
 import { RepoConfigService } from './services/repo-config.service';
 import { WorkspaceService } from './services/workspace.service';
 import { SessionService } from './services/session.service';
+import { SessionLauncherService } from './services/session-launcher.service';
 import { ThemeService } from './services/theme.service';
 import { PreferenceService } from './services/preference.service';
 import { StateService } from './services/state.service';
@@ -78,15 +79,7 @@ const sessionService = new SessionService(tmuxAdapter);
 const preferenceService = new PreferenceService();
 const themeService = new ThemeService(fsAdapter);
 const claudeLogObserver = new ClaudeLogObserver();
-const stateService = new StateService(gitAdapter, tmuxAdapter, workspaceService, claudeLogObserver);
 const claudeTracker = new ClaudeSessionTracker(tmuxAdapter, shellAdapter, fsAdapter, workspaceService, claudeLogObserver);
-const dataDir = require('node:path').join(require('node:os').homedir(), '.local', 'share', 'gustav');
-const remoteService = new RemoteService({
-  stateService, sessionService, workspaceService,
-  repoConfigService, preferenceService,
-  git: gitAdapter, tmux: tmuxAdapter, shell: shellAdapter, dataDir,
-});
-const remoteClientService = new RemoteClientService(dataDir);
 
 // Phase 3: native session supervisor. Always instantiated (cheap if unused);
 // the strangler flag in preferences (`sessionSupervisor: 'tmux' | 'native'`)
@@ -95,6 +88,23 @@ const nativeSupervisor = new NativeSupervisor({
   ptyFactory: nodePtyFactory,
   assistantLog: claudeLogObserver,
 });
+
+// StateService unions tmux + supervisor sessions, so it must be wired after
+// nativeSupervisor is constructed.
+const stateService = new StateService(gitAdapter, tmuxAdapter, workspaceService, claudeLogObserver, nativeSupervisor);
+
+// SessionLauncherService picks tmux vs native at session creation time,
+// reading the strangler flag on each call. Existing sessions stay on
+// whichever backend originally created them.
+const sessionLauncher = new SessionLauncherService(sessionService, nativeSupervisor, preferenceService);
+
+const dataDir = require('node:path').join(require('node:os').homedir(), '.local', 'share', 'gustav');
+const remoteService = new RemoteService({
+  stateService, sessionService, workspaceService,
+  repoConfigService, preferenceService,
+  git: gitAdapter, tmux: tmuxAdapter, shell: shellAdapter, dataDir,
+});
+const remoteClientService = new RemoteClientService(dataDir);
 
 // Apply saved theme preference at startup
 themeService.setPreference(preferenceService.load().theme);
@@ -222,6 +232,8 @@ app.on('ready', async () => {
       registerHandlers: (deps) => registerHandlers({
         worktreeService,
         sessionService,
+        sessionLauncher,
+        supervisor: nativeSupervisor,
         stateService,
         themeService,
         workspaceService,
@@ -296,6 +308,8 @@ app.on('ready', async () => {
   registerHandlers({
     worktreeService,
     sessionService,
+    sessionLauncher,
+    supervisor: nativeSupervisor,
     stateService,
     themeService,
     workspaceService,

@@ -13,6 +13,8 @@ export interface SessionSupervisorPort {
   createSession(opts: { sessionId: string; cwd: string; windows: WindowSpec[] }): Promise<void>;
   killSession(sessionId: string): Promise<void>;
   hasSession(sessionId: string): boolean;
+  /** List the ids of every active session the supervisor owns. */
+  listSessions(): string[];
 
   // ── Window lifecycle ──────────────────────────────────────────────
   /** Returns the new window's stable id. */

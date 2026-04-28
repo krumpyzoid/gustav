@@ -90,12 +90,27 @@ export type WindowSpec = {
   directory?: string;
 };
 
+/** Which backend owns the PTYs for a persisted session.
+ * Absent on legacy entries — treat as `'tmux'` via {@link getBackend}. */
+export type SessionBackend = 'tmux' | 'native';
+
 export type PersistedSession = {
+  /** Stable session id. The field is named `tmuxSession` for backward compat —
+   * for native-backed sessions it is just an arbitrary id following the same
+   * naming convention (`workspace/repo/branch`, `_standalone/label`, etc.). */
   tmuxSession: string;
   type: SessionType;
   directory: string;
   windows: WindowSpec[];
+  /** Optional. Absent = `'tmux'` (legacy default). */
+  backend?: SessionBackend;
 };
+
+/** Returns the backend for a persisted session, defaulting to `'tmux'` for
+ * entries that predate the strangler flag. */
+export function getBackend(session: PersistedSession): SessionBackend {
+  return session.backend ?? 'tmux';
+}
 
 export type Workspace = {
   id: string;

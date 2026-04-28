@@ -3,6 +3,7 @@ import { basename, join } from 'node:path';
 import { Channels } from './channels';
 import type { WorktreeService } from '../services/worktree.service';
 import type { SessionService } from '../services/session.service';
+import type { SessionLauncherService } from '../services/session-launcher.service';
 import type { StateService } from '../services/state.service';
 import type { ThemeService } from '../services/theme.service';
 import type { WorkspaceService } from '../services/workspace.service';
@@ -11,7 +12,8 @@ import type { GitPort } from '../ports/git.port';
 import type { TmuxPort } from '../ports/tmux.port';
 import type { ShellPort } from '../ports/shell.port';
 import type { PreferenceService } from '../services/preference.service';
-import type { CreateWorktreeParams, CleanTarget, Result, PersistedSession, SessionType, Preferences, WindowSpec } from '../domain/types';
+import type { SessionSupervisorPort } from '../supervisor/supervisor.port';
+import type { CreateWorktreeParams, CleanTarget, Result, PersistedSession, SessionType, Preferences, WindowSpec, SessionBackend, WindowInfo } from '../domain/types';
 import type { TabConfig } from '../domain/tab-config';
 import { snapshotSessionWindows } from './snapshot-windows';
 import { buildWindowSpecs } from './build-window-specs';
@@ -62,6 +64,11 @@ function findClaudeSessionId(workspaceService: WorkspaceService, session: string
 export function registerHandlers(deps: {
   worktreeService: WorktreeService;
   sessionService: SessionService;
+  /** Phase 3 strangler: chooses tmux vs native at session creation time. */
+  sessionLauncher: SessionLauncherService;
+  /** Phase 3 strangler: native-supervisor instance, used for sleep/wake/destroy
+   * dispatch when a session's persisted backend is `'native'`. */
+  supervisor: SessionSupervisorPort;
   stateService: StateService;
   themeService: ThemeService;
   workspaceService: WorkspaceService;
@@ -79,7 +86,24 @@ export function registerHandlers(deps: {
   remoteClientService?: import('../remote/remote-client.service').RemoteClientService;
   broadcastToRenderer?: (channel: string, ...args: unknown[]) => void;
 }): void {
-  const { worktreeService, sessionService, stateService, themeService, workspaceService, repoConfigService, preferenceService, tmux, shell, git, getPtyClientTty, getActiveSession, setActiveSession, ensurePty, broadcastTheme, remoteService, remoteClientService, broadcastToRenderer } = deps;
+  const { worktreeService, sessionService, sessionLauncher, supervisor, stateService, themeService, workspaceService, repoConfigService, preferenceService, tmux, shell, git, getPtyClientTty, getActiveSession, setActiveSession, ensurePty, broadcastTheme, remoteService, remoteClientService, broadcastToRenderer } = deps;
+
+  /** Look up the backend for a session by id; defaults to `'tmux'` for
+   * legacy entries that predate the strangler flag and for sessions not
+   * found in any persisted state (e.g. created by a different Gustav). */
+  function backendOf(sessionId: string): SessionBackend {
+    return workspaceService.findPersistedBackend(sessionId) ?? 'tmux';
+  }
+
+  /** Build a `WindowInfo[]` from the supervisor's window list for renderer
+   * compatibility. The supervisor owns its own ids; we synthesize indices. */
+  function supervisorWindowsAsInfo(sessionId: string): WindowInfo[] {
+    return supervisor.listWindows(sessionId).map((w, index) => ({
+      index,
+      name: w.name,
+      active: false, // supervisor exposes activeWindowId via listWindows; renderer uses persisted order
+    }));
+  }
 
   /** Ensure PTY is running, switch tmux client to the given session, and mark it active. */
   async function switchAfterPty(session: string): Promise<void> {
@@ -238,8 +262,8 @@ export function registerHandlers(deps: {
               repoConfig: repoConfigService.get(repoRoot),
               claudeSessionId: prevClaudeId,
             });
-            const session = await sessionService.launchSession(sessionName, repoRoot, windows);
-            await workspaceService.persistSession(ws.id, { tmuxSession: session, type: 'directory', directory: repoRoot, windows });
+            const launched = await sessionLauncher.launch(sessionName, repoRoot, windows);
+            await workspaceService.persistSession(ws.id, { tmuxSession: launched.sessionId, type: 'directory', directory: repoRoot, windows, backend: launched.backend });
           } catch {}
         }
         ensurePty();
@@ -275,6 +299,13 @@ export function registerHandlers(deps: {
   // ── Session commands ────────────────────────────────────────
   ipcMain.handle(Channels.SWITCH_SESSION, async (_event, session: string) => {
     try {
+      const backend = backendOf(session);
+      if (backend === 'native') {
+        // Native sessions stream PTY data through SUPERVISOR_ON_DATA; the
+        // legacy tmux PTY stays alive for tmux-backed sessions.
+        setActiveSession(session);
+        return ok(supervisorWindowsAsInfo(session));
+      }
       ensurePty();
       // Brief wait for tmux client to register after PTY (re)start
       let tty = await getPtyClientTty();
@@ -291,6 +322,11 @@ export function registerHandlers(deps: {
 
   ipcMain.handle(Channels.SLEEP_SESSION, async (_event, session: string) => {
     try {
+      const backend = backendOf(session);
+      if (backend === 'native') {
+        if (supervisor.hasSession(session)) await supervisor.sleepSession(session);
+        return ok(undefined);
+      }
       await snapshotAndPersist(session);
       if (await tmux.hasSession(session)) {
         await tmux.killSession(session);
@@ -303,11 +339,28 @@ export function registerHandlers(deps: {
 
   ipcMain.handle(Channels.WAKE_SESSION, async (_event, session: string) => {
     try {
+      const backend = backendOf(session);
       // Restore session from persisted snapshot (preserves user-created windows and commands)
       const ws = workspaceService.findBySessionPrefix(session);
       if (ws) {
         const persisted = workspaceService.getPersistedSessions(ws.id).find((s) => s.tmuxSession === session);
         if (persisted) {
+          if (backend === 'native') {
+            // If the supervisor still owns the session it was sleeping —
+            // wake spawns fresh PTYs from the retained spec. Otherwise
+            // (e.g. after a Gustav restart) recreate from persisted spec.
+            if (supervisor.hasSession(session)) {
+              await supervisor.wakeSession(session);
+            } else {
+              await supervisor.createSession({
+                sessionId: session,
+                cwd: persisted.directory,
+                windows: persisted.windows,
+              });
+            }
+            setActiveSession(session);
+            return ok(supervisorWindowsAsInfo(session));
+          }
           await sessionService.restoreSession(persisted);
           await switchAfterPty(session);
           const windows = await getOrderedWindows(session);
@@ -322,11 +375,13 @@ export function registerHandlers(deps: {
 
   ipcMain.handle(Channels.DESTROY_SESSION, async (_event, session: string) => {
     try {
-      // Kill tmux session if it's running
-      if (await tmux.hasSession(session)) {
+      const backend = backendOf(session);
+      if (backend === 'native') {
+        if (supervisor.hasSession(session)) await supervisor.killSession(session);
+      } else if (await tmux.hasSession(session)) {
         await tmux.killSession(session);
       }
-      // Remove the persisted session entry permanently
+      // Remove the persisted session entry permanently (for both backends).
       const ws = workspaceService.findBySessionPrefix(session);
       if (ws) {
         await workspaceService.removeSession(ws.id, session);
@@ -340,7 +395,7 @@ export function registerHandlers(deps: {
   ipcMain.handle(Channels.CREATE_WORKSPACE_SESSION, async (_event, workspaceName: string, workspaceDir: string, label?: string) => {
     try {
       const sessionName = sessionService.getSessionName(workspaceName, { type: 'workspace', label });
-      if (await tmux.hasSession(sessionName)) {
+      if (await tmux.hasSession(sessionName) || supervisor.hasSession(sessionName)) {
         return err(`Session "${label ?? '_ws'}" already exists in workspace "${workspaceName}"`);
       }
       const prevClaudeId = findClaudeSessionId(workspaceService, sessionName);
@@ -352,12 +407,18 @@ export function registerHandlers(deps: {
         repoConfig: null,
         claudeSessionId: prevClaudeId,
       });
-      const session = await sessionService.launchSession(sessionName, workspaceDir, windows);
+      const launched = await sessionLauncher.launch(sessionName, workspaceDir, windows);
       if (ws) {
-        await workspaceService.persistSession(ws.id, { tmuxSession: session, type: 'workspace', directory: workspaceDir, windows });
+        await workspaceService.persistSession(ws.id, { tmuxSession: launched.sessionId, type: 'workspace', directory: workspaceDir, windows, backend: launched.backend });
       }
-      await switchAfterPty(session);
-      return ok(session);
+      // tmux switch is meaningful only for tmux-backed sessions; native
+      // sessions stream PTY data through the supervisor IPC channel.
+      if (launched.backend === 'tmux') {
+        await switchAfterPty(launched.sessionId);
+      } else {
+        setActiveSession(launched.sessionId);
+      }
+      return ok(launched.sessionId);
     } catch (e) {
       return err((e as Error).message);
     }
@@ -403,14 +464,18 @@ export function registerHandlers(deps: {
         repoConfig: repoConfigService.get(repoRoot),
         claudeSessionId: prevClaudeId,
       });
-      const session = await sessionService.launchSession(sessionName, sessionDir, windows);
+      const launched = await sessionLauncher.launch(sessionName, sessionDir, windows);
 
       if (ws) {
-        await workspaceService.persistSession(ws.id, { tmuxSession: session, type: sessionType, directory: sessionDir, windows });
+        await workspaceService.persistSession(ws.id, { tmuxSession: launched.sessionId, type: sessionType, directory: sessionDir, windows, backend: launched.backend });
       }
 
-      await switchAfterPty(session);
-      return ok(session);
+      if (launched.backend === 'tmux') {
+        await switchAfterPty(launched.sessionId);
+      } else {
+        setActiveSession(launched.sessionId);
+      }
+      return ok(launched.sessionId);
     } catch (e) {
       return err((e as Error).message);
     }
@@ -435,12 +500,16 @@ export function registerHandlers(deps: {
         repoConfig: repoConfigService.get(repoRoot),
         claudeSessionId: prevClaudeId,
       });
-      const session = await sessionService.launchSession(sessionName, worktreePath, windows);
+      const launched = await sessionLauncher.launch(sessionName, worktreePath, windows);
       if (ws) {
-        await workspaceService.persistSession(ws.id, { tmuxSession: session, type: 'worktree', directory: worktreePath, windows });
+        await workspaceService.persistSession(ws.id, { tmuxSession: launched.sessionId, type: 'worktree', directory: worktreePath, windows, backend: launched.backend });
       }
-      await switchAfterPty(session);
-      return ok(session);
+      if (launched.backend === 'tmux') {
+        await switchAfterPty(launched.sessionId);
+      } else {
+        setActiveSession(launched.sessionId);
+      }
+      return ok(launched.sessionId);
     } catch (e) {
       return err((e as Error).message);
     }
@@ -455,9 +524,16 @@ export function registerHandlers(deps: {
         preferences: preferenceService.load(),
         repoConfig: null,
       });
-      const session = await sessionService.launchSession(sessionName, dir, windows);
-      await switchAfterPty(session);
-      return ok(session);
+      const launched = await sessionLauncher.launch(sessionName, dir, windows);
+      // Standalone sessions aren't persisted — there's no workspace to attach
+      // them to. The backend choice is still respected for runtime dispatch
+      // (the session shows up in the supervisor.listSessions() union path).
+      if (launched.backend === 'tmux') {
+        await switchAfterPty(launched.sessionId);
+      } else {
+        setActiveSession(launched.sessionId);
+      }
+      return ok(launched.sessionId);
     } catch (e) {
       return err((e as Error).message);
     }
@@ -494,7 +570,7 @@ export function registerHandlers(deps: {
         preferences: preferenceService.load(),
         repoConfig: repoConfigService.get(params.repoRoot),
       });
-      await sessionService.launchSession(sessionName, wtPath, windows);
+      await sessionLauncher.launch(sessionName, wtPath, windows);
       return ok(undefined);
     } catch (e) {
       return err((e as Error).message);
@@ -522,6 +598,14 @@ export function registerHandlers(deps: {
   // ── Window commands ─────────────────────────────────────────
   ipcMain.handle(Channels.SELECT_WINDOW, async (_event, session: string, window: string) => {
     try {
+      const backend = backendOf(session);
+      if (backend === 'native') {
+        // Find the supervisor's window id by display name.
+        const w = supervisor.listWindows(session).find((mw) => mw.name === window);
+        if (!w) return err(`Window "${window}" not found in session "${session}"`);
+        await supervisor.selectWindow(session, w.id);
+        return ok(undefined);
+      }
       await tmux.selectWindow(session, window);
       return ok(undefined);
     } catch (e) {
@@ -531,6 +615,27 @@ export function registerHandlers(deps: {
 
   ipcMain.handle(Channels.NEW_WINDOW, async (_event, session: string, name: string) => {
     try {
+      const backend = backendOf(session);
+      if (backend === 'native') {
+        // Inherit the session's cwd; the supervisor doesn't expose a
+        // `pane_current_path` equivalent, so we use the persisted directory.
+        const ws = workspaceService.findBySessionPrefix(session);
+        const persisted = ws
+          ? workspaceService.getPersistedSessions(ws.id).find((s) => s.tmuxSession === session)
+          : undefined;
+        const cwd = persisted?.directory ?? process.env.HOME!;
+        const spec: WindowSpec = { name, kind: 'command', command: '', directory: cwd };
+        const newId = await supervisor.addWindow(session, spec);
+        await supervisor.selectWindow(session, newId);
+        // Persist the updated window list.
+        if (ws && persisted) {
+          await workspaceService.persistSession(ws.id, {
+            ...persisted,
+            windows: [...persisted.windows, spec],
+          });
+        }
+        return ok(undefined);
+      }
       const cwd = (await tmux.displayMessage(`${session}:0`, '#{pane_current_path}')).trim() || process.env.HOME!;
       await tmux.newWindow(session, name, cwd);
       await tmux.selectWindow(session, name);
@@ -543,6 +648,30 @@ export function registerHandlers(deps: {
 
   ipcMain.handle(Channels.KILL_WINDOW, async (_event, session: string, windowIndex: number) => {
     try {
+      const backend = backendOf(session);
+      if (backend === 'native') {
+        const windows = supervisor.listWindows(session);
+        const target = windows[windowIndex];
+        if (!target) return err(`Window index ${windowIndex} out of range for session "${session}"`);
+        if (windows.length <= 1) {
+          await supervisor.killSession(session);
+          // Persisted session is intentionally kept for resume.
+        } else {
+          await supervisor.killWindow(session, target.id);
+          // Persist the truncated window list.
+          const ws = workspaceService.findBySessionPrefix(session);
+          const persisted = ws
+            ? workspaceService.getPersistedSessions(ws.id).find((s) => s.tmuxSession === session)
+            : undefined;
+          if (ws && persisted) {
+            await workspaceService.persistSession(ws.id, {
+              ...persisted,
+              windows: persisted.windows.filter((w) => w.name !== target.name),
+            });
+          }
+        }
+        return ok(undefined);
+      }
       const windows = await tmux.listWindows(session);
       if (windows.length <= 1) {
         await tmux.killSession(session);
@@ -565,6 +694,10 @@ export function registerHandlers(deps: {
       }
       const ws = workspaceService.findBySessionPrefix(session);
       if (!ws) return err('Workspace not found for session');
+      // Persist for both backends. The native supervisor doesn't expose a
+      // window-reorder primitive yet (Phase 3 follow-up): the renderer renders
+      // in persisted order, so the on-disk order is the source of truth and
+      // the supervisor's internal list order doesn't need to match.
       await workspaceService.setSessionWindowOrder(ws.id, session, names as string[]);
       return ok(undefined);
     } catch (e) {

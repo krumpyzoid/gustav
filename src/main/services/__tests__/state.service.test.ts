@@ -121,6 +121,47 @@ describe('StateService.collectWorkspaces', () => {
     expect(state.workspaces[0].status).toBe('action');
   });
 
+  it('unions tmux and supervisor sessions into the listing (native sessions appear in sidebar)', async () => {
+    const git = makeMockGit();
+    const tmux = makeMockTmux();
+    const wsService = makeMockWorkspaceService([
+      {
+        id: 'ws1',
+        name: 'Mixed',
+        directory: '/home/user/mixed',
+        pinnedRepos: [{ path: '/home/user/mixed/api', repoName: 'api' }],
+      },
+    ]);
+
+    // tmux owns one session; supervisor owns another for the same workspace.
+    vi.mocked(tmux.listSessions).mockResolvedValue(['Mixed/api/_dir']);
+    vi.mocked(tmux.listPanes).mockResolvedValue('');
+    const supervisor = { listSessions: vi.fn().mockReturnValue(['Mixed/api/feat-x']) };
+
+    const svc = new StateService(git, tmux, wsService, undefined, supervisor);
+    const state = await svc.collectWorkspaces();
+
+    const allTmux = state.workspaces[0].repoGroups[0].sessions.map((s) => s.tmuxSession);
+    expect(allTmux).toContain('Mixed/api/_dir');
+    expect(allTmux).toContain('Mixed/api/feat-x');
+  });
+
+  it('de-duplicates a session that appears in both tmux and supervisor lists', async () => {
+    const git = makeMockGit();
+    const tmux = makeMockTmux();
+    const wsService = makeMockWorkspaceService();
+
+    vi.mocked(tmux.listSessions).mockResolvedValue(['_standalone/dup']);
+    vi.mocked(tmux.listPanes).mockResolvedValue('');
+    const supervisor = { listSessions: vi.fn().mockReturnValue(['_standalone/dup']) };
+
+    const svc = new StateService(git, tmux, wsService, undefined, supervisor);
+    const state = await svc.collectWorkspaces();
+
+    expect(state.defaultWorkspace.sessions).toHaveLength(1);
+    expect(state.defaultWorkspace.sessions[0].tmuxSession).toBe('_standalone/dup');
+  });
+
   it('parses worktree sessions into repo groups', async () => {
     const git = makeMockGit();
     const tmux = makeMockTmux();
