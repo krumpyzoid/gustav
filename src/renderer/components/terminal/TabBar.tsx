@@ -46,27 +46,49 @@ function WindowTab({ win, scope, onClick, onClose, onReorder }: WindowTabProps) 
 }
 
 export function TabBar() {
-  const { windows, activeSession, setWindows, setActiveSession } = useAppStore();
+  const {
+    windows,
+    activeSession,
+    remoteActiveSession,
+    isRemoteSession,
+    remotePtyChannelId,
+    setWindows,
+    setActiveSession,
+    setRemoteActiveSession,
+    setIsRemoteSession,
+    setRemotePtyChannelId,
+  } = useAppStore();
   const [isAdding, setIsAdding] = useState(false);
+
+  // The session this tab bar operates on — local or remote.
+  const session = isRemoteSession ? remoteActiveSession : activeSession;
 
   const handleReorder = useCallback(
     async (draggedName: string, targetName: string, edge: 'top' | 'bottom') => {
-      if (!activeSession) return;
+      if (!session) return;
       const names = windows.map((w) => w.name);
       const next = reorderList(names, draggedName, targetName, edge);
       const byName = new Map(windows.map((w) => [w.name, w]));
       setWindows(next.map((name) => byName.get(name)!).filter(Boolean));
-      await window.api.setWindowOrder(activeSession, next);
+      if (isRemoteSession) {
+        await window.api.remoteSessionCommand('set-window-order', { session, names: next });
+      } else {
+        await window.api.setWindowOrder(session, next);
+      }
     },
-    [activeSession, windows, setWindows],
+    [session, isRemoteSession, windows, setWindows],
   );
 
   if (windows.length === 0) return null;
 
   async function handleClick(windowName: string) {
-    if (!activeSession) return;
+    if (!session) return;
     setWindows(windows.map((w) => ({ ...w, active: w.name === windowName })));
-    await window.api.selectWindow(activeSession, windowName);
+    if (isRemoteSession) {
+      await window.api.remoteSessionCommand('select-window', { session, window: windowName });
+    } else {
+      await window.api.selectWindow(session, windowName);
+    }
     // The button briefly steals focus on mousedown — restore it to the terminal
     // so the user can keep typing. (This used to be done by preventDefault on
     // mousedown, but that path blocks pragmatic-drag-and-drop's drag-start.)
@@ -74,7 +96,7 @@ export function TabBar() {
   }
 
   async function handleAdd(name: string) {
-    if (!activeSession || !name.trim()) return;
+    if (!session || !name.trim()) return;
     const trimmed = name.trim();
     const nextIndex = Math.max(...windows.map((w) => w.index)) + 1;
     setIsAdding(false);
@@ -82,27 +104,45 @@ export function TabBar() {
       ...windows.map((w) => ({ ...w, active: false })),
       { index: nextIndex, name: trimmed, active: true },
     ]);
-    await window.api.newWindow(activeSession, trimmed);
+    if (isRemoteSession) {
+      await window.api.remoteSessionCommand('new-window', { session, name: trimmed });
+    } else {
+      await window.api.newWindow(session, trimmed);
+    }
     focusTerminal();
   }
 
   async function handleClose(e: React.MouseEvent, windowIndex: number) {
     e.stopPropagation();
-    if (!activeSession) return;
+    if (!session) return;
     if (windows.length <= 1) {
       setActiveSession(null);
-      await window.api.sleepSession(activeSession);
+      if (isRemoteSession) {
+        if (remotePtyChannelId !== null) {
+          await window.api.remoteSessionCommand('detach-pty', { channelId: remotePtyChannelId });
+        }
+        setRemoteActiveSession(null);
+        setIsRemoteSession(false);
+        setRemotePtyChannelId(null);
+        await window.api.remoteSessionCommand('sleep-session', { session });
+      } else {
+        await window.api.sleepSession(session);
+      }
     } else {
       const remaining = windows.filter((w) => w.index !== windowIndex);
       if (!remaining.some((w) => w.active)) {
         remaining[0].active = true;
       }
       setWindows(remaining);
-      await window.api.killWindow(activeSession, windowIndex);
+      if (isRemoteSession) {
+        await window.api.remoteSessionCommand('kill-window', { session, windowIndex });
+      } else {
+        await window.api.killWindow(session, windowIndex);
+      }
     }
   }
 
-  const scope = `window-tabs:${activeSession ?? ''}`;
+  const scope = `window-tabs:${session ?? ''}`;
 
   return (
     <div className="flex justify-center bg-bg px-2 gap-0.5 shrink-0" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>

@@ -37,8 +37,14 @@ vi.mock('../../../hooks/use-terminal', () => ({
 let storeState: {
   windows: WindowInfo[];
   activeSession: string | null;
+  remoteActiveSession: string | null;
+  isRemoteSession: boolean;
+  remotePtyChannelId: number | null;
   setWindows: (w: WindowInfo[]) => void;
   setActiveSession: (s: string | null) => void;
+  setRemoteActiveSession: (s: string | null) => void;
+  setIsRemoteSession: (b: boolean) => void;
+  setRemotePtyChannelId: (id: number | null) => void;
 };
 
 vi.mock('../../../hooks/use-app-state', () => ({
@@ -51,6 +57,7 @@ const api = {
   killWindow: vi.fn().mockResolvedValue({ success: true }),
   sleepSession: vi.fn().mockResolvedValue({ success: true }),
   setWindowOrder: vi.fn().mockResolvedValue({ success: true }),
+  remoteSessionCommand: vi.fn().mockResolvedValue({ success: true }),
 };
 beforeEach(() => {
   for (const k of Object.keys(sortableProps)) delete sortableProps[k];
@@ -65,10 +72,16 @@ beforeEach(() => {
       { index: 2, name: 'Tests', active: false },
     ],
     activeSession: 'Dev/_ws',
+    remoteActiveSession: null,
+    isRemoteSession: false,
+    remotePtyChannelId: null,
     setWindows: vi.fn((w) => {
       storeState.windows = w;
     }),
     setActiveSession: vi.fn(),
+    setRemoteActiveSession: vi.fn(),
+    setIsRemoteSession: vi.fn(),
+    setRemotePtyChannelId: vi.fn(),
   };
 });
 
@@ -164,5 +177,104 @@ describe('TabBar', () => {
 
     expect(api.newWindow).not.toHaveBeenCalled();
     expect(focusTerminal).not.toHaveBeenCalled();
+  });
+});
+
+describe('TabBar — remote session routing', () => {
+  beforeEach(() => {
+    // Switch the store into "remote mode": no local active session,
+    // remote session and PTY channel set instead.
+    storeState.activeSession = null;
+    storeState.remoteActiveSession = 'Dev/_ws';
+    storeState.isRemoteSession = true;
+    storeState.remotePtyChannelId = 7;
+  });
+
+  it('still renders one tab per window when in remote mode', () => {
+    render(<TabBar />);
+    expect(screen.getByRole('button', { name: /editor/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /logs/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /tests/i })).toBeInTheDocument();
+  });
+
+  it('clicking a tab dispatches select-window remotely instead of local selectWindow', async () => {
+    render(<TabBar />);
+
+    await userEvent.click(screen.getByRole('button', { name: /editor/i }));
+
+    expect(api.remoteSessionCommand).toHaveBeenCalledWith(
+      'select-window',
+      { session: 'Dev/_ws', window: 'Editor' },
+    );
+    expect(api.selectWindow).not.toHaveBeenCalled();
+  });
+
+  it('adding a new tab dispatches new-window remotely instead of local newWindow', async () => {
+    render(<TabBar />);
+
+    await userEvent.click(screen.getByRole('button', { name: '+' }));
+    const input = screen.getByPlaceholderText(/tab name/i) as HTMLInputElement;
+    await userEvent.type(input, 'Notes{Enter}');
+
+    expect(api.remoteSessionCommand).toHaveBeenCalledWith(
+      'new-window',
+      { session: 'Dev/_ws', name: 'Notes' },
+    );
+    expect(api.newWindow).not.toHaveBeenCalled();
+  });
+
+  it('reordering dispatches set-window-order remotely instead of local setWindowOrder', async () => {
+    render(<TabBar />);
+
+    sortableProps['Tests'].onReorder('Tests', 'Logs', 'top');
+    await Promise.resolve();
+
+    expect(api.remoteSessionCommand).toHaveBeenCalledWith(
+      'set-window-order',
+      { session: 'Dev/_ws', names: ['Editor', 'Tests', 'Logs'] },
+    );
+    expect(api.setWindowOrder).not.toHaveBeenCalled();
+  });
+
+  it('closing a non-last tab dispatches kill-window remotely instead of local killWindow', async () => {
+    render(<TabBar />);
+
+    // Hover-only "×" — find the close span inside the Editor tab and click it.
+    const editorBtn = screen.getByRole('button', { name: /editor/i });
+    const closeBtn = editorBtn.querySelector('span') as HTMLElement;
+    await userEvent.click(closeBtn);
+
+    expect(api.remoteSessionCommand).toHaveBeenCalledWith(
+      'kill-window',
+      { session: 'Dev/_ws', windowIndex: 0 },
+    );
+    expect(api.killWindow).not.toHaveBeenCalled();
+  });
+
+  it('uses the remote session name in the SortableItem scope', () => {
+    render(<TabBar />);
+    expect(sortableProps['Editor'].scope).toBe('window-tabs:Dev/_ws');
+  });
+
+  it('closing the last tab dispatches sleep-session remotely, detaches the PTY, and clears remote markers', async () => {
+    storeState.windows = [{ index: 0, name: 'Editor', active: true }];
+
+    render(<TabBar />);
+    const editorBtn = screen.getByRole('button', { name: /editor/i });
+    const closeBtn = editorBtn.querySelector('span') as HTMLElement;
+    await userEvent.click(closeBtn);
+
+    expect(api.remoteSessionCommand).toHaveBeenCalledWith(
+      'sleep-session',
+      { session: 'Dev/_ws' },
+    );
+    expect(api.remoteSessionCommand).toHaveBeenCalledWith(
+      'detach-pty',
+      { channelId: 7 },
+    );
+    expect(api.sleepSession).not.toHaveBeenCalled();
+    expect(storeState.setRemoteActiveSession).toHaveBeenCalledWith(null);
+    expect(storeState.setIsRemoteSession).toHaveBeenCalledWith(false);
+    expect(storeState.setRemotePtyChannelId).toHaveBeenCalledWith(null);
   });
 });

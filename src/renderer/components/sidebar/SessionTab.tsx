@@ -130,6 +130,12 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
       setRemoteActiveSession(tab.tmuxSession);
       setIsRemoteSession(true);
       setRemotePtyChannelId(result.data.channelId as number);
+
+      // Fetch the remote session's window list so the tab bar can render it
+      const winResult = await window.api.remoteSessionCommand('list-windows', { session: tab.tmuxSession });
+      if (winResult.success && Array.isArray(winResult.data)) {
+        setWindows(winResult.data as WindowInfo[]);
+      }
     }
   }
 

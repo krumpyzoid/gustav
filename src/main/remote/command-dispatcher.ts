@@ -7,6 +7,7 @@ import type { GitPort } from '../ports/git.port';
 import type { TmuxPort } from '../ports/tmux.port';
 import type { Result } from '../domain/types';
 import { buildWindowSpecs } from '../ipc/build-window-specs';
+import { applyPersistedWindowOrder } from '../ipc/apply-persisted-window-order';
 
 export type DispatcherDeps = {
   stateService: StateService;
@@ -45,6 +46,69 @@ export class CommandDispatcher {
             return err('Directory not within any workspace root');
           }
           return ok(this.deps.workspaceService.discoverGitRepos(dir, 3));
+        }
+
+        case 'select-window': {
+          const session = params.session as string;
+          const window = params.window as string;
+          if (!this.deps.workspaceService.findBySessionPrefix(session) && !session.startsWith('_standalone/')) {
+            return err('Unknown session');
+          }
+          await this.deps.tmux.selectWindow(session, window);
+          return ok(undefined);
+        }
+
+        case 'new-window': {
+          const session = params.session as string;
+          const name = params.name as string;
+          if (!this.deps.workspaceService.findBySessionPrefix(session) && !session.startsWith('_standalone/')) {
+            return err('Unknown session');
+          }
+          const cwd = (await this.deps.tmux.displayMessage(`${session}:0`, '#{pane_current_path}')).trim() || '/';
+          await this.deps.tmux.newWindow(session, name, cwd);
+          await this.deps.tmux.selectWindow(session, name);
+          return ok(undefined);
+        }
+
+        case 'kill-window': {
+          const session = params.session as string;
+          const windowIndex = params.windowIndex as number;
+          if (!this.deps.workspaceService.findBySessionPrefix(session) && !session.startsWith('_standalone/')) {
+            return err('Unknown session');
+          }
+          const windows = await this.deps.tmux.listWindows(session);
+          if (windows.length <= 1) {
+            await this.deps.tmux.killSession(session);
+          } else {
+            await this.deps.tmux.killWindow(session, windowIndex);
+          }
+          return ok(undefined);
+        }
+
+        case 'set-window-order': {
+          const session = params.session as string;
+          const names = params.names as string[];
+          if (typeof session !== 'string' || !session) return err('Invalid session');
+          if (!Array.isArray(names) || !names.every((n) => typeof n === 'string')) {
+            return err('Invalid names payload');
+          }
+          const ws = this.deps.workspaceService.findBySessionPrefix(session);
+          if (!ws) return err('Workspace not found for session');
+          await this.deps.workspaceService.setSessionWindowOrder(ws.id, session, names);
+          return ok(undefined);
+        }
+
+        case 'list-windows': {
+          const session = params.session as string;
+          if (!this.deps.workspaceService.findBySessionPrefix(session) && !session.startsWith('_standalone/')) {
+            return err('Unknown session');
+          }
+          const live = await this.deps.tmux.listWindows(session);
+          const ws = this.deps.workspaceService.findBySessionPrefix(session);
+          const persisted = ws
+            ? this.deps.workspaceService.getPersistedSessions(ws.id).find((s) => s.tmuxSession === session)
+            : undefined;
+          return ok(applyPersistedWindowOrder(live, persisted?.windows ?? []));
         }
 
         case 'sleep-session': {
