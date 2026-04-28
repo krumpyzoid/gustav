@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { WindowInfo } from '../../../../main/domain/types';
+import type { SessionTransport } from '../../../lib/transport/session-transport';
 
 // ── Mocks ─────────────────────────────────────────────────────────
 
@@ -34,37 +35,90 @@ vi.mock('../../../hooks/use-terminal', () => ({
   focusTerminal: () => focusTerminal(),
 }));
 
+// LocalTransport is constructed inside the component when closing the last
+// remote tab. The test replaces it with a fake so we can observe the swap
+// without pulling in the real implementation's `window.api` dependencies.
+const localTransportInstances: FakeTransport[] = [];
+vi.mock('../../../lib/transport/local-transport', () => ({
+  LocalTransport: class {
+    kind = 'local' as const;
+    sendPtyInput = vi.fn();
+    sendPtyResize = vi.fn();
+    onPtyData = vi.fn(() => () => {});
+    getState = vi.fn();
+    onStateUpdate = vi.fn(() => () => {});
+    switchSession = vi.fn();
+    sleepSession = vi.fn();
+    wakeSession = vi.fn();
+    destroySession = vi.fn();
+    selectWindow = vi.fn();
+    newWindow = vi.fn();
+    killWindow = vi.fn();
+    setWindowOrder = vi.fn();
+    detach = vi.fn();
+    constructor() { localTransportInstances.push(this as unknown as FakeTransport); }
+  },
+}));
+
+// Reusable fake transport — exposed via the store so the component dispatches
+// through it instead of `window.api`.
+type FakeTransport = {
+  kind: 'local' | 'remote';
+  sendPtyInput: ReturnType<typeof vi.fn>;
+  sendPtyResize: ReturnType<typeof vi.fn>;
+  onPtyData: ReturnType<typeof vi.fn>;
+  getState: ReturnType<typeof vi.fn>;
+  onStateUpdate: ReturnType<typeof vi.fn>;
+  switchSession: ReturnType<typeof vi.fn>;
+  sleepSession: ReturnType<typeof vi.fn>;
+  wakeSession: ReturnType<typeof vi.fn>;
+  destroySession: ReturnType<typeof vi.fn>;
+  selectWindow: ReturnType<typeof vi.fn>;
+  newWindow: ReturnType<typeof vi.fn>;
+  killWindow: ReturnType<typeof vi.fn>;
+  setWindowOrder: ReturnType<typeof vi.fn>;
+  detach: ReturnType<typeof vi.fn>;
+};
+
+function makeFakeTransport(kind: 'local' | 'remote'): FakeTransport {
+  return {
+    kind,
+    sendPtyInput: vi.fn(),
+    sendPtyResize: vi.fn(),
+    onPtyData: vi.fn(() => () => {}),
+    getState: vi.fn(),
+    onStateUpdate: vi.fn(() => () => {}),
+    switchSession: vi.fn().mockResolvedValue({ success: true, data: [] }),
+    sleepSession: vi.fn().mockResolvedValue({ success: true, data: undefined }),
+    wakeSession: vi.fn().mockResolvedValue({ success: true, data: [] }),
+    destroySession: vi.fn().mockResolvedValue({ success: true, data: undefined }),
+    selectWindow: vi.fn().mockResolvedValue({ success: true, data: undefined }),
+    newWindow: vi.fn().mockResolvedValue({ success: true, data: undefined }),
+    killWindow: vi.fn().mockResolvedValue({ success: true, data: undefined }),
+    setWindowOrder: vi.fn().mockResolvedValue({ success: true, data: undefined }),
+    detach: vi.fn(),
+  };
+}
+
 let storeState: {
   windows: WindowInfo[];
   activeSession: string | null;
   remoteActiveSession: string | null;
-  isRemoteSession: boolean;
-  remotePtyChannelId: number | null;
+  activeTransport: FakeTransport;
   setWindows: (w: WindowInfo[]) => void;
   setActiveSession: (s: string | null) => void;
   setRemoteActiveSession: (s: string | null) => void;
-  setIsRemoteSession: (b: boolean) => void;
-  setRemotePtyChannelId: (id: number | null) => void;
+  setActiveTransport: (t: SessionTransport) => void;
 };
 
 vi.mock('../../../hooks/use-app-state', () => ({
   useAppStore: () => storeState,
 }));
 
-const api = {
-  selectWindow: vi.fn().mockResolvedValue({ success: true }),
-  newWindow: vi.fn().mockResolvedValue({ success: true }),
-  killWindow: vi.fn().mockResolvedValue({ success: true }),
-  sleepSession: vi.fn().mockResolvedValue({ success: true }),
-  setWindowOrder: vi.fn().mockResolvedValue({ success: true }),
-  remoteSessionCommand: vi.fn().mockResolvedValue({ success: true }),
-};
 beforeEach(() => {
   for (const k of Object.keys(sortableProps)) delete sortableProps[k];
   focusTerminal.mockReset();
-  for (const fn of Object.values(api)) fn.mockClear();
-  // @ts-expect-error — define a partial window.api for tests
-  globalThis.window.api = api;
+  localTransportInstances.length = 0;
   storeState = {
     windows: [
       { index: 0, name: 'Editor', active: false },
@@ -73,15 +127,13 @@ beforeEach(() => {
     ],
     activeSession: 'Dev/_ws',
     remoteActiveSession: null,
-    isRemoteSession: false,
-    remotePtyChannelId: null,
+    activeTransport: makeFakeTransport('local'),
     setWindows: vi.fn((w) => {
       storeState.windows = w;
     }),
     setActiveSession: vi.fn(),
     setRemoteActiveSession: vi.fn(),
-    setIsRemoteSession: vi.fn(),
-    setRemotePtyChannelId: vi.fn(),
+    setActiveTransport: vi.fn(),
   };
 });
 
@@ -111,7 +163,7 @@ describe('TabBar', () => {
     expect(focusTerminal).toHaveBeenCalledTimes(3);
   });
 
-  it('reorders windows and persists via setWindowOrder when SortableItem fires onReorder', async () => {
+  it('reorders windows and persists via the active transport when SortableItem fires onReorder', async () => {
     render(<TabBar />);
 
     // Drag "Tests" above "Logs" → ['Editor','Tests','Logs']
@@ -126,7 +178,10 @@ describe('TabBar', () => {
 
     // Wait a tick for the await
     await Promise.resolve();
-    expect(api.setWindowOrder).toHaveBeenCalledWith('Dev/_ws', ['Editor', 'Tests', 'Logs']);
+    expect(storeState.activeTransport.setWindowOrder).toHaveBeenCalledWith(
+      'Dev/_ws',
+      ['Editor', 'Tests', 'Logs'],
+    );
   });
 
   it('reorders below the target when edge is "bottom"', () => {
@@ -139,13 +194,13 @@ describe('TabBar', () => {
     expect(next.map((w) => w.name)).toEqual(['Logs', 'Tests', 'Editor']);
   });
 
-  it('clicking a tab still calls selectWindow (no reorder)', async () => {
+  it('clicking a tab calls the active transport selectWindow', async () => {
     render(<TabBar />);
 
     await userEvent.click(screen.getByRole('button', { name: /editor/i }));
 
-    expect(api.selectWindow).toHaveBeenCalledWith('Dev/_ws', 'Editor');
-    expect(api.setWindowOrder).not.toHaveBeenCalled();
+    expect(storeState.activeTransport.selectWindow).toHaveBeenCalledWith('Dev/_ws', 'Editor');
+    expect(storeState.activeTransport.setWindowOrder).not.toHaveBeenCalled();
   });
 
   it('clicking a tab refocuses the terminal after selectWindow resolves', async () => {
@@ -164,7 +219,7 @@ describe('TabBar', () => {
     const input = screen.getByPlaceholderText(/tab name/i) as HTMLInputElement;
     await userEvent.type(input, 'Notes{Enter}');
 
-    expect(api.newWindow).toHaveBeenCalledWith('Dev/_ws', 'Notes');
+    expect(storeState.activeTransport.newWindow).toHaveBeenCalledWith('Dev/_ws', 'Notes');
     expect(focusTerminal).toHaveBeenCalledOnce();
   });
 
@@ -175,19 +230,18 @@ describe('TabBar', () => {
     const input = screen.getByPlaceholderText(/tab name/i) as HTMLInputElement;
     await userEvent.type(input, '   {Enter}');
 
-    expect(api.newWindow).not.toHaveBeenCalled();
+    expect(storeState.activeTransport.newWindow).not.toHaveBeenCalled();
     expect(focusTerminal).not.toHaveBeenCalled();
   });
 });
 
 describe('TabBar — remote session routing', () => {
   beforeEach(() => {
-    // Switch the store into "remote mode": no local active session,
-    // remote session and PTY channel set instead.
+    // Switch the store into "remote mode": no local active session, a
+    // remote session set, and a remote-kind active transport.
     storeState.activeSession = null;
     storeState.remoteActiveSession = 'Dev/_ws';
-    storeState.isRemoteSession = true;
-    storeState.remotePtyChannelId = 7;
+    storeState.activeTransport = makeFakeTransport('remote');
   });
 
   it('still renders one tab per window when in remote mode', () => {
@@ -197,46 +251,37 @@ describe('TabBar — remote session routing', () => {
     expect(screen.getByRole('button', { name: /tests/i })).toBeInTheDocument();
   });
 
-  it('clicking a tab dispatches select-window remotely instead of local selectWindow', async () => {
+  it('clicking a tab dispatches selectWindow on the remote transport', async () => {
     render(<TabBar />);
 
     await userEvent.click(screen.getByRole('button', { name: /editor/i }));
 
-    expect(api.remoteSessionCommand).toHaveBeenCalledWith(
-      'select-window',
-      { session: 'Dev/_ws', window: 'Editor' },
-    );
-    expect(api.selectWindow).not.toHaveBeenCalled();
+    expect(storeState.activeTransport.selectWindow).toHaveBeenCalledWith('Dev/_ws', 'Editor');
   });
 
-  it('adding a new tab dispatches new-window remotely instead of local newWindow', async () => {
+  it('adding a new tab dispatches newWindow on the remote transport', async () => {
     render(<TabBar />);
 
     await userEvent.click(screen.getByRole('button', { name: '+' }));
     const input = screen.getByPlaceholderText(/tab name/i) as HTMLInputElement;
     await userEvent.type(input, 'Notes{Enter}');
 
-    expect(api.remoteSessionCommand).toHaveBeenCalledWith(
-      'new-window',
-      { session: 'Dev/_ws', name: 'Notes' },
-    );
-    expect(api.newWindow).not.toHaveBeenCalled();
+    expect(storeState.activeTransport.newWindow).toHaveBeenCalledWith('Dev/_ws', 'Notes');
   });
 
-  it('reordering dispatches set-window-order remotely instead of local setWindowOrder', async () => {
+  it('reordering dispatches setWindowOrder on the remote transport', async () => {
     render(<TabBar />);
 
     sortableProps['Tests'].onReorder('Tests', 'Logs', 'top');
     await Promise.resolve();
 
-    expect(api.remoteSessionCommand).toHaveBeenCalledWith(
-      'set-window-order',
-      { session: 'Dev/_ws', names: ['Editor', 'Tests', 'Logs'] },
+    expect(storeState.activeTransport.setWindowOrder).toHaveBeenCalledWith(
+      'Dev/_ws',
+      ['Editor', 'Tests', 'Logs'],
     );
-    expect(api.setWindowOrder).not.toHaveBeenCalled();
   });
 
-  it('closing a non-last tab dispatches kill-window remotely instead of local killWindow', async () => {
+  it('closing a non-last tab dispatches killWindow on the remote transport', async () => {
     render(<TabBar />);
 
     // Hover-only "×" — find the close span inside the Editor tab and click it.
@@ -244,11 +289,7 @@ describe('TabBar — remote session routing', () => {
     const closeBtn = editorBtn.querySelector('span') as HTMLElement;
     await userEvent.click(closeBtn);
 
-    expect(api.remoteSessionCommand).toHaveBeenCalledWith(
-      'kill-window',
-      { session: 'Dev/_ws', windowIndex: 0 },
-    );
-    expect(api.killWindow).not.toHaveBeenCalled();
+    expect(storeState.activeTransport.killWindow).toHaveBeenCalledWith('Dev/_ws', 0);
   });
 
   it('uses the remote session name in the SortableItem scope', () => {
@@ -256,7 +297,7 @@ describe('TabBar — remote session routing', () => {
     expect(sortableProps['Editor'].scope).toBe('window-tabs:Dev/_ws');
   });
 
-  it('closing the last tab dispatches sleep-session remotely, detaches the PTY, and clears remote markers', async () => {
+  it('closing the last tab sleeps via the remote transport, swaps in a local transport, and clears the remote session', async () => {
     storeState.windows = [{ index: 0, name: 'Editor', active: true }];
 
     render(<TabBar />);
@@ -264,17 +305,12 @@ describe('TabBar — remote session routing', () => {
     const closeBtn = editorBtn.querySelector('span') as HTMLElement;
     await userEvent.click(closeBtn);
 
-    expect(api.remoteSessionCommand).toHaveBeenCalledWith(
-      'sleep-session',
-      { session: 'Dev/_ws' },
-    );
-    expect(api.remoteSessionCommand).toHaveBeenCalledWith(
-      'detach-pty',
-      { channelId: 7 },
-    );
-    expect(api.sleepSession).not.toHaveBeenCalled();
+    expect(storeState.activeTransport.sleepSession).toHaveBeenCalledWith('Dev/_ws');
+    expect(storeState.setActiveSession).toHaveBeenCalledWith(null);
     expect(storeState.setRemoteActiveSession).toHaveBeenCalledWith(null);
-    expect(storeState.setIsRemoteSession).toHaveBeenCalledWith(false);
-    expect(storeState.setRemotePtyChannelId).toHaveBeenCalledWith(null);
+
+    // A fresh LocalTransport replaces the remote one — the store sees the swap.
+    expect(localTransportInstances.length).toBe(1);
+    expect(storeState.setActiveTransport).toHaveBeenCalledWith(localTransportInstances[0]);
   });
 });

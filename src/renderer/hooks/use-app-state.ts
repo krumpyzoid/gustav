@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { useEffect } from 'react';
 import type { WorkspaceAppState, WorkspaceState, WindowInfo } from '../../main/domain/types';
 import { groupByWorkspace } from '../lib/group-by-workspace';
+import { LocalTransport } from '../lib/transport/local-transport';
+import type { SessionTransport } from '../lib/transport/session-transport';
 
 const emptyWorkspace: WorkspaceState = {
   workspace: null,
@@ -23,13 +25,19 @@ interface AppStore {
   workspaces: WorkspaceState[];
   activeSession: string | null;
   windows: WindowInfo[];
-  // Remote state
+  // Remote state (the side panel renders local + remote in parallel,
+  // independently of which transport is currently active for sessions).
   remoteState: WorkspaceAppState | null;
   remoteActiveSession: string | null;
   remoteConnectionStatus: RemoteConnectionStatus;
   forwardedPorts: ForwardedPort[];
-  isRemoteSession: boolean;
-  remotePtyChannelId: number | null;
+  /**
+   * The transport currently driving session I/O (PTY, lifecycle commands,
+   * window operations). Always set; defaults to a `LocalTransport`.
+   * Components and hooks dispatch through this — they no longer branch on
+   * an `isRemoteSession` flag.
+   */
+  activeTransport: SessionTransport;
   setFromState: (state: WorkspaceAppState) => void;
   setActiveSession: (session: string | null) => void;
   setWindows: (windows: WindowInfo[]) => void;
@@ -37,11 +45,14 @@ interface AppStore {
   setRemoteActiveSession: (session: string | null) => void;
   setRemoteConnectionStatus: (status: RemoteConnectionStatus) => void;
   setForwardedPorts: (ports: ForwardedPort[]) => void;
-  setIsRemoteSession: (isRemote: boolean) => void;
-  setRemotePtyChannelId: (id: number | null) => void;
+  /**
+   * Swap the active transport. The previous transport's `detach()` is
+   * called first so it can release listeners and tear down PTY channels.
+   */
+  setActiveTransport: (transport: SessionTransport) => void;
 }
 
-export const useAppStore = create<AppStore>((set) => ({
+export const useAppStore = create<AppStore>((set, get) => ({
   defaultWorkspace: emptyWorkspace,
   workspaces: [],
   activeSession: null,
@@ -50,8 +61,7 @@ export const useAppStore = create<AppStore>((set) => ({
   remoteActiveSession: null,
   remoteConnectionStatus: 'disconnected',
   forwardedPorts: [],
-  isRemoteSession: false,
-  remotePtyChannelId: null,
+  activeTransport: new LocalTransport(),
   setFromState: (state) => {
     const grouped = groupByWorkspace(state);
     set({
@@ -66,15 +76,20 @@ export const useAppStore = create<AppStore>((set) => ({
   setRemoteActiveSession: (remoteActiveSession) => set({ remoteActiveSession }),
   setRemoteConnectionStatus: (remoteConnectionStatus) => set({ remoteConnectionStatus }),
   setForwardedPorts: (forwardedPorts) => set({ forwardedPorts }),
-  setIsRemoteSession: (isRemoteSession) => set({ isRemoteSession }),
-  setRemotePtyChannelId: (remotePtyChannelId) => set({ remotePtyChannelId }),
+  setActiveTransport: (transport) => {
+    const previous = get().activeTransport;
+    if (previous !== transport) previous.detach();
+    set({ activeTransport: transport });
+  },
 }));
 
 export function useAppStateSubscription() {
   const { setFromState, setWindows } = useAppStore();
 
   useEffect(() => {
-    // Initial fetch
+    // Initial fetch — always local on startup. The renderer environment is
+    // local; remote workspaces arrive as state pushes once a connection is
+    // established.
     window.api.getState().then(async (state: WorkspaceAppState) => {
       setFromState(state);
 
@@ -89,19 +104,23 @@ export function useAppStateSubscription() {
       const first = allSessions.find((s) => s.tmuxSession);
       if (first?.tmuxSession) {
         useAppStore.getState().setActiveSession(first.tmuxSession);
-        const result = await window.api.switchSession(first.tmuxSession);
+        const result = await useAppStore.getState().activeTransport.switchSession(first.tmuxSession);
         if (result.success) {
           useAppStore.getState().setWindows(result.data);
         }
       }
     });
 
-    // Subscribe to updates
+    // Subscribe to local state updates. We do not route this through the
+    // active transport because the renderer always renders the local
+    // workspace tree, regardless of which transport is currently driving
+    // session I/O.
     const cleanupState = window.api.onStateUpdate((state: WorkspaceAppState) => {
       setFromState(state);
     });
 
-    // Subscribe to remote state updates
+    // Subscribe to remote state updates — feeds the RemoteSection sidebar
+    // panel; runs in parallel to the local subscription.
     const cleanupRemote = window.api.onRemoteStateUpdate?.((state: WorkspaceAppState) => {
       useAppStore.getState().setRemoteState(state);
     });

@@ -3,6 +3,7 @@ import { useAppStore } from '../../hooks/use-app-state';
 import { focusTerminal } from '../../hooks/use-terminal';
 import { SortableItem } from '../sidebar/SortableItem';
 import { reorderList } from '../../lib/reorder-list';
+import { LocalTransport } from '../../lib/transport/local-transport';
 import type { WindowInfo } from '../../../main/domain/types';
 
 interface WindowTabProps {
@@ -50,18 +51,18 @@ export function TabBar() {
     windows,
     activeSession,
     remoteActiveSession,
-    isRemoteSession,
-    remotePtyChannelId,
+    activeTransport,
     setWindows,
     setActiveSession,
     setRemoteActiveSession,
-    setIsRemoteSession,
-    setRemotePtyChannelId,
+    setActiveTransport,
   } = useAppStore();
   const [isAdding, setIsAdding] = useState(false);
 
-  // The session this tab bar operates on — local or remote.
-  const session = isRemoteSession ? remoteActiveSession : activeSession;
+  // The session this tab bar operates on — local or remote, whichever the
+  // active transport is currently bound to.
+  const isRemote = activeTransport.kind === 'remote';
+  const session = isRemote ? remoteActiveSession : activeSession;
 
   const handleReorder = useCallback(
     async (draggedName: string, targetName: string, edge: 'top' | 'bottom') => {
@@ -70,13 +71,9 @@ export function TabBar() {
       const next = reorderList(names, draggedName, targetName, edge);
       const byName = new Map(windows.map((w) => [w.name, w]));
       setWindows(next.map((name) => byName.get(name)!).filter(Boolean));
-      if (isRemoteSession) {
-        await window.api.remoteSessionCommand('set-window-order', { session, names: next });
-      } else {
-        await window.api.setWindowOrder(session, next);
-      }
+      await activeTransport.setWindowOrder(session, next);
     },
-    [session, isRemoteSession, windows, setWindows],
+    [session, activeTransport, windows, setWindows],
   );
 
   if (windows.length === 0) return null;
@@ -84,11 +81,7 @@ export function TabBar() {
   async function handleClick(windowName: string) {
     if (!session) return;
     setWindows(windows.map((w) => ({ ...w, active: w.name === windowName })));
-    if (isRemoteSession) {
-      await window.api.remoteSessionCommand('select-window', { session, window: windowName });
-    } else {
-      await window.api.selectWindow(session, windowName);
-    }
+    await activeTransport.selectWindow(session, windowName);
     // The button briefly steals focus on mousedown — restore it to the terminal
     // so the user can keep typing. (This used to be done by preventDefault on
     // mousedown, but that path blocks pragmatic-drag-and-drop's drag-start.)
@@ -104,11 +97,7 @@ export function TabBar() {
       ...windows.map((w) => ({ ...w, active: false })),
       { index: nextIndex, name: trimmed, active: true },
     ]);
-    if (isRemoteSession) {
-      await window.api.remoteSessionCommand('new-window', { session, name: trimmed });
-    } else {
-      await window.api.newWindow(session, trimmed);
-    }
+    await activeTransport.newWindow(session, trimmed);
     focusTerminal();
   }
 
@@ -116,17 +105,16 @@ export function TabBar() {
     e.stopPropagation();
     if (!session) return;
     if (windows.length <= 1) {
+      // Closing the last window puts the session to sleep. For remote, the
+      // transport's detach() handles the PTY teardown; we then swap back to
+      // a local transport so the renderer's session surface is empty.
       setActiveSession(null);
-      if (isRemoteSession) {
-        if (remotePtyChannelId !== null) {
-          await window.api.remoteSessionCommand('detach-pty', { channelId: remotePtyChannelId });
-        }
+      if (isRemote) {
         setRemoteActiveSession(null);
-        setIsRemoteSession(false);
-        setRemotePtyChannelId(null);
-        await window.api.remoteSessionCommand('sleep-session', { session });
-      } else {
-        await window.api.sleepSession(session);
+      }
+      await activeTransport.sleepSession(session);
+      if (isRemote) {
+        setActiveTransport(new LocalTransport());
       }
     } else {
       const remaining = windows.filter((w) => w.index !== windowIndex);
@@ -134,11 +122,7 @@ export function TabBar() {
         remaining[0].active = true;
       }
       setWindows(remaining);
-      if (isRemoteSession) {
-        await window.api.remoteSessionCommand('kill-window', { session, windowIndex });
-      } else {
-        await window.api.killWindow(session, windowIndex);
-      }
+      await activeTransport.killWindow(session, windowIndex);
     }
   }
 

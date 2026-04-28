@@ -5,6 +5,7 @@ import '@xterm/xterm/css/xterm.css';
 import { xtermTheme } from './use-theme';
 import { navigateSession, navigateWindow } from './use-keyboard-shortcuts';
 import { useAppStore } from './use-app-state';
+import type { SessionTransport } from '../lib/transport/session-transport';
 
 let globalTermRef: Terminal | null = null;
 
@@ -15,7 +16,17 @@ export function focusTerminal() {
 export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>) {
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  // Subscribed via the store so this hook re-runs only its
+  // PTY-data-subscription effect when the active transport flips —
+  // the terminal instance itself stays alive across swaps.
+  const activeTransport = useAppStore((s) => s.activeTransport);
+  // Buffer incoming PTY data until the first fit completes. Without this the
+  // terminal renders briefly at xterm's default 80x24, then reflows when the
+  // ResizeObserver fires — visible as a flicker on session attach.
+  const firstFitDoneRef = useRef(false);
+  const earlyBufferRef = useRef<string[]>([]);
 
+  // ── Terminal lifecycle (mounted once) ───────────────────────────
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -33,28 +44,18 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     fitRef.current = fitAddon;
     globalTermRef = term;
 
-    // Buffer incoming PTY data until the first fit completes. Without this the
-    // terminal renders briefly at xterm's default 80x24, then reflows when the
-    // ResizeObserver fires — visible as a flicker on session attach.
-    let firstFitDone = false;
-    const earlyBuffer: string[] = [];
-
     function fit() {
       if (!containerRef.current) return;
       // The container may not have laid out yet on first mount. Without dimensions
       // FitAddon would compute 0 cols/rows.
       if (containerRef.current.clientWidth === 0 || containerRef.current.clientHeight === 0) return;
       fitAddon.fit();
-      window.api.sendPtyResize(term.cols, term.rows);
-      const store = useAppStore.getState();
-      if (store.isRemoteSession && store.remotePtyChannelId !== null) {
-        window.api.sendRemotePtyResize(store.remotePtyChannelId, term.cols, term.rows);
-      }
-      if (!firstFitDone) {
-        firstFitDone = true;
-        if (earlyBuffer.length > 0) {
-          term.write(earlyBuffer.join(''));
-          earlyBuffer.length = 0;
+      currentTransport().sendPtyResize(term.cols, term.rows);
+      if (!firstFitDoneRef.current) {
+        firstFitDoneRef.current = true;
+        if (earlyBufferRef.current.length > 0) {
+          term.write(earlyBufferRef.current.join(''));
+          earlyBufferRef.current.length = 0;
         }
       }
     }
@@ -62,33 +63,18 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     // rAF instead of setTimeout(_, 100) — guarantees layout is computed before
     // the first fit, no arbitrary delay.
     let initialFitFrame = requestAnimationFrame(function tryFit() {
-      if (firstFitDone) return;
+      if (firstFitDoneRef.current) return;
       fit();
-      if (!firstFitDone) initialFitFrame = requestAnimationFrame(tryFit);
+      if (!firstFitDoneRef.current) initialFitFrame = requestAnimationFrame(tryFit);
     });
 
     const resizeObserver = new ResizeObserver(() => fit());
     resizeObserver.observe(containerRef.current);
 
-    // PTY data (local). Buffered until first fit so the terminal never paints at
-    // its default size before reflowing.
-    const cleanupPty = window.api.onPtyData((data) => {
-      if (useAppStore.getState().isRemoteSession) return;
-      if (firstFitDone) term.write(data);
-      else earlyBuffer.push(data);
-    });
-
-    // PTY data (remote) — main process already decoded the frame, sends plain string
-    const cleanupRemotePty = window.api.onRemotePtyData?.((data: string) => {
-      if (!useAppStore.getState().isRemoteSession || !data) return;
-      if (firstFitDone) term.write(data);
-      else earlyBuffer.push(data);
-    });
-
     // Custom key handler: Shift+Enter, Alt+Arrows, Ctrl+/-, Ctrl+0
     term.attachCustomKeyEventHandler((event) => {
       if (event.key === 'Enter' && event.shiftKey) {
-        if (event.type === 'keydown') window.api.sendPtyInput('\x1b[13;2u');
+        if (event.type === 'keydown') currentTransport().sendPtyInput('\x1b[13;2u');
         return false;
       }
       // Alt+Arrow: global navigation shortcuts
@@ -116,14 +102,10 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       return true;
     });
 
-    // Input relay — route to local or remote PTY
+    // Input relay — route through the active transport regardless of where
+    // the session lives.
     term.onData((data) => {
-      const store = useAppStore.getState();
-      if (store.isRemoteSession && store.remotePtyChannelId !== null) {
-        window.api.sendRemotePtyInput(store.remotePtyChannelId, data);
-      } else {
-        window.api.sendPtyInput(data);
-      }
+      currentTransport().sendPtyInput(data);
     });
 
     // Trackpad/mouse wheel scrolling fix.
@@ -135,13 +117,9 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       const amount = Math.max(1, Math.min(5, Math.ceil(Math.abs(event.deltaY) / 25)));
       const button = event.deltaY < 0 ? 64 : 65; // SGR: 64=wheel up, 65=wheel down
       const seq = `\x1b[<${button};1;1M`;
-      const store = useAppStore.getState();
+      const transport = currentTransport();
       for (let i = 0; i < amount; i++) {
-        if (store.isRemoteSession && store.remotePtyChannelId !== null) {
-          window.api.sendRemotePtyInput(store.remotePtyChannelId, seq);
-        } else {
-          window.api.sendPtyInput(seq);
-        }
+        transport.sendPtyInput(seq);
       }
       return false;
     });
@@ -193,13 +171,39 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       globalTermRef = null;
       cancelAnimationFrame(initialFitFrame);
       document.removeEventListener('keydown', handleKeyDown);
-      cleanupPty();
-      cleanupRemotePty?.();
       cleanupTheme();
       resizeObserver.disconnect();
       term.dispose();
     };
   }, [containerRef]);
 
+  // ── PTY data subscription (re-runs on transport swap) ───────────
+  // Kept in a separate effect so the terminal instance survives transport
+  // flips. When the active transport changes, we just re-subscribe to its
+  // PTY data stream; the xterm.js viewport, scrollback, and font state
+  // stay intact.
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+
+    const cleanup = activeTransport.onPtyData((data) => {
+      if (!data) return;
+      if (firstFitDoneRef.current) term.write(data);
+      else earlyBufferRef.current.push(data);
+    });
+
+    return cleanup;
+  }, [activeTransport]);
+
   return { termRef, fitRef };
+}
+
+/**
+ * Always pull the *current* active transport from the store rather than
+ * closing over the one captured at effect-mount time. This keeps input
+ * handlers (`onData`, custom key/wheel) routing to whichever transport is
+ * active right now — no stale references after a swap.
+ */
+function currentTransport(): SessionTransport {
+  return useAppStore.getState().activeTransport;
 }

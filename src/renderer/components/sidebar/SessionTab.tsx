@@ -5,6 +5,8 @@ import type { WindowInfo } from '../../../main/domain/types';
 import { Button } from '../ui/button';
 import { Folder, GitBranch, Moon, Terminal, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { LocalTransport } from '../../lib/transport/local-transport';
+import { RemoteGustavTransport } from '../../lib/transport/remote-transport';
 
 function statusLabel(status: ClaudeStatus): string {
   if (status === 'action') return 'needs input';
@@ -56,7 +58,14 @@ interface Props {
 }
 
 export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onRequestRemove, isRemote }: Props) {
-  const { activeSession, remoteActiveSession, setActiveSession, setWindows, setRemoteActiveSession, setIsRemoteSession, setRemotePtyChannelId } = useAppStore();
+  const {
+    activeSession,
+    remoteActiveSession,
+    setActiveSession,
+    setWindows,
+    setRemoteActiveSession,
+    setActiveTransport,
+  } = useAppStore();
   const isSelected = isRemote
     ? tab.tmuxSession === remoteActiveSession
     : tab.tmuxSession === activeSession;
@@ -91,71 +100,63 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
       }
       if (result?.success && result.data) {
         setActiveSession(result.data);
-        const switchResult = await window.api.switchSession(result.data);
+        const localTransport = new LocalTransport();
+        setActiveTransport(localTransport);
+        const switchResult = await localTransport.switchSession(result.data);
         if (switchResult.success) setWindows(switchResult.data as WindowInfo[]);
         refreshState();
       }
       return;
     }
-    // Detach remote PTY if switching back to local
-    const prevRemoteChannel = useAppStore.getState().remotePtyChannelId;
-    if (prevRemoteChannel !== null) {
-      window.api.remoteSessionCommand('detach-pty', { channelId: prevRemoteChannel });
-    }
-    setIsRemoteSession(false);
+    // Switching back to a local session — install a fresh LocalTransport.
+    // The store's setActiveTransport calls detach() on the old transport,
+    // which tears down any remote PTY channel.
     setRemoteActiveSession(null);
-    setRemotePtyChannelId(null);
+    const localTransport = new LocalTransport();
+    setActiveTransport(localTransport);
     setActiveSession(tab.tmuxSession);
-    const result = await window.api.switchSession(tab.tmuxSession);
+    const result = await localTransport.switchSession(tab.tmuxSession);
     if (result.success) setWindows(result.data as WindowInfo[]);
   }
 
   async function handleRemoteClick() {
     if (isInactive) {
-      // Wake remote session
-      await window.api.remoteSessionCommand('wake-session', { session: tab.tmuxSession });
+      // Wake the remote session first via a transient transport — the
+      // persistent transport (below) attaches a PTY only after the
+      // session exists on the remote side.
+      await new RemoteGustavTransport().wakeSession(tab.tmuxSession);
     }
 
-    // Detach previous remote PTY if any
-    const prevChannel = useAppStore.getState().remotePtyChannelId;
-    if (prevChannel !== null) {
-      window.api.remoteSessionCommand('detach-pty', { channelId: prevChannel });
-    }
-
-    // Attach to remote PTY — waits for server response with channelId
-    const result = await window.api.remoteSessionCommand('attach-pty', { tmuxSession: tab.tmuxSession, cols: 80, rows: 24 });
-    if (result.success && result.data?.channelId) {
-      // Deselect local session, activate remote
+    // Install a fresh RemoteGustavTransport for ongoing PTY I/O. Any
+    // prior transport (remote or local) is detached by the store, which
+    // sends detach-pty for any outstanding remote channel.
+    const remoteTransport = new RemoteGustavTransport();
+    const result = await remoteTransport.switchSession(tab.tmuxSession);
+    if (result.success) {
       setActiveSession(null);
       setRemoteActiveSession(tab.tmuxSession);
-      setIsRemoteSession(true);
-      setRemotePtyChannelId(result.data.channelId as number);
-
-      // Fetch the remote session's window list so the tab bar can render it
-      const winResult = await window.api.remoteSessionCommand('list-windows', { session: tab.tmuxSession });
-      if (winResult.success && Array.isArray(winResult.data)) {
-        setWindows(winResult.data as WindowInfo[]);
-      }
+      setActiveTransport(remoteTransport);
+      setWindows(result.data);
     }
+  }
+
+  // For one-off lifecycle commands (sleep / destroy) the transport choice
+  // is determined by where the session lives, not by which transport is
+  // currently bound for PTY I/O. We construct a transient adapter so the
+  // call site stays uniform.
+  function transportForSession(): LocalTransport | RemoteGustavTransport {
+    return isRemote ? new RemoteGustavTransport() : new LocalTransport();
   }
 
   async function handleSleep(e: React.MouseEvent) {
     e.stopPropagation();
-    if (isRemote) {
-      await window.api.remoteSessionCommand('sleep-session', { session: tab.tmuxSession });
-    } else {
-      await window.api.sleepSession(tab.tmuxSession);
-    }
+    await transportForSession().sleepSession(tab.tmuxSession);
     refreshState();
   }
 
   async function handleDestroy(e: React.MouseEvent) {
     e.stopPropagation();
-    if (isRemote) {
-      await window.api.remoteSessionCommand('destroy-session', { session: tab.tmuxSession });
-    } else {
-      await window.api.destroySession(tab.tmuxSession);
-    }
+    await transportForSession().destroySession(tab.tmuxSession);
     refreshState();
   }
 
