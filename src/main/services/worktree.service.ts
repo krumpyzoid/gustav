@@ -198,12 +198,20 @@ export class WorktreeService {
   }
 
   /** Find the tmux session name for a worktree (if persisted) and clean up
-   *  both tmux and persisted state. No-op when nothing is tracked for the path. */
+   *  both tmux and persisted state. The persisted-state cleanup runs even
+   *  when killing the tmux session fails — a tmux session that was already
+   *  killed externally (or whose server died) shouldn't block removing the
+   *  sidebar entry, since the user explicitly asked us to delete it. */
   private async killSessionAndRemoveEntry(wtPath: string): Promise<void> {
     const sessionName = this.findPersistedSessionName(wtPath);
     if (!sessionName) return;
 
-    await this.session.kill(sessionName);
+    try {
+      await this.session.kill(sessionName);
+    } catch {
+      // Tmux session already gone or server unreachable — proceed to clean
+      // up the persisted entry regardless.
+    }
 
     const ws = this.workspaces.findBySessionPrefix(sessionName);
     if (ws) {

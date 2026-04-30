@@ -202,7 +202,7 @@ describe('WorktreeService.remove', () => {
   it('removes the sidebar entry even if killing the tmux session fails', async () => {
     const git = makeMockGit();
     const session = makeMockSession();
-    // session.kill throws (tmux session already dead)
+    // session.kill throws (e.g. tmux session was already dead externally).
     vi.mocked(session.kill).mockRejectedValue(new Error('session not found'));
     const workspaces = makeMockWorkspaces([
       {
@@ -217,8 +217,9 @@ describe('WorktreeService.remove', () => {
 
     const svc = new WorktreeService(git, makeMockFs(), makeMockShell(), makeMockRepoConfig(), session, workspaces);
 
-    // Should not throw even though session.kill rejects
-    await expect(svc.remove('/home/user/api', 'feat-auth', false)).rejects.toThrow();
+    // remove() resolves and the persisted entry is still cleaned up.
+    await expect(svc.remove('/home/user/api', 'feat-auth', false)).resolves.toBeUndefined();
+    expect(workspaces.removeSession).toHaveBeenCalledWith('ws1', 'Dev/api/feat-auth');
   });
 
   it('skips kill when no persisted session is tracked for the worktree', async () => {
