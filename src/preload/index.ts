@@ -1,4 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { createPtyDataFanout } from './pty-data-fanout';
+
+// One permanent IPC listener per high-traffic stream, fan-out to renderer
+// subscribers via an in-memory Set. Without this, a transport swap (close
+// remote tab, open another) tears down the IPC listener mid-stream and
+// any frame arriving in the gap is dropped — the cause of the lag and
+// "weird characters" described in #16.
+const remotePtyDataFanout = createPtyDataFanout<string>();
+ipcRenderer.on('remote-pty-data', (_e, data: string) => {
+  remotePtyDataFanout.dispatch(data);
+});
 
 contextBridge.exposeInMainWorld('api', {
   // Clipboard — main-process write bypasses macOS focus restrictions on
@@ -113,11 +124,9 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('remote-state-update', handler);
     return () => ipcRenderer.removeListener('remote-state-update', handler);
   },
-  onRemotePtyData: (cb: (data: any) => void) => {
-    const handler = (_e: Electron.IpcRendererEvent, data: any) => cb(data);
-    ipcRenderer.on('remote-pty-data', handler);
-    return () => ipcRenderer.removeListener('remote-pty-data', handler);
-  },
+  // The IPC listener is permanent (above); subscribe/unsubscribe is just
+  // an in-memory Set update. No data drops across transport swaps.
+  onRemotePtyData: (cb: (data: string) => void) => remotePtyDataFanout.subscribe(cb),
   onRemoteConnectionStatus: (cb: (status: string) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, status: string) => cb(status);
     ipcRenderer.on('remote-connection-status', handler);
