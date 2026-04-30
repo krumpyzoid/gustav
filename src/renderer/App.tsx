@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Sidebar } from './components/sidebar/Sidebar';
 import { SettingsSidebar } from './components/settings/SettingsSidebar';
 import { SettingsView } from './components/settings/SettingsView';
@@ -40,12 +40,7 @@ export function App() {
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
   const [editWorkspaceId, setEditWorkspaceId] = useState<string | null>(null);
   const [newSessionWorkspaceId, setNewSessionWorkspaceId] = useState<string | null>(null);
-  /** When the new-session dialog is opened against a remote workspace, the
-   * named workspace is not in the local store. Stash a synthetic workspace
-   * descriptor here so the dialog can render the create form for it. */
-  const [newSessionRemote, setNewSessionRemote] = useState<{ name: string; directory: string } | null>(null);
   const [newStandaloneOpen, setNewStandaloneOpen] = useState(false);
-  const [newStandaloneRemote, setNewStandaloneRemote] = useState(false);
   const [cleanOpen, setCleanOpen] = useState(false);
   const [pinReposWorkspaceId, setPinReposWorkspaceId] = useState<string | null>(null);
 
@@ -54,14 +49,24 @@ export function App() {
   const [newWorktreeRepo, setNewWorktreeRepo] = useState('');
   const [newWorktreeRoot, setNewWorktreeRoot] = useState('');
   const [newWorktreeWorkspaceName, setNewWorktreeWorkspaceName] = useState('');
-  const [newWorktreeRemote, setNewWorktreeRemote] = useState(false);
 
-  /** Stable remote transport instance for one-shot creation calls. The
-   * dialogs construct their own LocalTransport when no transport prop is
-   * given, so we only need a remote one when the user is creating remotely. */
-  const remoteTransport: SessionTransport | undefined = newSessionRemote || newStandaloneRemote || newWorktreeRemote
-    ? new RemoteGustavTransport()
-    : undefined;
+  /** Single discriminator for "the user is opening a remote-targeted dialog".
+   * Carries any data the dialog needs (e.g. the workspace descriptor for a
+   * remote workspace, since remote workspaces are not in the local store). */
+  type RemoteDialogTarget =
+    | { kind: 'session'; workspace: { name: string; directory: string } }
+    | { kind: 'standalone' }
+    | { kind: 'worktree' };
+  const [remoteTarget, setRemoteTarget] = useState<RemoteDialogTarget | null>(null);
+
+  /** Stable remote transport instance for one-shot creation calls.
+   * Memoised so React re-renders don't construct a new transport on every
+   * pass — important because the dialog wires `transport.getBranches` into
+   * a useEffect dep. */
+  const remoteTransport: SessionTransport | undefined = useMemo(
+    () => (remoteTarget ? new RemoteGustavTransport() : undefined),
+    [remoteTarget],
+  );
   const [removeTab, setRemoveTab] = useState<SessionTab | null>(null);
   const [removeRepoRoot, setRemoveRepoRoot] = useState<string | null>(null);
   const [connectRemoteOpen, setConnectRemoteOpen] = useState(false);
@@ -95,18 +100,22 @@ export function App() {
             onOpenSettings={() => setView('settings')}
             onConnectRemote={() => setConnectRemoteOpen(true)}
             onNewRemoteSession={(name, directory) => {
-              setNewSessionRemote({ name, directory });
+              setRemoteTarget({ kind: 'session', workspace: { name, directory } });
             }}
             onNewRemoteStandalone={() => {
-              setNewStandaloneRemote(true);
+              setRemoteTarget({ kind: 'standalone' });
               setNewStandaloneOpen(true);
             }}
             onAddRemoteWorktree={(repoName, repoRoot, workspaceName) => {
               setNewWorktreeRepo(repoName);
               setNewWorktreeRoot(repoRoot);
               setNewWorktreeWorkspaceName(workspaceName);
-              setNewWorktreeRemote(true);
+              setRemoteTarget({ kind: 'worktree' });
               setNewWorktreeOpen(true);
+            }}
+            onRemoveRemoteWorktree={(tab, repoRoot) => {
+              setRemoveTab(tab);
+              setRemoveRepoRoot(repoRoot);
             }}
           />
         ) : (
@@ -147,15 +156,18 @@ export function App() {
           a synthetic workspace descriptor (remote workspaces aren't in
           the local store) and a remote transport. */}
       <NewSessionDialog
-        open={newSessionRemote !== null}
-        onClose={() => setNewSessionRemote(null)}
-        workspace={newSessionRemote ?? undefined}
+        open={remoteTarget?.kind === 'session'}
+        onClose={() => setRemoteTarget(null)}
+        workspace={remoteTarget?.kind === 'session' ? remoteTarget.workspace : undefined}
         transport={remoteTransport}
       />
       <NewStandaloneDialog
         open={newStandaloneOpen}
-        onClose={() => { setNewStandaloneOpen(false); setNewStandaloneRemote(false); }}
-        transport={newStandaloneRemote ? remoteTransport : undefined}
+        onClose={() => {
+          setNewStandaloneOpen(false);
+          if (remoteTarget?.kind === 'standalone') setRemoteTarget(null);
+        }}
+        transport={remoteTarget?.kind === 'standalone' ? remoteTransport : undefined}
       />
       <PinReposDialog
         open={pinReposWorkspaceId !== null}
@@ -164,11 +176,14 @@ export function App() {
       />
       <NewWorktreeDialog
         open={newWorktreeOpen}
-        onClose={() => { setNewWorktreeOpen(false); setNewWorktreeRemote(false); }}
+        onClose={() => {
+          setNewWorktreeOpen(false);
+          if (remoteTarget?.kind === 'worktree') setRemoteTarget(null);
+        }}
         repo={newWorktreeRepo}
         repoRoot={newWorktreeRoot}
         workspaceName={newWorktreeWorkspaceName || undefined}
-        transport={newWorktreeRemote ? remoteTransport : undefined}
+        transport={remoteTarget?.kind === 'worktree' ? remoteTransport : undefined}
       />
       <RemoveWorktreeDialog
         open={removeTab !== null}

@@ -208,6 +208,23 @@ describe('PtyManager', () => {
       expect(dataListeners.size).toBe(0);
     });
 
+    it('attachSupervisor returns the existing channel id when called twice for the same session', () => {
+      const { supervisor, dataListeners } = makeSupervisor();
+      const m = new PtyManager((f) => emittedFrames.push(f), supervisor as any);
+
+      const id1 = m.attachSupervisor('ws/repo/_dir', 80, 24);
+      const id2 = m.attachSupervisor('ws/repo/_dir', 80, 24);
+
+      expect(id2).toBe(id1);
+      // Only ONE listener registered — duplicate-attach guard prevents leak.
+      expect(dataListeners.size).toBe(1);
+    });
+
+    it('attachSupervisor without a configured supervisor throws', () => {
+      const m = new PtyManager((f) => emittedFrames.push(f));
+      expect(() => m.attachSupervisor('ws/repo/_dir', 80, 24)).toThrow(/supervisor not configured/);
+    });
+
     it('destroyAll detaches both tmux and supervisor channels', () => {
       const { supervisor } = makeSupervisor();
       const m = new PtyManager((f) => emittedFrames.push(f), supervisor as any);

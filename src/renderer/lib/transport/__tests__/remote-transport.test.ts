@@ -189,6 +189,23 @@ describe('RemoteGustavTransport', () => {
 
   // ── State subscription ─────────────────────────────────────────
 
+  it('getState round-trips through remoteSessionCommand("get-state")', async () => {
+    const fakeState = { defaultWorkspace: { workspace: null, sessions: [], repoGroups: [], status: 'none' }, workspaces: [], windows: [] };
+    api.remoteSessionCommand.mockResolvedValue({ success: true, data: fakeState });
+
+    const t = new RemoteGustavTransport();
+    const out = await t.getState();
+
+    expect(api.remoteSessionCommand).toHaveBeenCalledWith('get-state', {});
+    expect(out).toEqual(fakeState);
+  });
+
+  it('getState rejects when the remote command fails', async () => {
+    api.remoteSessionCommand.mockResolvedValue({ success: false, error: 'not connected' });
+    const t = new RemoteGustavTransport();
+    await expect(t.getState()).rejects.toThrow(/not connected/);
+  });
+
   it('onStateUpdate wraps window.api.onRemoteStateUpdate', () => {
     const cleanup = vi.fn();
     api.onRemoteStateUpdate.mockReturnValue(cleanup);

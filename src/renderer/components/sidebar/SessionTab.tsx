@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import type { SessionTab as SessionTabType, ClaudeStatus } from '../../../main/domain/types';
 import { StatusIcon } from './StatusIcon';
 import { useAppStore, refreshState } from '../../hooks/use-app-state';
@@ -72,7 +73,23 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
   const isInactive = !tab.active;
   const label = statusLabel(tab.status);
 
+  // Re-entry guard for click handlers: a rapid double-click could otherwise
+  // open two PTY channels on the server (the first never gets detached
+  // because the second `setActiveTransport` overwrites it). Drop concurrent
+  // invocations until the in-flight one settles.
+  const inFlightRef = useRef(false);
+
   async function handleClick() {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    try {
+      await handleClickInner();
+    } finally {
+      inFlightRef.current = false;
+    }
+  }
+
+  async function handleClickInner() {
     if (isRemote) {
       await handleRemoteClick();
       return;

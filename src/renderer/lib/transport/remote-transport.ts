@@ -43,16 +43,16 @@ export class RemoteGustavTransport implements SessionTransport {
   // ── State subscription ─────────────────────────────────────────
 
   /**
-   * The remote IPC's `get-state` is fire-and-forget today, so this method
-   * has no useful synchronous return path. The renderer's
-   * `useAppStateSubscription` does not call this — remote state arrives
-   * exclusively via `onStateUpdate`. We surface a clear error rather than
-   * silently returning a fake value.
+   * Round-trips through `remoteSessionCommand('get-state', {})` — the
+   * dispatcher already supports this command and returns the remote's
+   * `WorkspaceAppState`. The renderer's `useAppStateSubscription` continues
+   * to use `onStateUpdate` for live pushes; this method exists for callers
+   * that need a one-shot snapshot.
    */
-  getState(): Promise<WorkspaceAppState> {
-    return Promise.reject(new Error(
-      'RemoteGustavTransport.getState is not supported by the current remote IPC; subscribe via onStateUpdate instead',
-    ));
+  async getState(): Promise<WorkspaceAppState> {
+    const r = await window.api.remoteSessionCommand('get-state', {});
+    if (!r.success) throw new Error(r.error || 'get-state failed');
+    return r.data as WorkspaceAppState;
   }
 
   onStateUpdate(listener: (state: WorkspaceAppState) => void): () => void {

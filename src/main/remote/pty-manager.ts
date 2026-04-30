@@ -57,10 +57,19 @@ export class PtyManager {
 
   /** Attach to a native-supervisor session. Streams data from the active
    * window over a channel and routes input back via the supervisor's
-   * latest-wins client model. */
+   * latest-wins client model. Idempotent per `sessionId`: if the same
+   * session is already attached, returns the existing channel id rather
+   * than registering a second listener (which would emit duplicate frames). */
   attachSupervisor(sessionId: string, cols: number, rows: number): number {
     if (!this.supervisor) {
       throw new Error('PtyManager: supervisor not configured for native attach');
+    }
+    // Reuse an existing native channel for this session to prevent duplicate
+    // onWindowData listeners (which would emit duplicate frames to the client).
+    for (const [chId, entry] of this.entries) {
+      if (entry.kind === 'native' && entry.sessionId === sessionId) {
+        return chId;
+      }
     }
     const channelId = this.nextChannelId++;
     const clientId = `remote-pty-${channelId}`;
