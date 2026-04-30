@@ -344,13 +344,19 @@ Phase 2 transport unification has shipped:
 - **Shared helpers** (`src/main/services/workspace.service.ts:resolveBackend`, `src/main/supervisor/supervisor-utils.ts`, `src/main/domain/result-helpers.ts`, `src/shared/remote-commands.ts`) — extracted so `handlers.ts` and `command-dispatcher.ts` cannot drift on backend dispatch, window-info synthesis, result construction, or wire-format command names.
 - **Security-hardened dispatcher** — every user-controlled value (branch, label, workspaceName, repoRoot, dir) is allow-list-validated at the boundary before reaching adapters. `GitAdapter` uses argv-based `execFile` exclusively (never `shell.exec`) so branch names cannot become shell metacharacters. Worktree paths are realpath-asserted to live inside `.worktrees`. Errors returned to the client are sanitised.
 
-### Phase 2a vs 2b staging note
+### Phase 2b — SessionLifecycleService extraction (2026-04-30)
 
-The **handlers.ts ↔ command-dispatcher.ts** files still carry parallel switch logic for backend dispatch. Phase 2a (this branch) extracts the load-bearing helpers; Phase 2b (a follow-up) is the natural home for collapsing the residual switch duplication into a `SessionLifecycleService` that both adapters call. Deferred to keep the transport unification PR review-able.
+Phase 2b is now in. The residual switch duplication between `handlers.ts` and `command-dispatcher.ts` has been collapsed into `src/main/services/session-lifecycle.service.ts`:
 
-### Deferred to Phase 2b / follow-up
+- The service owns: backend dispatch (tmux vs native supervisor), persisted-state mutations, the `findClaudeSessionId` resume contract, the duplicate-name guard, and worktree creation.
+- The remote `CommandDispatcher` is now ~240 lines (was ~400) and contains only validation, error sanitisation, and routing — every session/window operation delegates.
+- The local IPC handlers in `handlers.ts` retain the local-only post-effects (`switchAfterPty`, `setActiveSession`, `snapshotAndPersist`, `ensurePty`) but delegate the core work to the same service.
+- `DispatcherDeps` shrank from 12 fields to 6 (`stateService`, `workspaceService`, `sessionLifecycle`, `git`, `tmux`, `isAllowedDirectory`).
 
-- `SessionLifecycleService` — collapse the wake/sleep/destroy/window-op switch duplication between `handlers.ts` and `command-dispatcher.ts` into one service so both adapters become thin envelopes.
+The two adapters can no longer drift on session-lifecycle behaviour because there is one implementation. New session features ship by adding a method to the service; both adapters get them in lockstep.
+
+### Deferred / follow-up
+
 - Per-client rate limiting on `discover-repos` and `get-branches` in the remote dispatcher.
 - Async iteration in `discoverGitRepos` to keep deep workspace trees from blocking the event loop.
 - Replay-on-attach for native remote sessions (send `supervisor.getReplay(...)` once on `attachSupervisor`).

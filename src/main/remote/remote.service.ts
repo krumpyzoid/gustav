@@ -16,12 +16,8 @@ import type { ShellPort } from '../ports/shell.port';
 
 export type RemoteServiceDeps = {
   stateService: StateService;
-  sessionService: SessionService;
   workspaceService: WorkspaceService;
-  worktreeService: import('../services/worktree.service').WorktreeService;
-  repoConfigService: import('../services/repo-config.service').RepoConfigService;
-  preferenceService: import('../services/preference.service').PreferenceService;
-  sessionLauncher: import('../services/session-launcher.service').SessionLauncherService;
+  sessionLifecycle: import('../services/session-lifecycle.service').SessionLifecycleService;
   supervisor: import('../supervisor/supervisor.port').SessionSupervisorPort;
   git: GitPort;
   tmux: TmuxPort;
@@ -53,13 +49,8 @@ export class RemoteService {
   constructor(private deps: RemoteServiceDeps) {
     this.dispatcher = new CommandDispatcher({
       stateService: deps.stateService,
-      sessionService: deps.sessionService,
       workspaceService: deps.workspaceService,
-      worktreeService: deps.worktreeService,
-      repoConfigService: deps.repoConfigService,
-      preferenceService: deps.preferenceService,
-      sessionLauncher: deps.sessionLauncher,
-      supervisor: deps.supervisor,
+      sessionLifecycle: deps.sessionLifecycle,
       git: deps.git,
       tmux: deps.tmux,
       isAllowedDirectory: (dir) => this.isAllowedDirectory(dir),

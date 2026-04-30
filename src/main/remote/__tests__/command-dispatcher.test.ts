@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { CommandDispatcher } from '../command-dispatcher';
+import { CommandDispatcher, type DispatcherDeps } from '../command-dispatcher';
+import { SessionLifecycleService } from '../../services/session-lifecycle.service';
 import type { StateService } from '../../services/state.service';
 import type { SessionService } from '../../services/session.service';
 import type { WorkspaceService } from '../../services/workspace.service';
@@ -86,13 +87,55 @@ function makeMockDeps() {
   // Default to permissive — individual tests opt into restrictive checks.
   const isAllowedDirectory = () => true;
 
-  return { stateService, sessionService, workspaceService, tmux, repoConfigService, preferenceService, git, supervisor, sessionLauncher, worktreeService, isAllowedDirectory };
+  // The dispatcher delegates session/window operations to a real
+  // SessionLifecycleService. Wiring it here lets the tests exercise the
+  // full validate→delegate→service path with the same mocks.
+  const sessionLifecycle = new SessionLifecycleService({
+    workspaceService,
+    sessionService,
+    sessionLauncher,
+    worktreeService,
+    repoConfigService,
+    preferenceService,
+    supervisor,
+    git,
+    tmux,
+  });
+
+  return {
+    stateService,
+    sessionService,
+    workspaceService,
+    tmux,
+    repoConfigService,
+    preferenceService,
+    git,
+    supervisor,
+    sessionLauncher,
+    worktreeService,
+    sessionLifecycle,
+    isAllowedDirectory,
+  };
+}
+
+/** Build a `DispatcherDeps` from the broader mock bundle. The dispatcher
+ *  itself only needs a subset; tests still hold references to the wider
+ *  mocks so they can assert on the underlying services. */
+function dispatcherDeps(deps: ReturnType<typeof makeMockDeps>): DispatcherDeps {
+  return {
+    stateService: deps.stateService,
+    workspaceService: deps.workspaceService,
+    sessionLifecycle: deps.sessionLifecycle,
+    git: deps.git,
+    tmux: deps.tmux,
+    isAllowedDirectory: deps.isAllowedDirectory,
+  };
 }
 
 describe('CommandDispatcher', () => {
   it('dispatches get-state and returns workspace state', async () => {
     const deps = makeMockDeps();
-    const dispatcher = new CommandDispatcher(deps);
+    const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
     const result = await dispatcher.dispatch('get-state', {});
     expect(result.success).toBe(true);
@@ -103,7 +146,7 @@ describe('CommandDispatcher', () => {
     const deps = makeMockDeps();
     deps.workspaceService.findBySessionPrefix = vi.fn().mockReturnValue({ id: 'ws1', name: 'ws' });
     deps.tmux.hasSession = vi.fn().mockResolvedValue(true);
-    const dispatcher = new CommandDispatcher(deps);
+    const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
     const result = await dispatcher.dispatch('sleep-session', { session: 'ws/repo/_dir' });
     expect(result.success).toBe(true);
@@ -116,7 +159,7 @@ describe('CommandDispatcher', () => {
     deps.workspaceService.getPersistedSessions = vi.fn().mockReturnValue([
       { tmuxSession: 'ws/repo/_dir', type: 'directory', directory: '/tmp', windows: [] },
     ]);
-    const dispatcher = new CommandDispatcher(deps);
+    const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
     const result = await dispatcher.dispatch('wake-session', { session: 'ws/repo/_dir' });
     expect(result.success).toBe(true);
@@ -127,7 +170,7 @@ describe('CommandDispatcher', () => {
     const deps = makeMockDeps();
     deps.workspaceService.findBySessionPrefix = vi.fn().mockReturnValue({ id: 'ws1', name: 'ws' });
     deps.tmux.hasSession = vi.fn().mockResolvedValue(true);
-    const dispatcher = new CommandDispatcher(deps);
+    const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
     const result = await dispatcher.dispatch('destroy-session', { session: 'ws/repo/_dir' });
     expect(result.success).toBe(true);
@@ -136,7 +179,7 @@ describe('CommandDispatcher', () => {
 
   it('dispatches get-branches', async () => {
     const deps = makeMockDeps();
-    const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => true });
+    const dispatcher = new CommandDispatcher({ ...dispatcherDeps(deps), isAllowedDirectory: () => true });
 
     const result = await dispatcher.dispatch('get-branches', { repoRoot: '/tmp/repo' });
     expect(result.success).toBe(true);
@@ -145,7 +188,7 @@ describe('CommandDispatcher', () => {
 
   it('dispatches discover-repos', async () => {
     const deps = makeMockDeps();
-    const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => true });
+    const dispatcher = new CommandDispatcher({ ...dispatcherDeps(deps), isAllowedDirectory: () => true });
 
     const result = await dispatcher.dispatch('discover-repos', { directory: '/tmp' });
     expect(result.success).toBe(true);
@@ -168,7 +211,7 @@ describe('CommandDispatcher', () => {
       { index: 0, name: 'Editor', active: false },
       { index: 1, name: 'Logs', active: true },
     ]);
-    const dispatcher = new CommandDispatcher(deps);
+    const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
     const result = await dispatcher.dispatch('list-windows', { session: 'ws/repo/_dir' });
     expect(result.success).toBe(true);
@@ -182,7 +225,7 @@ describe('CommandDispatcher', () => {
   it('dispatches select-window for a known session', async () => {
     const deps = makeMockDeps();
     deps.workspaceService.findBySessionPrefix = vi.fn().mockReturnValue({ id: 'ws1', name: 'ws' });
-    const dispatcher = new CommandDispatcher(deps);
+    const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
     const result = await dispatcher.dispatch('select-window', { session: 'ws/repo/_dir', window: 'Logs' });
     expect(result.success).toBe(true);
@@ -193,7 +236,7 @@ describe('CommandDispatcher', () => {
     const deps = makeMockDeps();
     deps.workspaceService.findBySessionPrefix = vi.fn().mockReturnValue({ id: 'ws1', name: 'ws' });
     deps.tmux.displayMessage = vi.fn().mockResolvedValue('/srv/repo\n');
-    const dispatcher = new CommandDispatcher(deps);
+    const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
     const result = await dispatcher.dispatch('new-window', { session: 'ws/repo/_dir', name: 'Notes' });
     expect(result.success).toBe(true);
@@ -208,7 +251,7 @@ describe('CommandDispatcher', () => {
       { index: 0, name: 'Editor', active: true },
       { index: 1, name: 'Logs', active: false },
     ]);
-    const dispatcher = new CommandDispatcher(deps);
+    const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
     const result = await dispatcher.dispatch('kill-window', { session: 'ws/repo/_dir', windowIndex: 1 });
     expect(result.success).toBe(true);
@@ -221,7 +264,7 @@ describe('CommandDispatcher', () => {
     deps.tmux.listWindows = vi.fn().mockResolvedValue([
       { index: 0, name: 'Editor', active: true },
     ]);
-    const dispatcher = new CommandDispatcher(deps);
+    const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
     const result = await dispatcher.dispatch('kill-window', { session: 'ws/repo/_dir', windowIndex: 0 });
     expect(result.success).toBe(true);
@@ -232,7 +275,7 @@ describe('CommandDispatcher', () => {
   it('dispatches set-window-order and persists it', async () => {
     const deps = makeMockDeps();
     deps.workspaceService.findBySessionPrefix = vi.fn().mockReturnValue({ id: 'ws1', name: 'ws' });
-    const dispatcher = new CommandDispatcher(deps);
+    const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
     const result = await dispatcher.dispatch('set-window-order', {
       session: 'ws/repo/_dir',
@@ -248,7 +291,7 @@ describe('CommandDispatcher', () => {
 
   it('returns error for unknown command', async () => {
     const deps = makeMockDeps();
-    const dispatcher = new CommandDispatcher(deps);
+    const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
     const result = await dispatcher.dispatch('unknown-command', {});
     expect(result.success).toBe(false);
@@ -258,7 +301,7 @@ describe('CommandDispatcher', () => {
   it('catches service errors and returns a sanitised category to the client', async () => {
     const deps = makeMockDeps();
     deps.stateService.collectWorkspaces = vi.fn().mockRejectedValue(new Error('tmux not found at /tmp/internal/path'));
-    const dispatcher = new CommandDispatcher(deps);
+    const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
     const result = await dispatcher.dispatch('get-state', {});
     expect(result.success).toBe(false);
@@ -286,7 +329,7 @@ describe('CommandDispatcher', () => {
       const session = withNativePersisted(deps);
       deps.supervisor.hasSession = vi.fn().mockReturnValue(true);
       deps.supervisor.listWindows = vi.fn().mockReturnValue([{ id: 'w0', name: 'shell', spec: {}, state: 'running', exitCode: null }]);
-      const dispatcher = new CommandDispatcher(deps);
+      const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
       const result = await dispatcher.dispatch('wake-session', { session });
 
@@ -301,7 +344,7 @@ describe('CommandDispatcher', () => {
       const session = withNativePersisted(deps);
       deps.supervisor.hasSession = vi.fn().mockReturnValue(false);
       deps.supervisor.listWindows = vi.fn().mockReturnValue([{ id: 'w0', name: 'shell', spec: {}, state: 'running', exitCode: null }]);
-      const dispatcher = new CommandDispatcher(deps);
+      const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
       const result = await dispatcher.dispatch('wake-session', { session });
 
@@ -317,7 +360,7 @@ describe('CommandDispatcher', () => {
       const deps = makeMockDeps();
       const session = withNativePersisted(deps);
       deps.supervisor.hasSession = vi.fn().mockReturnValue(true);
-      const dispatcher = new CommandDispatcher(deps);
+      const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
       const result = await dispatcher.dispatch('sleep-session', { session });
 
@@ -330,7 +373,7 @@ describe('CommandDispatcher', () => {
       const deps = makeMockDeps();
       const session = withNativePersisted(deps);
       deps.supervisor.hasSession = vi.fn().mockReturnValue(true);
-      const dispatcher = new CommandDispatcher(deps);
+      const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
       const result = await dispatcher.dispatch('destroy-session', { session });
 
@@ -347,7 +390,7 @@ describe('CommandDispatcher', () => {
         { id: 'w0', name: 'shell', spec: {}, state: 'running', exitCode: null },
         { id: 'w1', name: 'editor', spec: {}, state: 'running', exitCode: null },
       ]);
-      const dispatcher = new CommandDispatcher(deps);
+      const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
       const result = await dispatcher.dispatch('select-window', { session, window: 'editor' });
 
@@ -359,7 +402,7 @@ describe('CommandDispatcher', () => {
     it('new-window routes to supervisor.addWindow + selectWindow for native sessions', async () => {
       const deps = makeMockDeps();
       const session = withNativePersisted(deps);
-      const dispatcher = new CommandDispatcher(deps);
+      const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
       const result = await dispatcher.dispatch('new-window', { session, name: 'logs' });
 
@@ -376,7 +419,7 @@ describe('CommandDispatcher', () => {
         { id: 'w0', name: 'shell', spec: {}, state: 'running', exitCode: null },
         { id: 'w1', name: 'editor', spec: {}, state: 'running', exitCode: null },
       ]);
-      const dispatcher = new CommandDispatcher(deps);
+      const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
       const result = await dispatcher.dispatch('kill-window', { session, windowIndex: 1 });
 
@@ -392,7 +435,7 @@ describe('CommandDispatcher', () => {
       deps.supervisor.listWindows = vi.fn().mockReturnValue([
         { id: 'w0', name: 'shell', spec: {}, state: 'running', exitCode: null },
       ]);
-      const dispatcher = new CommandDispatcher(deps);
+      const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
       const result = await dispatcher.dispatch('kill-window', { session, windowIndex: 0 });
 
@@ -408,7 +451,7 @@ describe('CommandDispatcher', () => {
         { id: 'w0', name: 'shell', spec: {}, state: 'running', exitCode: null },
         { id: 'w1', name: 'editor', spec: {}, state: 'running', exitCode: null },
       ]);
-      const dispatcher = new CommandDispatcher(deps);
+      const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
       const result = await dispatcher.dispatch('list-windows', { session });
 
@@ -426,7 +469,7 @@ describe('CommandDispatcher', () => {
       deps.git.getWorktreeDir = vi.fn().mockReturnValue('/srv/worktrees/repo');
       deps.sessionService.getSessionName = vi.fn().mockReturnValue('Dev/repo/feat-x');
       deps.sessionLauncher.launch = vi.fn().mockResolvedValue({ sessionId: 'Dev/repo/feat-x', backend: 'tmux' });
-      const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => true });
+      const dispatcher = new CommandDispatcher({ ...dispatcherDeps(deps), isAllowedDirectory: () => true });
 
       const result = await dispatcher.dispatch('create-repo-session', {
         workspaceName: 'Dev',
@@ -457,7 +500,7 @@ describe('CommandDispatcher', () => {
 
     it('create-repo-session worktree mode without a branch returns an error', async () => {
       const deps = makeMockDeps();
-      const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => true });
+      const dispatcher = new CommandDispatcher({ ...dispatcherDeps(deps), isAllowedDirectory: () => true });
 
       const result = await dispatcher.dispatch('create-repo-session', {
         workspaceName: 'Dev',
@@ -474,7 +517,7 @@ describe('CommandDispatcher', () => {
       const deps = makeMockDeps();
       const session = withNativePersisted(deps);
       deps.supervisor.hasSession = vi.fn().mockReturnValue(false);
-      const dispatcher = new CommandDispatcher(deps);
+      const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
       const result = await dispatcher.dispatch('sleep-session', { session });
 
@@ -486,7 +529,7 @@ describe('CommandDispatcher', () => {
       const deps = makeMockDeps();
       const session = withNativePersisted(deps);
       deps.supervisor.hasSession = vi.fn().mockReturnValue(false);
-      const dispatcher = new CommandDispatcher(deps);
+      const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
       const result = await dispatcher.dispatch('destroy-session', { session });
 
@@ -501,7 +544,7 @@ describe('CommandDispatcher', () => {
       deps.supervisor.listWindows = vi.fn().mockReturnValue([
         { id: 'w0', name: 'shell', spec: {}, state: 'running', exitCode: null },
       ]);
-      const dispatcher = new CommandDispatcher(deps);
+      const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
       const result = await dispatcher.dispatch('select-window', { session, window: 'editor' });
 
@@ -512,7 +555,7 @@ describe('CommandDispatcher', () => {
     it('wake-session returns "No persisted session found" when the workspace prefix is unknown', async () => {
       const deps = makeMockDeps();
       // Default mocks: findBySessionPrefix returns null
-      const dispatcher = new CommandDispatcher(deps);
+      const dispatcher = new CommandDispatcher(dispatcherDeps(deps));
 
       const result = await dispatcher.dispatch('wake-session', { session: 'NoSuch/_dir' });
 
@@ -523,7 +566,7 @@ describe('CommandDispatcher', () => {
     it('create-repo-session directory mode launches the session at repoRoot (no worktree creation)', async () => {
       const deps = makeMockDeps();
       deps.workspaceService.list = vi.fn().mockReturnValue([{ id: 'ws1', name: 'Dev', directory: '/srv/dev' }]);
-      const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => true });
+      const dispatcher = new CommandDispatcher({ ...dispatcherDeps(deps), isAllowedDirectory: () => true });
 
       const result = await dispatcher.dispatch('create-repo-session', {
         workspaceName: 'Dev',
@@ -542,7 +585,7 @@ describe('CommandDispatcher', () => {
 
     it('rejects a malicious branch (path traversal / shell injection chars) before any side effects', async () => {
       const deps = makeMockDeps();
-      const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => true });
+      const dispatcher = new CommandDispatcher({ ...dispatcherDeps(deps), isAllowedDirectory: () => true });
 
       const malicious = ["../escape", "x'; rm -rf /; '", "feat\nwith-newline", "-rf"];
       for (const branch of malicious) {
@@ -561,7 +604,7 @@ describe('CommandDispatcher', () => {
 
     it('rejects malicious workspaceName / label / dir before any side effects', async () => {
       const deps = makeMockDeps();
-      const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => true });
+      const dispatcher = new CommandDispatcher({ ...dispatcherDeps(deps), isAllowedDirectory: () => true });
 
       // Slash-containing workspace name (would corrupt session id).
       let result = await dispatcher.dispatch('create-workspace-session', {
@@ -590,7 +633,7 @@ describe('CommandDispatcher', () => {
 
     it('isAllowedDirectory denial prevents the session from being created', async () => {
       const deps = makeMockDeps();
-      const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => false });
+      const dispatcher = new CommandDispatcher({ ...dispatcherDeps(deps), isAllowedDirectory: () => false });
 
       const result = await dispatcher.dispatch('create-workspace-session', {
         workspaceName: 'Dev',
@@ -604,7 +647,7 @@ describe('CommandDispatcher', () => {
       const deps = makeMockDeps();
       deps.workspaceService.list = vi.fn().mockReturnValue([{ id: 'ws1', name: 'Dev', directory: '/srv/dev' }]);
       deps.tmux.hasSession = vi.fn().mockResolvedValue(true);
-      const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => true });
+      const dispatcher = new CommandDispatcher({ ...dispatcherDeps(deps), isAllowedDirectory: () => true });
 
       const result = await dispatcher.dispatch('create-workspace-session', {
         workspaceName: 'Dev',
@@ -621,7 +664,7 @@ describe('CommandDispatcher', () => {
       const deps = makeMockDeps();
       deps.workspaceService.list = vi.fn().mockReturnValue([{ id: 'ws1', name: 'Dev', directory: '/srv/dev' }]);
       deps.workspaceService.findClaudeSessionId = vi.fn().mockReturnValue('claude-uuid-123');
-      const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => true });
+      const dispatcher = new CommandDispatcher({ ...dispatcherDeps(deps), isAllowedDirectory: () => true });
 
       await dispatcher.dispatch('create-workspace-session', {
         workspaceName: 'Dev',
@@ -639,7 +682,7 @@ describe('CommandDispatcher', () => {
       const deps = makeMockDeps();
       deps.workspaceService.list = vi.fn().mockReturnValue([{ id: 'ws1', name: 'test', directory: '/tmp' }]);
       deps.sessionLauncher.launch = vi.fn().mockResolvedValue({ sessionId: 'test/_ws', backend: 'native' });
-      const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => true });
+      const dispatcher = new CommandDispatcher({ ...dispatcherDeps(deps), isAllowedDirectory: () => true });
 
       const result = await dispatcher.dispatch('create-workspace-session', {
         workspaceName: 'test',
