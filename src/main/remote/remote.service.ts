@@ -301,9 +301,10 @@ export class RemoteService {
 
   private handleAttachPty(msgId: string, params: Record<string, unknown>): void {
     if (!this.ptyManager) {
-      this.ptyManager = new PtyManager((frame) => {
-        this.server?.sendBinary(frame);
-      });
+      this.ptyManager = new PtyManager(
+        (frame) => { this.server?.sendBinary(frame); },
+        this.deps.supervisor,
+      );
     }
 
     const session = params.tmuxSession as string;
@@ -320,7 +321,13 @@ export class RemoteService {
 
     const cols = (params.cols as number) || 80;
     const rows = (params.rows as number) || 24;
-    const channelId = this.ptyManager.attach(session, cols, rows);
+
+    // Backend dispatch: native-supervisor sessions cannot be reached via
+    // `tmux attach`; route them through the supervisor data plane instead.
+    const backend = this.deps.workspaceService.findPersistedBackend(session) ?? 'tmux';
+    const channelId = backend === 'native'
+      ? this.ptyManager.attachSupervisor(session, cols, rows)
+      : this.ptyManager.attach(session, cols, rows);
 
     this.server?.sendText(encodeControlMessage({
       type: 'session-command',

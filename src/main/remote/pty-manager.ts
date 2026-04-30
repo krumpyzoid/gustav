@@ -1,17 +1,32 @@
 import pty from 'node-pty';
+import type { SessionSupervisorPort } from '../supervisor/supervisor.port';
 import { ChannelType, encodeBinaryFrame, decodeBinaryFrame } from './protocol';
 
-type PtyEntry = {
+type TmuxEntry = {
+  kind: 'tmux';
   ptyProcess: pty.IPty;
   tmuxSession: string;
 };
+
+type NativeEntry = {
+  kind: 'native';
+  sessionId: string;
+  clientId: string;
+  off: () => void;
+};
+
+type PtyEntry = TmuxEntry | NativeEntry;
 
 export class PtyManager {
   private entries = new Map<number, PtyEntry>();
   private nextChannelId = 1;
 
-  constructor(private onFrame: (frame: Buffer) => void) {}
+  constructor(
+    private onFrame: (frame: Buffer) => void,
+    private supervisor?: SessionSupervisorPort,
+  ) {}
 
+  /** Attach to a tmux session via `tmux attach`. */
   attach(tmuxSession: string, cols: number, rows: number): number {
     const channelId = this.nextChannelId++;
 
@@ -36,7 +51,35 @@ export class PtyManager {
       this.entries.delete(channelId);
     });
 
-    this.entries.set(channelId, { ptyProcess, tmuxSession });
+    this.entries.set(channelId, { kind: 'tmux', ptyProcess, tmuxSession });
+    return channelId;
+  }
+
+  /** Attach to a native-supervisor session. Streams data from the active
+   * window over a channel and routes input back via the supervisor's
+   * latest-wins client model. */
+  attachSupervisor(sessionId: string, cols: number, rows: number): number {
+    if (!this.supervisor) {
+      throw new Error('PtyManager: supervisor not configured for native attach');
+    }
+    const channelId = this.nextChannelId++;
+    const clientId = `remote-pty-${channelId}`;
+
+    this.supervisor.attachClient({ sessionId, clientId, cols, rows });
+
+    const off = this.supervisor.onWindowData((sid, _windowId, data) => {
+      // Filter to only this session's data; multi-window data for the
+      // session all flows on the same channel (matches `tmux attach`).
+      if (sid !== sessionId) return;
+      const frame = encodeBinaryFrame({
+        channelType: ChannelType.PTY_DATA,
+        channelId,
+        payload: Buffer.from(data),
+      });
+      this.onFrame(frame);
+    });
+
+    this.entries.set(channelId, { kind: 'native', sessionId, clientId, off });
     return channelId;
   }
 
@@ -44,19 +87,38 @@ export class PtyManager {
     const frame = decodeBinaryFrame(data);
     const entry = this.entries.get(frame.channelId);
     if (!entry) return;
-    entry.ptyProcess.write(frame.payload.toString());
+    const text = frame.payload.toString();
+    if (entry.kind === 'tmux') {
+      entry.ptyProcess.write(text);
+    } else {
+      this.supervisor?.sendInput(entry.sessionId, text);
+    }
   }
 
   resize(channelId: number, cols: number, rows: number): void {
     const entry = this.entries.get(channelId);
     if (!entry) return;
-    entry.ptyProcess.resize(cols, rows);
+    if (entry.kind === 'tmux') {
+      entry.ptyProcess.resize(cols, rows);
+    } else {
+      this.supervisor?.resizeClient({
+        sessionId: entry.sessionId,
+        clientId: entry.clientId,
+        cols,
+        rows,
+      });
+    }
   }
 
   detach(channelId: number): void {
     const entry = this.entries.get(channelId);
     if (!entry) return;
-    entry.ptyProcess.kill();
+    if (entry.kind === 'tmux') {
+      entry.ptyProcess.kill();
+    } else {
+      entry.off();
+      this.supervisor?.detachClient(entry.sessionId, entry.clientId);
+    }
     this.entries.delete(channelId);
   }
 
@@ -65,8 +127,13 @@ export class PtyManager {
   }
 
   destroyAll(): void {
-    for (const [id, entry] of this.entries) {
-      entry.ptyProcess.kill();
+    for (const [, entry] of this.entries) {
+      if (entry.kind === 'tmux') {
+        entry.ptyProcess.kill();
+      } else {
+        entry.off();
+        this.supervisor?.detachClient(entry.sessionId, entry.clientId);
+      }
     }
     this.entries.clear();
   }
