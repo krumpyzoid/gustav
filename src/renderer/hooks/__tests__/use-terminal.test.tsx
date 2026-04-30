@@ -114,7 +114,7 @@ describe('use-terminal — onData routing invariant (#15)', () => {
     sendPtyInput.mockClear();
   });
 
-  it('routes the DA1 reply (\\x1b[?1;2c) emitted via onData to sendPtyInput, never to term.write', () => {
+  it('does NOT forward the DA1 reply (\\x1b[?1;2c) to sendPtyInput; never writes it to term.write', () => {
     function HostHook() {
       const ref = useRef<HTMLDivElement>(null);
       // Pretend the container is laid out — we only need a non-null ref.
@@ -133,9 +133,30 @@ describe('use-terminal — onData routing invariant (#15)', () => {
     // Simulate xterm.js emitting a DA1 reply.
     captured.onDataCb!('\x1b[?1;2c');
 
-    expect(sendPtyInput).toHaveBeenCalledWith('\x1b[?1;2c');
-    // Crucially: no extra term.write call was triggered by the onData event.
+    // Filter: the auto-reply must NOT travel to the remote PTY (otherwise
+    // the inner shell's readline echoes its tail back into the buffer).
+    expect(sendPtyInput).not.toHaveBeenCalled();
+    // And it must not be delivered to term.write either (the existing
+    // structural invariant).
     expect(captured.writeCalls.length).toBe(writeCallsBefore);
+  });
+
+  it('does NOT forward DA2 / DSR cursor-position auto-replies to sendPtyInput', () => {
+    function HostHook() {
+      const ref = useRef<HTMLDivElement>(null);
+      if (ref.current === null) {
+        ref.current = document.createElement('div');
+      }
+      useTerminal(ref);
+      return null;
+    }
+
+    renderHook(() => HostHook());
+
+    captured.onDataCb!('\x1b[>0;276;0c'); // DA2
+    captured.onDataCb!('\x1b[24;80R');    // DSR cursor-position
+
+    expect(sendPtyInput).not.toHaveBeenCalled();
   });
 
   it('routes a typed keystroke through onData → sendPtyInput, never to term.write', () => {

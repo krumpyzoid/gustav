@@ -6,6 +6,7 @@ import { xtermTheme } from './use-theme';
 import { navigateSession, navigateWindow } from './use-keyboard-shortcuts';
 import { useAppStore } from './use-app-state';
 import type { SessionTransport } from '../lib/transport/session-transport';
+import { isXtermAutoReply } from '../lib/terminal/auto-reply-filter';
 
 let globalTermRef: Terminal | null = null;
 let globalRequestFit: (() => void) | null = null;
@@ -146,14 +147,20 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     // Input relay — route through the active transport regardless of where
     // the session lives.
     //
-    // Invariant (#15): everything xterm.js emits via `onData` — typed
-    // keystrokes AND auto-generated terminal protocol replies (DA1 / DA2,
-    // cursor position, OSC reports, …) — MUST reach `transport.sendPtyInput`
-    // and MUST NEVER be delivered into `term.write`. Reply bytes echoed back
-    // to the visible buffer surface as glitches like literal `?1;2c`
-    // appearing at the prompt. Do not branch on `data` here, do not buffer
-    // it across transport swaps — just pass it straight through.
+    // Invariants:
+    //  - Bytes emitted via `onData` MUST NEVER reach `term.write` (#15).
+    //    The structural shape of this handler is the proof; do not add a
+    //    branch that writes back to the local terminal here.
+    //  - Auto-replies (DA1/DA2/DSR) emitted by xterm.js in response to
+    //    queries from the host MUST be filtered before reaching the remote
+    //    PTY (#17). Without the filter, the inner shell's readline echoes
+    //    the unmatched tail back through `onPtyData`, surfacing visibly as
+    //    `?1;2c` at the prompt. xterm.js emits these replies as atomic
+    //    single-call onData events, so an exact-match filter on the whole
+    //    string is safe — real user input that merely contains a similar
+    //    sequence is preserved.
     term.onData((data) => {
+      if (isXtermAutoReply(data)) return;
       currentTransport().sendPtyInput(data);
     });
 
