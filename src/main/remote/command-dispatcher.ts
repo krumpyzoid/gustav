@@ -293,12 +293,20 @@ export class CommandDispatcher {
             return err('Directory not within any workspace root');
           }
           const sessionName = this.deps.sessionService.getSessionName(workspaceName, { type: 'workspace', label });
+          // Duplicate-name guard — matches local handler (handlers.ts).
+          if (await this.deps.tmux.hasSession(sessionName) || this.deps.supervisor.hasSession(sessionName)) {
+            return err(`Session "${label ?? '_ws'}" already exists in workspace "${workspaceName}"`);
+          }
+          // Resume the prior Claude conversation if a previous incarnation
+          // tracked one — same behaviour as the local create path.
+          const prevClaudeId = this.deps.workspaceService.findClaudeSessionId(sessionName);
           const ws = this.deps.workspaceService.list().find((w) => w.name === workspaceName) ?? null;
           const windows = buildWindowSpecs({
             type: 'workspace',
             workspace: ws,
             preferences: this.deps.preferenceService.load(),
             repoConfig: null,
+            claudeSessionId: prevClaudeId,
           });
           const launched = await this.deps.sessionLauncher.launch(sessionName, workspaceDir, windows);
           if (ws) {
@@ -341,6 +349,9 @@ export class CommandDispatcher {
             sessionType = 'directory';
             sessionDir = repoRoot;
             sessionName = this.deps.sessionService.getSessionName(workspaceName, { type: 'directory', repoName });
+            if (await this.deps.tmux.hasSession(sessionName) || this.deps.supervisor.hasSession(sessionName)) {
+              return err(`Session for "${repoName}" already exists in workspace "${workspaceName}"`);
+            }
           } else if (mode === 'worktree') {
             if (!branch) return err('Branch name required for worktree session');
             await this.deps.worktreeService.create({
@@ -357,11 +368,13 @@ export class CommandDispatcher {
             return err(`Unknown mode "${mode}"`);
           }
 
+          const prevClaudeId = this.deps.workspaceService.findClaudeSessionId(sessionName);
           const windows = buildWindowSpecs({
             type: sessionType,
             workspace: ws,
             preferences: this.deps.preferenceService.load(),
             repoConfig: this.deps.repoConfigService.get(repoRoot),
+            claudeSessionId: prevClaudeId,
           });
           const launched = await this.deps.sessionLauncher.launch(sessionName, sessionDir, windows);
           if (ws) {
@@ -385,13 +398,21 @@ export class CommandDispatcher {
             return err('Directory not within any workspace root');
           }
           const sessionName = this.deps.sessionService.getSessionName(null, { type: 'workspace', label });
+          if (await this.deps.tmux.hasSession(sessionName) || this.deps.supervisor.hasSession(sessionName)) {
+            return err(`Standalone session "${label}" already exists`);
+          }
+          const prevClaudeId = this.deps.workspaceService.findClaudeSessionId(sessionName);
           const windows = buildWindowSpecs({
             type: 'workspace',
             workspace: null,
             preferences: this.deps.preferenceService.load(),
             repoConfig: null,
+            claudeSessionId: prevClaudeId,
           });
           const launched = await this.deps.sessionLauncher.launch(sessionName, dir, windows);
+          // Standalone sessions are not bound to a workspace; persistence is
+          // a no-op until the standalone-workspace concept lands. Mirror the
+          // local handler's behaviour so the two paths converge.
           return ok(launched.sessionId);
         }
 

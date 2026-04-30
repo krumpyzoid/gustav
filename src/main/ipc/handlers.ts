@@ -45,15 +45,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** Look up the Claude session ID from a previously persisted session. */
-function findClaudeSessionId(workspaceService: WorkspaceService, session: string): string | undefined {
-  const ws = workspaceService.findBySessionPrefix(session);
-  if (!ws) return undefined;
-  const persisted = workspaceService.getPersistedSessions(ws.id).find((s) => s.tmuxSession === session);
-  if (!persisted) return undefined;
-  const claude = persisted.windows.find((s) => s.name === 'Claude Code');
-  return claude?.claudeSessionId;
-}
 
 export function registerHandlers(deps: {
   worktreeService: WorktreeService;
@@ -244,7 +235,7 @@ export function registerHandlers(deps: {
           try {
             const repoName = basename(repoRoot);
             const sessionName = sessionService.getSessionName(ws.name, { type: 'directory', repoName });
-            const prevClaudeId = findClaudeSessionId(workspaceService, sessionName);
+            const prevClaudeId = workspaceService.findClaudeSessionId(sessionName);
             const windows = buildWindowSpecs({
               type: 'directory',
               workspace: ws,
@@ -388,7 +379,7 @@ export function registerHandlers(deps: {
       if (await tmux.hasSession(sessionName) || supervisor.hasSession(sessionName)) {
         return err(`Session "${label ?? '_ws'}" already exists in workspace "${workspaceName}"`);
       }
-      const prevClaudeId = findClaudeSessionId(workspaceService, sessionName);
+      const prevClaudeId = workspaceService.findClaudeSessionId(sessionName);
       const ws = workspaceService.list().find((w) => w.name === workspaceName) ?? null;
       const windows = buildWindowSpecs({
         type: 'workspace',
@@ -445,7 +436,7 @@ export function registerHandlers(deps: {
         sessionName = sessionService.getSessionName(workspaceName, { type: 'worktree', repoName, branch });
       }
 
-      const prevClaudeId = findClaudeSessionId(workspaceService, sessionName);
+      const prevClaudeId = workspaceService.findClaudeSessionId(sessionName);
       const ws = workspaceService.list().find((w) => w.name === workspaceName) ?? null;
       const windows = buildWindowSpecs({
         type: sessionType,
@@ -481,7 +472,7 @@ export function registerHandlers(deps: {
     try {
       const repoName = basename(repoRoot);
       const sessionName = sessionService.getSessionName(workspaceName, { type: 'worktree', repoName, branch });
-      const prevClaudeId = findClaudeSessionId(workspaceService, sessionName);
+      const prevClaudeId = workspaceService.findClaudeSessionId(sessionName);
       const ws = workspaceService.list().find((w) => w.name === workspaceName) ?? null;
       const windows = buildWindowSpecs({
         type: 'worktree',

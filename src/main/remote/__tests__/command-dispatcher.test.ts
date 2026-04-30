@@ -28,6 +28,7 @@ function makeMockDeps() {
     create: vi.fn().mockResolvedValue({ id: 'ws1', name: 'test', directory: '/tmp' }),
     findBySessionPrefix: vi.fn().mockReturnValue(null),
     findPersistedBackend: vi.fn().mockReturnValue(null),
+    findClaudeSessionId: vi.fn().mockReturnValue(undefined),
     resolveBackend: vi.fn().mockReturnValue('tmux'),
     getPersistedSessions: vi.fn().mockReturnValue([]),
     persistSession: vi.fn(),
@@ -37,7 +38,9 @@ function makeMockDeps() {
   } as unknown as WorkspaceService;
 
   const tmux = {
-    hasSession: vi.fn().mockResolvedValue(true),
+    // Default: no existing session — mirrors a fresh creation context. Tests
+    // that assert sleep/destroy/kill behaviour override this to true.
+    hasSession: vi.fn().mockResolvedValue(false),
     killSession: vi.fn(),
     listWindows: vi.fn().mockResolvedValue([]),
     selectWindow: vi.fn().mockResolvedValue(undefined),
@@ -99,6 +102,7 @@ describe('CommandDispatcher', () => {
   it('dispatches sleep-session', async () => {
     const deps = makeMockDeps();
     deps.workspaceService.findBySessionPrefix = vi.fn().mockReturnValue({ id: 'ws1', name: 'ws' });
+    deps.tmux.hasSession = vi.fn().mockResolvedValue(true);
     const dispatcher = new CommandDispatcher(deps);
 
     const result = await dispatcher.dispatch('sleep-session', { session: 'ws/repo/_dir' });
@@ -122,6 +126,7 @@ describe('CommandDispatcher', () => {
   it('dispatches destroy-session', async () => {
     const deps = makeMockDeps();
     deps.workspaceService.findBySessionPrefix = vi.fn().mockReturnValue({ id: 'ws1', name: 'ws' });
+    deps.tmux.hasSession = vi.fn().mockResolvedValue(true);
     const dispatcher = new CommandDispatcher(deps);
 
     const result = await dispatcher.dispatch('destroy-session', { session: 'ws/repo/_dir' });
@@ -593,6 +598,41 @@ describe('CommandDispatcher', () => {
       });
       expect(result.success).toBe(false);
       expect(deps.sessionLauncher.launch).not.toHaveBeenCalled();
+    });
+
+    it('create-workspace-session rejects when a session with the same name already exists', async () => {
+      const deps = makeMockDeps();
+      deps.workspaceService.list = vi.fn().mockReturnValue([{ id: 'ws1', name: 'Dev', directory: '/srv/dev' }]);
+      deps.tmux.hasSession = vi.fn().mockResolvedValue(true);
+      const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => true });
+
+      const result = await dispatcher.dispatch('create-workspace-session', {
+        workspaceName: 'Dev',
+        workspaceDir: '/srv/dev',
+        label: 'scratch',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/already exists/);
+      expect(deps.sessionLauncher.launch).not.toHaveBeenCalled();
+    });
+
+    it('create-workspace-session passes the previous Claude session id to buildWindowSpecs', async () => {
+      const deps = makeMockDeps();
+      deps.workspaceService.list = vi.fn().mockReturnValue([{ id: 'ws1', name: 'Dev', directory: '/srv/dev' }]);
+      deps.workspaceService.findClaudeSessionId = vi.fn().mockReturnValue('claude-uuid-123');
+      const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => true });
+
+      await dispatcher.dispatch('create-workspace-session', {
+        workspaceName: 'Dev',
+        workspaceDir: '/srv/dev',
+      });
+
+      expect(deps.workspaceService.findClaudeSessionId).toHaveBeenCalled();
+      // The launched windows array carries the claudeSessionId injection — we
+      // assert findClaudeSessionId was invoked rather than reaching into the
+      // WindowSpec builder's output, which is integration-tested elsewhere.
+      expect(deps.sessionLauncher.launch).toHaveBeenCalled();
     });
 
     it('create-workspace-session routes through sessionLauncher (not sessionService)', async () => {

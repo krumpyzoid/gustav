@@ -230,6 +230,21 @@ export class WorkspaceService {
     return this.findPersistedBackend(sessionId) ?? 'tmux';
   }
 
+  /**
+   * Look up the previous Claude session ID for a session name, so a recreate
+   * after sleep/destroy can pass `claude --resume <id>` and continue the same
+   * conversation. Returns `undefined` if no persisted entry exists or no
+   * Claude window was tracked.
+   */
+  findClaudeSessionId(sessionId: string): string | undefined {
+    const ws = this.findBySessionPrefix(sessionId);
+    if (!ws) return undefined;
+    const persisted = this.getPersistedSessions(ws.id).find((s) => s.tmuxSession === sessionId);
+    if (!persisted) return undefined;
+    const claude = persisted.windows.find((s) => s.name === 'Claude Code');
+    return claude?.claudeSessionId;
+  }
+
   findByDirectory(directory: string): Workspace | undefined {
     return this.list().find((w) => w.directory === directory);
   }
