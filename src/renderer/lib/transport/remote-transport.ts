@@ -1,4 +1,4 @@
-import type { WorkspaceAppState, WindowInfo, Result } from '../../../main/domain/types';
+import type { WorkspaceAppState, WindowInfo, BranchInfo, Result } from '../../../main/domain/types';
 import type { SessionTransport } from './session-transport';
 
 /**
@@ -137,6 +137,28 @@ export class RemoteGustavTransport implements SessionTransport {
     return toVoidResult(r);
   }
 
+  // ── Session creation ───────────────────────────────────────────
+  async createWorkspaceSession(workspaceName: string, workspaceDir: string, label?: string): Promise<Result<string>> {
+    const r = await window.api.remoteSessionCommand('create-workspace-session', { workspaceName, workspaceDir, label });
+    return toStringResult(r);
+  }
+
+  async createRepoSession(workspaceName: string, repoRoot: string, mode: 'directory' | 'worktree', branch?: string, base?: string): Promise<Result<string>> {
+    const r = await window.api.remoteSessionCommand('create-repo-session', { workspaceName, repoRoot, mode, branch, base });
+    return toStringResult(r);
+  }
+
+  async createStandaloneSession(label: string, dir: string): Promise<Result<string>> {
+    const r = await window.api.remoteSessionCommand('create-standalone-session', { label, dir });
+    return toStringResult(r);
+  }
+
+  async getBranches(repoRoot: string): Promise<BranchInfo[]> {
+    const r = await window.api.remoteSessionCommand('get-branches', { repoRoot });
+    if (!r.success) return [];
+    return (r.data as BranchInfo[]) ?? [];
+  }
+
   // ── Lifecycle ──────────────────────────────────────────────────
   detach(): void {
     if (this.ptyChannelId !== null) {
@@ -161,4 +183,8 @@ export class RemoteGustavTransport implements SessionTransport {
 
 function toVoidResult(r: Result<unknown>): Result<void> {
   return r.success ? { success: true, data: undefined } : { success: false, error: r.error };
+}
+
+function toStringResult(r: Result<unknown>): Result<string> {
+  return r.success ? { success: true, data: String(r.data ?? '') } : { success: false, error: r.error };
 }

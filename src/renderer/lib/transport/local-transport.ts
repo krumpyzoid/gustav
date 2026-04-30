@@ -1,4 +1,4 @@
-import type { WorkspaceAppState, WindowInfo, Result } from '../../../main/domain/types';
+import type { WorkspaceAppState, WindowInfo, BranchInfo, Result } from '../../../main/domain/types';
 import type { SessionTransport } from './session-transport';
 
 /**
@@ -140,6 +140,23 @@ export class LocalTransport implements SessionTransport {
 
   setWindowOrder(session: string, names: string[]): Promise<Result<void>> {
     return window.api.setWindowOrder(session, names);
+  }
+
+  // ── Session creation ───────────────────────────────────────────
+  createWorkspaceSession(workspaceName: string, workspaceDir: string, label?: string): Promise<Result<string>> {
+    return window.api.createWorkspaceSession(workspaceName, workspaceDir, label);
+  }
+
+  createRepoSession(workspaceName: string, repoRoot: string, mode: 'directory' | 'worktree', branch?: string, base?: string): Promise<Result<string>> {
+    return window.api.createRepoSession(workspaceName, repoRoot, mode, branch, base);
+  }
+
+  createStandaloneSession(label: string, dir: string): Promise<Result<string>> {
+    return window.api.createStandaloneSession(label, dir);
+  }
+
+  getBranches(repoRoot: string): Promise<BranchInfo[]> {
+    return window.api.getBranches(repoRoot);
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────

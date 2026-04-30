@@ -1,4 +1,4 @@
-import type { WorkspaceAppState, WindowInfo, Result } from '../../../main/domain/types';
+import type { WorkspaceAppState, WindowInfo, BranchInfo, Result } from '../../../main/domain/types';
 
 /**
  * Renderer-side port for talking to a session source.
@@ -42,6 +42,14 @@ export interface SessionTransport {
   newWindow(session: string, name: string): Promise<Result<void>>;
   killWindow(session: string, windowIndex: number): Promise<Result<void>>;
   setWindowOrder(session: string, names: string[]): Promise<Result<void>>;
+
+  // ── Session creation ───────────────────────────────────────────
+  /** Returns the new session's id on success. */
+  createWorkspaceSession(workspaceName: string, workspaceDir: string, label?: string): Promise<Result<string>>;
+  createRepoSession(workspaceName: string, repoRoot: string, mode: 'directory' | 'worktree', branch?: string, base?: string): Promise<Result<string>>;
+  createStandaloneSession(label: string, dir: string): Promise<Result<string>>;
+  /** List git branches at `repoRoot`. Returns `[]` on failure (e.g. remote disconnected). */
+  getBranches(repoRoot: string): Promise<BranchInfo[]>;
 
   // ── Lifecycle ──────────────────────────────────────────────────
   /**

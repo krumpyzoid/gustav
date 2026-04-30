@@ -227,6 +227,69 @@ describe('RemoteGustavTransport', () => {
     warn.mockRestore();
   });
 
+  describe('session creation methods', () => {
+    it('createWorkspaceSession dispatches create-workspace-session', async () => {
+      api.remoteSessionCommand.mockResolvedValue({ success: true, data: 'Dev/_ws' });
+      const t = new RemoteGustavTransport();
+
+      const r = await t.createWorkspaceSession('Dev', '/srv/dev', 'scratch');
+
+      expect(api.remoteSessionCommand).toHaveBeenCalledWith(
+        'create-workspace-session',
+        { workspaceName: 'Dev', workspaceDir: '/srv/dev', label: 'scratch' },
+      );
+      expect(r).toEqual({ success: true, data: 'Dev/_ws' });
+    });
+
+    it('createRepoSession dispatches create-repo-session with all params', async () => {
+      api.remoteSessionCommand.mockResolvedValue({ success: true, data: 'Dev/repo/main' });
+      const t = new RemoteGustavTransport();
+
+      const r = await t.createRepoSession('Dev', '/srv/repo', 'worktree', 'feat/x', 'origin/main');
+
+      expect(api.remoteSessionCommand).toHaveBeenCalledWith(
+        'create-repo-session',
+        { workspaceName: 'Dev', repoRoot: '/srv/repo', mode: 'worktree', branch: 'feat/x', base: 'origin/main' },
+      );
+      expect(r).toEqual({ success: true, data: 'Dev/repo/main' });
+    });
+
+    it('createStandaloneSession dispatches create-standalone-session', async () => {
+      api.remoteSessionCommand.mockResolvedValue({ success: true, data: '_standalone/scratch' });
+      const t = new RemoteGustavTransport();
+
+      const r = await t.createStandaloneSession('scratch', '/tmp/s');
+
+      expect(api.remoteSessionCommand).toHaveBeenCalledWith(
+        'create-standalone-session',
+        { label: 'scratch', dir: '/tmp/s' },
+      );
+      expect(r).toEqual({ success: true, data: '_standalone/scratch' });
+    });
+
+    it('getBranches dispatches get-branches and unwraps the Result envelope', async () => {
+      api.remoteSessionCommand.mockResolvedValue({ success: true, data: [{ name: 'main', isRemote: false }] });
+      const t = new RemoteGustavTransport();
+
+      const r = await t.getBranches('/srv/repo');
+
+      expect(api.remoteSessionCommand).toHaveBeenCalledWith(
+        'get-branches',
+        { repoRoot: '/srv/repo' },
+      );
+      expect(r).toEqual([{ name: 'main', isRemote: false }]);
+    });
+
+    it('getBranches returns [] when the remote command fails', async () => {
+      api.remoteSessionCommand.mockResolvedValue({ success: false, error: 'not connected' });
+      const t = new RemoteGustavTransport();
+
+      const r = await t.getBranches('/srv/repo');
+
+      expect(r).toEqual([]);
+    });
+  });
+
   it('detach() releases all subscriptions registered through the transport', () => {
     const ptyCleanup = vi.fn();
     const stateCleanup = vi.fn();
