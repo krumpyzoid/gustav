@@ -24,11 +24,57 @@ export type DispatcherDeps = {
   supervisor: SessionSupervisorPort;
   git: GitPort;
   tmux: TmuxPort;
-  /** Validates directory is within allowed workspace roots */
-  isAllowedDirectory?: (dir: string) => boolean;
+  /** Validates directory is within allowed workspace roots. Required —
+   * pass `() => true` only in trusted local-test contexts. */
+  isAllowedDirectory: (dir: string) => boolean;
 };
 
 type DispatchResult = Result<unknown>;
+
+// ── Input validation (defense in depth) ───────────────────────────────────
+// Even with argv-based exec in adapters, we reject obviously dangerous values
+// at the boundary so they never reach path joins, persisted state, or tmux
+// session names. Allow-lists are intentionally narrow.
+
+const BRANCH_RE = /^[A-Za-z0-9._/-]+$/;
+const LABEL_RE = /^[\w. -]+$/;
+const REPO_PATH_RE = /^[^\0]+$/;
+
+function validateBranch(branch: unknown): branch is string {
+  if (typeof branch !== 'string') return false;
+  if (branch.length === 0 || branch.length > 200) return false;
+  if (!BRANCH_RE.test(branch)) return false;
+  if (branch.includes('..')) return false;
+  if (branch.startsWith('-') || branch.startsWith('/')) return false;
+  return true;
+}
+
+function validateLabel(label: unknown): label is string {
+  if (typeof label !== 'string') return false;
+  if (label.length === 0 || label.length > 64) return false;
+  return LABEL_RE.test(label);
+}
+
+function validateWorkspaceName(name: unknown): name is string {
+  return typeof name === 'string' && name.length > 0 && name.length <= 64
+    && !name.includes('/') && !name.includes('\\') && !/[\0\n\r]/.test(name);
+}
+
+function validateRepoPath(path: unknown): path is string {
+  return typeof path === 'string' && path.length > 0 && REPO_PATH_RE.test(path);
+}
+
+/** Sanitise an Error message for a remote client. Logs the full message
+ * server-side and returns a brief category string so paths/internals don't
+ * leak over the WebSocket. */
+function sanitiseError(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  // eslint-disable-next-line no-console
+  console.error('[remote-dispatcher] error:', msg);
+  if (/not.*found|no such|unknown/i.test(msg)) return 'Not found';
+  if (/invalid|bad|malformed|forbidden/i.test(msg)) return 'Invalid argument';
+  return 'Internal error';
+}
 
 export class CommandDispatcher {
   constructor(private deps: DispatcherDeps) {}
@@ -57,7 +103,8 @@ export class CommandDispatcher {
 
         case 'get-branches': {
           const repoRoot = params.repoRoot as string;
-          if (this.deps.isAllowedDirectory && !this.deps.isAllowedDirectory(repoRoot)) {
+          if (!validateRepoPath(repoRoot)) return err('Invalid argument');
+          if (!this.deps.isAllowedDirectory(repoRoot)) {
             return err('Directory not within any workspace root');
           }
           return ok(await this.deps.git.listBranches(repoRoot));
@@ -65,7 +112,8 @@ export class CommandDispatcher {
 
         case 'discover-repos': {
           const dir = params.directory as string;
-          if (this.deps.isAllowedDirectory && !this.deps.isAllowedDirectory(dir)) {
+          if (!validateRepoPath(dir)) return err('Invalid argument');
+          if (!this.deps.isAllowedDirectory(dir)) {
             return err('Directory not within any workspace root');
           }
           return ok(this.deps.workspaceService.discoverGitRepos(dir, 3));
@@ -246,7 +294,10 @@ export class CommandDispatcher {
           const { workspaceName, workspaceDir, label } = params as {
             workspaceName: string; workspaceDir: string; label?: string;
           };
-          if (this.deps.isAllowedDirectory && !this.deps.isAllowedDirectory(workspaceDir)) {
+          if (!validateWorkspaceName(workspaceName)) return err('Invalid argument');
+          if (!validateRepoPath(workspaceDir)) return err('Invalid argument');
+          if (label !== undefined && !validateLabel(label)) return err('Invalid argument');
+          if (!this.deps.isAllowedDirectory(workspaceDir)) {
             return err('Directory not within any workspace root');
           }
           const sessionName = this.deps.sessionService.getSessionName(workspaceName, { type: 'workspace', label });
@@ -275,10 +326,18 @@ export class CommandDispatcher {
             workspaceName: string; repoRoot: string; mode: string;
             branch?: string; base?: string;
           };
-          if (this.deps.isAllowedDirectory && !this.deps.isAllowedDirectory(repoRoot)) {
+          if (!validateWorkspaceName(workspaceName)) return err('Invalid argument');
+          if (!validateRepoPath(repoRoot)) return err('Invalid argument');
+          if (mode !== 'directory' && mode !== 'worktree') return err('Invalid argument');
+          if (mode === 'worktree') {
+            if (!validateBranch(branch)) return err('Invalid argument');
+            if (base !== undefined && !validateBranch(base.replace(/^origin\//, ''))) return err('Invalid argument');
+          }
+          if (!this.deps.isAllowedDirectory(repoRoot)) {
             return err('Directory not within any workspace root');
           }
           const repoName = basename(repoRoot);
+          if (!repoName) return err('Invalid argument');
           const ws = this.deps.workspaceService.list().find((w) => w.name === workspaceName) ?? null;
 
           let sessionType: SessionType;
@@ -328,7 +387,9 @@ export class CommandDispatcher {
 
         case 'create-standalone-session': {
           const { label, dir } = params as { label: string; dir: string };
-          if (this.deps.isAllowedDirectory && !this.deps.isAllowedDirectory(dir)) {
+          if (!validateLabel(label)) return err('Invalid argument');
+          if (!validateRepoPath(dir)) return err('Invalid argument');
+          if (!this.deps.isAllowedDirectory(dir)) {
             return err('Directory not within any workspace root');
           }
           const sessionName = this.deps.sessionService.getSessionName(null, { type: 'workspace', label });
@@ -346,7 +407,7 @@ export class CommandDispatcher {
           return err(`Unknown command: ${command}`);
       }
     } catch (e) {
-      return err((e as Error).message);
+      return err(sanitiseError(e));
     }
   }
 }

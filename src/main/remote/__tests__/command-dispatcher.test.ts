@@ -79,7 +79,10 @@ function makeMockDeps() {
     create: vi.fn().mockResolvedValue(undefined),
   } as unknown as WorktreeService;
 
-  return { stateService, sessionService, workspaceService, tmux, repoConfigService, preferenceService, git, supervisor, sessionLauncher, worktreeService };
+  // Default to permissive — individual tests opt into restrictive checks.
+  const isAllowedDirectory = () => true;
+
+  return { stateService, sessionService, workspaceService, tmux, repoConfigService, preferenceService, git, supervisor, sessionLauncher, worktreeService, isAllowedDirectory };
 }
 
 describe('CommandDispatcher', () => {
@@ -127,7 +130,7 @@ describe('CommandDispatcher', () => {
 
   it('dispatches get-branches', async () => {
     const deps = makeMockDeps();
-    const dispatcher = new CommandDispatcher(deps);
+    const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => true });
 
     const result = await dispatcher.dispatch('get-branches', { repoRoot: '/tmp/repo' });
     expect(result.success).toBe(true);
@@ -136,7 +139,7 @@ describe('CommandDispatcher', () => {
 
   it('dispatches discover-repos', async () => {
     const deps = makeMockDeps();
-    const dispatcher = new CommandDispatcher(deps);
+    const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => true });
 
     const result = await dispatcher.dispatch('discover-repos', { directory: '/tmp' });
     expect(result.success).toBe(true);
@@ -246,14 +249,18 @@ describe('CommandDispatcher', () => {
     expect(result.error).toContain('Unknown command');
   });
 
-  it('catches service errors and returns them as Result', async () => {
+  it('catches service errors and returns a sanitised category to the client', async () => {
     const deps = makeMockDeps();
-    deps.stateService.collectWorkspaces = vi.fn().mockRejectedValue(new Error('tmux not found'));
+    deps.stateService.collectWorkspaces = vi.fn().mockRejectedValue(new Error('tmux not found at /tmp/internal/path'));
     const dispatcher = new CommandDispatcher(deps);
 
     const result = await dispatcher.dispatch('get-state', {});
     expect(result.success).toBe(false);
-    expect(result.error).toContain('tmux not found');
+    // Raw filesystem path / internals must NOT leak to the client.
+    expect(result.error).not.toContain('/tmp');
+    expect(result.error).not.toContain('tmux not found');
+    // Categorised messages allowed:
+    expect(['Not found', 'Invalid argument', 'Internal error']).toContain(result.error);
   });
 
   // ── Backend-aware dispatch (native-supervisor sessions) ────────────────
@@ -452,8 +459,68 @@ describe('CommandDispatcher', () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('Branch');
+      expect(result.error).toMatch(/Invalid argument|Branch/);
       expect(deps.worktreeService.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects a malicious branch (path traversal / shell injection chars) before any side effects', async () => {
+      const deps = makeMockDeps();
+      const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => true });
+
+      const malicious = ["../escape", "x'; rm -rf /; '", "feat\nwith-newline", "-rf"];
+      for (const branch of malicious) {
+        const result = await dispatcher.dispatch('create-repo-session', {
+          workspaceName: 'Dev',
+          repoRoot: '/srv/repo',
+          mode: 'worktree',
+          branch,
+          base: 'origin/main',
+        });
+        expect(result.success).toBe(false);
+        expect(deps.worktreeService.create).not.toHaveBeenCalled();
+        expect(deps.sessionLauncher.launch).not.toHaveBeenCalled();
+      }
+    });
+
+    it('rejects malicious workspaceName / label / dir before any side effects', async () => {
+      const deps = makeMockDeps();
+      const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => true });
+
+      // Slash-containing workspace name (would corrupt session id).
+      let result = await dispatcher.dispatch('create-workspace-session', {
+        workspaceName: 'Dev/escape',
+        workspaceDir: '/srv/dev',
+      });
+      expect(result.success).toBe(false);
+
+      // Newline in label.
+      result = await dispatcher.dispatch('create-standalone-session', {
+        label: 'scratch\ninjected',
+        dir: '/tmp',
+      });
+      expect(result.success).toBe(false);
+
+      // Empty repoRoot for create-repo-session.
+      result = await dispatcher.dispatch('create-repo-session', {
+        workspaceName: 'Dev',
+        repoRoot: '',
+        mode: 'directory',
+      });
+      expect(result.success).toBe(false);
+
+      expect(deps.sessionLauncher.launch).not.toHaveBeenCalled();
+    });
+
+    it('isAllowedDirectory denial prevents the session from being created', async () => {
+      const deps = makeMockDeps();
+      const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => false });
+
+      const result = await dispatcher.dispatch('create-workspace-session', {
+        workspaceName: 'Dev',
+        workspaceDir: '/etc',
+      });
+      expect(result.success).toBe(false);
+      expect(deps.sessionLauncher.launch).not.toHaveBeenCalled();
     });
 
     it('create-workspace-session routes through sessionLauncher (not sessionService)', async () => {

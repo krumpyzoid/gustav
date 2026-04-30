@@ -309,8 +309,10 @@ export class RemoteService {
 
     const session = params.tmuxSession as string;
 
-    // S4: Validate tmux session name — only allow Gustav-managed sessions
-    if (!this.isKnownSession(session)) {
+    // S4: Validate tmux session name — only allow Gustav-managed sessions.
+    // Stricter for attach-pty: require an actual persisted session, not
+    // just a known workspace prefix.
+    if (!this.isKnownSession(session) || !this.isPersistedSession(session)) {
       this.server?.sendText(encodeControlMessage({
         type: 'session-command',
         id: msgId,
@@ -398,15 +400,34 @@ export class RemoteService {
     this.tunnelManager = null;
   }
 
-  /** S4: Check if a tmux session name is managed by Gustav */
+  /** S4: Check if a tmux session name is managed by Gustav.
+   * Stricter than the regex-only check it replaces — also rejects `..`,
+   * empty path components, and leading `-` (could be parsed as a tmux flag).
+   * For attach-pty, callers should additionally require that the session
+   * matches an actual persisted entry (see `isPersistedSession`). */
   private isKnownSession(session: string): boolean {
-    // Must match pattern: workspace/repo/branch, workspace/repo/_dir, workspace/_ws, _standalone/label
-    if (!/^[\w\-. /]+$/.test(session)) return false;
-    // Check against known workspaces and persisted sessions
+    if (typeof session !== 'string' || session.length === 0 || session.length > 256) return false;
+    if (!/^[\w][\w\-. /]*$/.test(session)) return false; // must start with word char
+    const segments = session.split('/');
+    if (segments.some((s) => s === '' || s === '.' || s === '..')) return false;
     const ws = this.deps.workspaceService.findBySessionPrefix(session);
     if (ws) return true;
-    if (session.startsWith('_standalone/')) return true;
+    if (session.startsWith('_standalone/') && segments.length === 2) return true;
     return false;
+  }
+
+  /** Stronger gate for attach-pty: require an actual persisted session, not
+   * just a known workspace prefix. Closes the gap where any
+   * `<known-workspace>/<arbitrary>` value would pass `isKnownSession`. */
+  private isPersistedSession(session: string): boolean {
+    const ws = this.deps.workspaceService.findBySessionPrefix(session);
+    if (ws) {
+      const persisted = this.deps.workspaceService.getPersistedSessions(ws.id);
+      return persisted.some((s) => s.tmuxSession === session);
+    }
+    // Standalone sessions aren't persisted today, so allow them through if
+    // they have the correct prefix shape.
+    return session.startsWith('_standalone/');
   }
 
   /** Validate directory is within a known workspace root (resolves symlinks) */
