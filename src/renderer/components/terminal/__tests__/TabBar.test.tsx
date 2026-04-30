@@ -214,6 +214,29 @@ describe('TabBar', () => {
     expect(focusTerminal).toHaveBeenCalledOnce();
   });
 
+  it('drops a concurrent tab click while a previous selectWindow is still in-flight', async () => {
+    let resolveFirst!: (v: { success: boolean }) => void;
+    const pending = new Promise<{ success: boolean }>((r) => { resolveFirst = r; });
+    storeState.activeTransport.selectWindow.mockReturnValueOnce(pending);
+
+    render(<TabBar />);
+
+    const editor = screen.getByRole('button', { name: /editor/i });
+    const tests = screen.getByRole('button', { name: /tests/i });
+
+    // First click — starts a pending selectWindow.
+    const firstClick = userEvent.click(editor);
+    // Second click — should be dropped because the first hasn't settled.
+    await userEvent.click(tests);
+
+    expect(storeState.activeTransport.selectWindow).toHaveBeenCalledTimes(1);
+    expect(storeState.activeTransport.selectWindow).toHaveBeenCalledWith('Dev/_ws', 'Editor');
+
+    // Settle the first click.
+    resolveFirst({ success: true });
+    await firstClick;
+  });
+
   it('clicking a tab refits the terminal after selectWindow resolves', async () => {
     render(<TabBar />);
 
