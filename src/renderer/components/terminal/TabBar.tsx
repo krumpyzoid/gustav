@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useAppStore } from '../../hooks/use-app-state';
-import { focusTerminal } from '../../hooks/use-terminal';
+import { focusTerminal, requestTerminalFit } from '../../hooks/use-terminal';
 import { SortableItem } from '../sidebar/SortableItem';
 import { reorderList } from '../../lib/reorder-list';
 import { LocalTransport } from '../../lib/transport/local-transport';
@@ -82,6 +82,9 @@ export function TabBar() {
     if (!session) return;
     setWindows(windows.map((w) => ({ ...w, active: w.name === windowName })));
     await activeTransport.selectWindow(session, windowName);
+    // Refit so remote sessions whose new window was rendered at stale
+    // dimensions get a fresh redraw against the live viewport (#14).
+    requestTerminalFit();
     // The button briefly steals focus on mousedown — restore it to the terminal
     // so the user can keep typing. (This used to be done by preventDefault on
     // mousedown, but that path blocks pragmatic-drag-and-drop's drag-start.)

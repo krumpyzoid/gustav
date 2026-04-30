@@ -31,8 +31,10 @@ vi.mock('../../sidebar/SortableItem', () => ({
 }));
 
 const focusTerminal = vi.fn();
+const requestTerminalFit = vi.fn();
 vi.mock('../../../hooks/use-terminal', () => ({
   focusTerminal: () => focusTerminal(),
+  requestTerminalFit: () => requestTerminalFit(),
 }));
 
 // LocalTransport is constructed inside the component when closing the last
@@ -118,6 +120,7 @@ vi.mock('../../../hooks/use-app-state', () => ({
 beforeEach(() => {
   for (const k of Object.keys(sortableProps)) delete sortableProps[k];
   focusTerminal.mockReset();
+  requestTerminalFit.mockReset();
   localTransportInstances.length = 0;
   storeState = {
     windows: [
@@ -209,6 +212,21 @@ describe('TabBar', () => {
     await userEvent.click(screen.getByRole('button', { name: /editor/i }));
 
     expect(focusTerminal).toHaveBeenCalledOnce();
+  });
+
+  it('clicking a tab refits the terminal after selectWindow resolves', async () => {
+    render(<TabBar />);
+
+    await userEvent.click(screen.getByRole('button', { name: /editor/i }));
+
+    // Refit must happen so remote PTYs whose window content was rendered at
+    // wrong dimensions get redrawn against the live viewport (#14).
+    expect(requestTerminalFit).toHaveBeenCalled();
+    // And it must follow selectWindow, not precede it.
+    const fitCallOrder = requestTerminalFit.mock.invocationCallOrder[0];
+    const selectCallOrder = (storeState.activeTransport.selectWindow as ReturnType<typeof vi.fn>)
+      .mock.invocationCallOrder[0];
+    expect(fitCallOrder).toBeGreaterThan(selectCallOrder);
   });
 
   it('focuses the terminal after creating a new window tab', async () => {
