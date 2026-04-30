@@ -92,6 +92,7 @@ vi.mock('../../../lib/transport/local-transport', () => ({
 vi.mock('../../../hooks/use-terminal', () => ({
   getTerminalSize: vi.fn(() => null),
   focusTerminal: vi.fn(),
+  requestTerminalFit: vi.fn(),
 }));
 
 // ── Store mock ────────────────────────────────────────────────────
@@ -206,6 +207,20 @@ describe('SessionTab — remote click', () => {
 
     const persistent = remoteTransports[0];
     expect(persistent.switchSession).toHaveBeenCalledWith('ws/repo/_dir', { cols: 173, rows: 47 });
+  });
+
+  it('requests a terminal fit after a successful remote switchSession', async () => {
+    const { requestTerminalFit } = await import('../../../hooks/use-terminal');
+    vi.mocked(requestTerminalFit).mockClear();
+
+    const user = userEvent.setup();
+    const remoteWindows: WindowInfo[] = [{ index: 0, name: 'main', active: true }];
+    remoteTransportSwitchData.push({ success: true, data: remoteWindows });
+
+    render(<SessionTab tab={makeTab()} isRemote />);
+    await user.click(screen.getByRole('button', { name: /repo/i }));
+
+    expect(requestTerminalFit).toHaveBeenCalled();
   });
 
   it('wakes an inactive remote session via a transient transport before attaching', async () => {

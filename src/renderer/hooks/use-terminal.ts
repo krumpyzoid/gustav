@@ -8,6 +8,7 @@ import { useAppStore } from './use-app-state';
 import type { SessionTransport } from '../lib/transport/session-transport';
 
 let globalTermRef: Terminal | null = null;
+let globalRequestFit: (() => void) | null = null;
 
 export function focusTerminal() {
   globalTermRef?.focus();
@@ -23,6 +24,18 @@ export function getTerminalSize(): { cols: number; rows: number } | null {
   const t = globalTermRef;
   if (!t) return null;
   return { cols: t.cols, rows: t.rows };
+}
+
+/**
+ * Ask the mounted terminal to refit and push the resulting cols/rows to the
+ * active transport. Use this after any *view-changing* operation that the
+ * `ResizeObserver` won't see — session switches and tab/window switches —
+ * so the PTY's dimensions and xterm.js's geometry stay in agreement (#14).
+ *
+ * No-op when no terminal is mounted (e.g. tests, headless boot).
+ */
+export function requestTerminalFit(): void {
+  globalRequestFit?.();
 }
 
 export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>) {
@@ -55,6 +68,12 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     termRef.current = term;
     fitRef.current = fitAddon;
     globalTermRef = term;
+    // Expose fit() to module-scope callers (requestTerminalFit) so view
+    // changes (session/window switches) can ask for a redraw without owning
+    // a ref to the hook. Schedule on rAF so layout settles first.
+    globalRequestFit = () => {
+      requestAnimationFrame(() => fit());
+    };
 
     function fit() {
       if (!containerRef.current) return;
@@ -181,6 +200,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     return () => {
       globalTermRef = null;
+      globalRequestFit = null;
       cancelAnimationFrame(initialFitFrame);
       document.removeEventListener('keydown', handleKeyDown);
       cleanupTheme();

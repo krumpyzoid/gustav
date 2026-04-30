@@ -8,7 +8,7 @@ import { Folder, GitBranch, Moon, Terminal, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { LocalTransport } from '../../lib/transport/local-transport';
 import { RemoteGustavTransport } from '../../lib/transport/remote-transport';
-import { getTerminalSize } from '../../hooks/use-terminal';
+import { getTerminalSize, requestTerminalFit } from '../../hooks/use-terminal';
 
 function statusLabel(status: ClaudeStatus): string {
   if (status === 'action') return 'needs input';
@@ -183,6 +183,9 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
       setRemoteActiveSession(tab.tmuxSession);
       setActiveTransport(remoteTransport);
       setWindows(result.data);
+      // Refit after the new transport is installed so the PTY's dimensions
+      // and xterm.js's viewport agree (#14).
+      requestTerminalFit();
     } else {
       remoteTransport.detach();
     }
