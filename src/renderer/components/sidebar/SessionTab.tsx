@@ -8,7 +8,7 @@ import { Folder, GitBranch, Moon, Terminal, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { LocalTransport } from '../../lib/transport/local-transport';
 import { RemoteGustavTransport } from '../../lib/transport/remote-transport';
-import { getTerminalSize, requestTerminalFit } from '../../hooks/use-terminal';
+import { getTerminalSize } from '../../hooks/use-terminal';
 import { chooseCreateCall } from './create-call-selector';
 
 function statusLabel(status: ClaudeStatus): string {
@@ -213,9 +213,10 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
       setRemoteActiveSession(sessionToAttach);
       setActiveTransport(remoteTransport);
       setWindows(result.data);
-      // Refit after the new transport is installed so the PTY's dimensions
-      // and xterm.js's viewport agree (#14).
-      requestTerminalFit();
+      // The hook's [activeTransport] effect now drives the post-swap fit
+      // (#16). We no longer call `requestTerminalFit()` here — calling it
+      // before React commits the new transport would race the data
+      // subscription, which is the bug #16 was filed to fix.
     } else {
       remoteTransport.detach();
     }

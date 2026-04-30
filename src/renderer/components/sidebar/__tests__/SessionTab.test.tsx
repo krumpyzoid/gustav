@@ -227,7 +227,7 @@ describe('SessionTab — remote click', () => {
     expect(persistent.switchSession).toHaveBeenCalledWith('ws/repo/_dir', { cols: 173, rows: 47 });
   });
 
-  it('requests a terminal fit after a successful remote switchSession', async () => {
+  it('does NOT call requestTerminalFit imperatively after switchSession (hook drives the fit on transport change — #16)', async () => {
     const { requestTerminalFit } = await import('../../../hooks/use-terminal');
     vi.mocked(requestTerminalFit).mockClear();
 
@@ -238,7 +238,10 @@ describe('SessionTab — remote click', () => {
     render(<SessionTab tab={makeTab()} isRemote />);
     await user.click(screen.getByRole('button', { name: /repo/i }));
 
-    expect(requestTerminalFit).toHaveBeenCalled();
+    // The hook owns post-swap fit now (use-terminal's [activeTransport]
+    // effect). Calling requestTerminalFit() here would race React's commit
+    // — the very bug #16 was filed to fix.
+    expect(requestTerminalFit).not.toHaveBeenCalled();
   });
 
   it('wakes an inactive remote session via a transient transport before attaching', async () => {

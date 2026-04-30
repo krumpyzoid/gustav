@@ -29,9 +29,14 @@ export function getTerminalSize(): { cols: number; rows: number } | null {
 
 /**
  * Ask the mounted terminal to refit and push the resulting cols/rows to the
- * active transport. Use this after any *view-changing* operation that the
- * `ResizeObserver` won't see — session switches and tab/window switches —
- * so the PTY's dimensions and xterm.js's geometry stay in agreement (#14).
+ * active transport.
+ *
+ * Use this after view-changing operations that the `ResizeObserver` won't
+ * see and that don't swap the active transport — primarily window-tab
+ * switches inside the same session (#14). The hook *self-fits* on every
+ * transport change via its `[activeTransport]` effect (#16), so callers
+ * should not invoke this around `setActiveTransport` — doing so races
+ * React's commit and is the bug #16 was filed to fix.
  *
  * No-op when no terminal is mounted (e.g. tests, headless boot).
  */
@@ -251,6 +256,19 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     });
 
     return cleanup;
+  }, [activeTransport]);
+
+  // ── Auto-fit on transport change (#16) ──────────────────────────
+  // After every transport swap, the new PTY's dimensions and xterm.js's
+  // viewport must be re-synced. Without this, switching to a fresh remote
+  // transport leaves the new PTY at its attach-time geometry while the
+  // renderer paints onto the (potentially different) container size — the
+  // user sees a stale or clipped buffer until they manually click a window
+  // tab. Driving the fit from a `[activeTransport]` effect closes the race
+  // by guaranteeing the fit runs *after* React's commit (and thus after
+  // the new transport is the one `currentTransport()` returns).
+  useEffect(() => {
+    requestTerminalFit();
   }, [activeTransport]);
 
   return { termRef, fitRef };
