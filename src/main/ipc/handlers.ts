@@ -18,6 +18,8 @@ import type { TabConfig } from '../domain/tab-config';
 import { snapshotSessionWindows } from './snapshot-windows';
 import { buildWindowSpecs } from './build-window-specs';
 import { applyPersistedWindowOrder } from './apply-persisted-window-order';
+import { ok as resultOk, err as resultErr } from '../domain/result-helpers';
+import { supervisorWindowsAsInfo as supWindowsAsInfo } from '../supervisor/supervisor-utils';
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -39,16 +41,11 @@ function isTabConfigArray(v: unknown): v is TabConfig[] {
   });
 }
 
-function ok<T>(data: T): Result<T> {
-  return { success: true, data };
-}
+const ok = resultOk;
+const err = resultErr;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
-}
-
-function err(message: string): Result<never> {
-  return { success: false, error: message };
 }
 
 /** Look up the Claude session ID from a previously persisted session. */
@@ -88,21 +85,17 @@ export function registerHandlers(deps: {
 }): void {
   const { worktreeService, sessionService, sessionLauncher, supervisor, stateService, themeService, workspaceService, repoConfigService, preferenceService, tmux, shell, git, getPtyClientTty, getActiveSession, setActiveSession, ensurePty, broadcastTheme, remoteService, remoteClientService, broadcastToRenderer } = deps;
 
-  /** Look up the backend for a session by id; defaults to `'tmux'` for
-   * legacy entries that predate the strangler flag and for sessions not
-   * found in any persisted state (e.g. created by a different Gustav). */
+  /** Backend lookup delegates to the shared workspaceService helper so
+   * the local IPC handler and remote dispatcher cannot drift on the
+   * `?? 'tmux'` default. */
   function backendOf(sessionId: string): SessionBackend {
-    return workspaceService.findPersistedBackend(sessionId) ?? 'tmux';
+    return workspaceService.resolveBackend(sessionId);
   }
 
-  /** Build a `WindowInfo[]` from the supervisor's window list for renderer
-   * compatibility. The supervisor owns its own ids; we synthesize indices. */
+  /** Bind the shared `supervisorWindowsAsInfo` helper to this scope's
+   * supervisor so call sites stay terse. */
   function supervisorWindowsAsInfo(sessionId: string): WindowInfo[] {
-    return supervisor.listWindows(sessionId).map((w, index) => ({
-      index,
-      name: w.name,
-      active: false, // supervisor exposes activeWindowId via listWindows; renderer uses persisted order
-    }));
+    return supWindowsAsInfo(supervisor, sessionId);
   }
 
   /** Ensure PTY is running, switch tmux client to the given session, and mark it active. */

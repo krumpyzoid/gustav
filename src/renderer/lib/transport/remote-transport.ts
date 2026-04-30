@@ -1,5 +1,6 @@
 import type { WorkspaceAppState, WindowInfo, BranchInfo, Result } from '../../../main/domain/types';
 import type { SessionTransport } from './session-transport';
+import { RemoteCommand } from '../../../shared/remote-commands';
 
 /**
  * RemoteGustavTransport — adapts the WebSocket-backed remote IPC to the
@@ -50,7 +51,7 @@ export class RemoteGustavTransport implements SessionTransport {
    * that need a one-shot snapshot.
    */
   async getState(): Promise<WorkspaceAppState> {
-    const r = await window.api.remoteSessionCommand('get-state', {});
+    const r = await window.api.remoteSessionCommand(RemoteCommand.GetState, {});
     if (!r.success) throw new Error(r.error || 'get-state failed');
     return r.data as WorkspaceAppState;
   }
@@ -69,12 +70,12 @@ export class RemoteGustavTransport implements SessionTransport {
    */
   async switchSession(session: string): Promise<Result<WindowInfo[]>> {
     if (this.ptyChannelId !== null) {
-      window.api.remoteSessionCommand('detach-pty', { channelId: this.ptyChannelId });
+      window.api.remoteSessionCommand(RemoteCommand.DetachPty, { channelId: this.ptyChannelId });
       this.ptyChannelId = null;
     }
 
     const attach = await window.api.remoteSessionCommand(
-      'attach-pty',
+      RemoteCommand.AttachPty,
       { tmuxSession: session, cols: 80, rows: 24 },
     );
     if (!attach.success) {
@@ -86,7 +87,7 @@ export class RemoteGustavTransport implements SessionTransport {
     }
     this.ptyChannelId = channelId;
 
-    const windows = await window.api.remoteSessionCommand('list-windows', { session });
+    const windows = await window.api.remoteSessionCommand(RemoteCommand.ListWindows, { session });
     if (!windows.success) {
       return { success: false, error: windows.error ?? 'list-windows failed' };
     }
@@ -94,67 +95,65 @@ export class RemoteGustavTransport implements SessionTransport {
   }
 
   async sleepSession(session: string): Promise<Result<void>> {
-    const r = await window.api.remoteSessionCommand('sleep-session', { session });
+    const r = await window.api.remoteSessionCommand(RemoteCommand.SleepSession, { session });
     return toVoidResult(r);
   }
 
   async wakeSession(session: string): Promise<Result<WindowInfo[]>> {
-    const r = await window.api.remoteSessionCommand('wake-session', { session });
+    const r = await window.api.remoteSessionCommand(RemoteCommand.WakeSession, { session });
     if (!r.success) return { success: false, error: r.error ?? 'wake-session failed' };
-    // wake-session itself returns ok(undefined); a follow-up list-windows
-    // gives the windows. Mirror the local switchSession contract.
-    const windows = await window.api.remoteSessionCommand('list-windows', { session });
+    const windows = await window.api.remoteSessionCommand(RemoteCommand.ListWindows, { session });
     if (!windows.success) return { success: false, error: windows.error ?? 'list-windows failed' };
     return { success: true, data: (windows.data as WindowInfo[]) ?? [] };
   }
 
   async destroySession(session: string): Promise<Result<void>> {
-    const r = await window.api.remoteSessionCommand('destroy-session', { session });
+    const r = await window.api.remoteSessionCommand(RemoteCommand.DestroySession, { session });
     return toVoidResult(r);
   }
 
   // ── Window commands ────────────────────────────────────────────
   async selectWindow(session: string, windowName: string): Promise<Result<void>> {
     const r = await window.api.remoteSessionCommand(
-      'select-window',
+      RemoteCommand.SelectWindow,
       { session, window: windowName },
     );
     return toVoidResult(r);
   }
 
   async newWindow(session: string, name: string): Promise<Result<void>> {
-    const r = await window.api.remoteSessionCommand('new-window', { session, name });
+    const r = await window.api.remoteSessionCommand(RemoteCommand.NewWindow, { session, name });
     return toVoidResult(r);
   }
 
   async killWindow(session: string, windowIndex: number): Promise<Result<void>> {
-    const r = await window.api.remoteSessionCommand('kill-window', { session, windowIndex });
+    const r = await window.api.remoteSessionCommand(RemoteCommand.KillWindow, { session, windowIndex });
     return toVoidResult(r);
   }
 
   async setWindowOrder(session: string, names: string[]): Promise<Result<void>> {
-    const r = await window.api.remoteSessionCommand('set-window-order', { session, names });
+    const r = await window.api.remoteSessionCommand(RemoteCommand.SetWindowOrder, { session, names });
     return toVoidResult(r);
   }
 
   // ── Session creation ───────────────────────────────────────────
   async createWorkspaceSession(workspaceName: string, workspaceDir: string, label?: string): Promise<Result<string>> {
-    const r = await window.api.remoteSessionCommand('create-workspace-session', { workspaceName, workspaceDir, label });
+    const r = await window.api.remoteSessionCommand(RemoteCommand.CreateWorkspaceSession, { workspaceName, workspaceDir, label });
     return toStringResult(r);
   }
 
   async createRepoSession(workspaceName: string, repoRoot: string, mode: 'directory' | 'worktree', branch?: string, base?: string): Promise<Result<string>> {
-    const r = await window.api.remoteSessionCommand('create-repo-session', { workspaceName, repoRoot, mode, branch, base });
+    const r = await window.api.remoteSessionCommand(RemoteCommand.CreateRepoSession, { workspaceName, repoRoot, mode, branch, base });
     return toStringResult(r);
   }
 
   async createStandaloneSession(label: string, dir: string): Promise<Result<string>> {
-    const r = await window.api.remoteSessionCommand('create-standalone-session', { label, dir });
+    const r = await window.api.remoteSessionCommand(RemoteCommand.CreateStandaloneSession, { label, dir });
     return toStringResult(r);
   }
 
   async getBranches(repoRoot: string): Promise<BranchInfo[]> {
-    const r = await window.api.remoteSessionCommand('get-branches', { repoRoot });
+    const r = await window.api.remoteSessionCommand(RemoteCommand.GetBranches, { repoRoot });
     if (!r.success) return [];
     return (r.data as BranchInfo[]) ?? [];
   }
@@ -162,7 +161,7 @@ export class RemoteGustavTransport implements SessionTransport {
   // ── Lifecycle ──────────────────────────────────────────────────
   detach(): void {
     if (this.ptyChannelId !== null) {
-      window.api.remoteSessionCommand('detach-pty', { channelId: this.ptyChannelId });
+      window.api.remoteSessionCommand(RemoteCommand.DetachPty, { channelId: this.ptyChannelId });
       this.ptyChannelId = null;
     }
     for (const cleanup of this.cleanups) cleanup();

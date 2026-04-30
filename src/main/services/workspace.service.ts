@@ -219,6 +219,17 @@ export class WorkspaceService {
     return getBackend(persisted);
   }
 
+  /**
+   * Resolve the backend for a session. Returns `'tmux'` when the session is
+   * not in any persisted entry — covers legacy sessions that predate the
+   * strangler flag and sessions created by a different Gustav process.
+   * Centralises the `?? 'tmux'` default that was previously duplicated in
+   * every IPC and remote-dispatcher call site.
+   */
+  resolveBackend(sessionId: string): SessionBackend {
+    return this.findPersistedBackend(sessionId) ?? 'tmux';
+  }
+
   findByDirectory(directory: string): Workspace | undefined {
     return this.list().find((w) => w.directory === directory);
   }

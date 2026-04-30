@@ -8,7 +8,9 @@ import type { SessionLauncherService } from '../services/session-launcher.servic
 import type { SessionSupervisorPort } from '../supervisor/supervisor.port';
 import type { GitPort } from '../ports/git.port';
 import type { TmuxPort } from '../ports/tmux.port';
-import type { Result, SessionBackend, WindowInfo, WindowSpec, SessionType } from '../domain/types';
+import type { Result, WindowSpec, SessionType } from '../domain/types';
+import { ok, err } from '../domain/result-helpers';
+import { supervisorWindowsAsInfo } from '../supervisor/supervisor-utils';
 import { buildWindowSpecs } from '../ipc/build-window-specs';
 import { applyPersistedWindowOrder } from '../ipc/apply-persisted-window-order';
 import { basename, join } from 'node:path';
@@ -79,20 +81,10 @@ function sanitiseError(e: unknown): string {
 export class CommandDispatcher {
   constructor(private deps: DispatcherDeps) {}
 
-  /** Look up the backend for a session; defaults to `'tmux'` for legacy
-   * entries with no recorded backend. Mirrors the local IPC helper. */
-  private backendOf(sessionId: string): SessionBackend {
-    return this.deps.workspaceService.findPersistedBackend(sessionId) ?? 'tmux';
-  }
-
-  /** Build a `WindowInfo[]` from supervisor's window list. The supervisor
-   * uses string ids; we synthesize numeric indices to match the renderer. */
-  private supervisorWindowsAsInfo(sessionId: string): WindowInfo[] {
-    return this.deps.supervisor.listWindows(sessionId).map((w, index) => ({
-      index,
-      name: w.name,
-      active: false,
-    }));
+  /** Look up the backend for a session via the workspace service's
+   * centralised `resolveBackend` helper (defaults to `'tmux'` on miss). */
+  private backendOf(sessionId: string) {
+    return this.deps.workspaceService.resolveBackend(sessionId);
   }
 
   async dispatch(command: string, params: Record<string, unknown>): Promise<DispatchResult> {
@@ -219,7 +211,7 @@ export class CommandDispatcher {
             return err('Unknown session');
           }
           if (this.backendOf(session) === 'native') {
-            return ok(this.supervisorWindowsAsInfo(session));
+            return ok(supervisorWindowsAsInfo(this.deps.supervisor, session));
           }
           const live = await this.deps.tmux.listWindows(session);
           const ws = this.deps.workspaceService.findBySessionPrefix(session);
@@ -265,7 +257,7 @@ export class CommandDispatcher {
                 windows: persisted.windows,
               });
             }
-            return ok(this.supervisorWindowsAsInfo(session));
+            return ok(supervisorWindowsAsInfo(this.deps.supervisor, session));
           }
           await this.deps.sessionService.restoreSession(persisted);
           return ok(undefined);
@@ -412,10 +404,3 @@ export class CommandDispatcher {
   }
 }
 
-function ok<T>(data: T): Result<T> {
-  return { success: true, data };
-}
-
-function err(message: string): Result<never> {
-  return { success: false, error: message };
-}

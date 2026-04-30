@@ -28,6 +28,7 @@ function makeMockDeps() {
     create: vi.fn().mockResolvedValue({ id: 'ws1', name: 'test', directory: '/tmp' }),
     findBySessionPrefix: vi.fn().mockReturnValue(null),
     findPersistedBackend: vi.fn().mockReturnValue(null),
+    resolveBackend: vi.fn().mockReturnValue('tmux'),
     getPersistedSessions: vi.fn().mockReturnValue([]),
     persistSession: vi.fn(),
     removeSession: vi.fn(),
@@ -268,6 +269,7 @@ describe('CommandDispatcher', () => {
     function withNativePersisted(deps: ReturnType<typeof makeMockDeps>, sessionId = 'ws/repo/_dir') {
       deps.workspaceService.findBySessionPrefix = vi.fn().mockReturnValue({ id: 'ws1', name: 'ws' });
       deps.workspaceService.findPersistedBackend = vi.fn().mockReturnValue('native');
+      deps.workspaceService.resolveBackend = vi.fn().mockReturnValue('native');
       deps.workspaceService.getPersistedSessions = vi.fn().mockReturnValue([
         { tmuxSession: sessionId, type: 'directory', directory: '/srv/repo', windows: [{ name: 'shell', kind: 'command', command: '', directory: '/srv/repo' }], backend: 'native' },
       ]);
