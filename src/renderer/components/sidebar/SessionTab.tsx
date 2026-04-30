@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { LocalTransport } from '../../lib/transport/local-transport';
 import { RemoteGustavTransport } from '../../lib/transport/remote-transport';
 import { getTerminalSize, requestTerminalFit } from '../../hooks/use-terminal';
+import { chooseCreateCall } from './create-call-selector';
 
 function statusLabel(status: ClaudeStatus): string {
   if (status === 'action') return 'needs input';
@@ -105,18 +106,22 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
         return;
       }
       // Fallback: create fresh session (for entries with no persisted snapshot).
-      // Construct the transport eagerly so it can be detached on every error
-      // path; only `setActiveTransport` callers transfer ownership to the store.
+      // Dispatch through `chooseCreateCall` so the local and remote paths
+      // share one decision point and the missing-prop case becomes
+      // auditable instead of a silent no-op (#18).
+      const choice = chooseCreateCall(tab, { workspaceName, workspaceDir, repoRoot });
+      if (choice.kind === 'unsupported') {
+        console.error(`[gustav] cannot start session for ${tab.tmuxSession}: ${choice.reason}`);
+        refreshState();
+        return;
+      }
       let result: { success: boolean; data?: string; error?: string } | undefined;
-      if (tab.type === 'workspace' && workspaceName && workspaceDir) {
-        const parts = tab.tmuxSession.split('/');
-        const last = parts[parts.length - 1];
-        const label = last === '_ws' ? undefined : last;
-        result = await window.api.createWorkspaceSession(workspaceName, workspaceDir, label);
-      } else if (tab.type === 'worktree' && workspaceName && repoRoot && tab.branch && tab.worktreePath) {
-        result = await window.api.launchWorktreeSession(workspaceName, repoRoot, tab.branch, tab.worktreePath);
-      } else if (tab.type === 'directory' && workspaceName && repoRoot) {
-        result = await window.api.createRepoSession(workspaceName, repoRoot, 'directory');
+      if (choice.kind === 'workspace') {
+        result = await window.api.createWorkspaceSession(choice.workspaceName, choice.workspaceDir, choice.label);
+      } else if (choice.kind === 'worktree') {
+        result = await window.api.launchWorktreeSession(choice.workspaceName, choice.repoRoot, choice.branch, choice.worktreePath);
+      } else if (choice.kind === 'directory') {
+        result = await window.api.createRepoSession(choice.workspaceName, choice.repoRoot, 'directory');
       }
       if (result?.success && result.data) {
         setActiveSession(result.data);

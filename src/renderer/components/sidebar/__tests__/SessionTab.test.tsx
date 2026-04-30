@@ -124,6 +124,9 @@ const api = {
   wakeSession: vi.fn().mockResolvedValue({ success: false }),
   sleepSession: vi.fn().mockResolvedValue({ success: true }),
   destroySession: vi.fn().mockResolvedValue({ success: true }),
+  createWorkspaceSession: vi.fn().mockResolvedValue({ success: true, data: 'Dev/scratch' }),
+  launchWorktreeSession: vi.fn().mockResolvedValue({ success: true, data: 'Dev/repo/feat-x' }),
+  createRepoSession: vi.fn().mockResolvedValue({ success: true, data: 'Dev/repo/_dir' }),
 };
 
 beforeEach(() => {
@@ -136,6 +139,9 @@ beforeEach(() => {
   api.wakeSession.mockResolvedValue({ success: false });
   api.sleepSession.mockResolvedValue({ success: true });
   api.destroySession.mockResolvedValue({ success: true });
+  api.createWorkspaceSession.mockResolvedValue({ success: true, data: 'Dev/scratch' });
+  api.launchWorktreeSession.mockResolvedValue({ success: true, data: 'Dev/repo/feat-x' });
+  api.createRepoSession.mockResolvedValue({ success: true, data: 'Dev/repo/_dir' });
   // @ts-expect-error — partial window.api for tests
   globalThis.window.api = api;
   storeState = {
@@ -325,5 +331,100 @@ describe('SessionTab — sleep / destroy command routing', () => {
 
     expect(remoteTransports.length).toBe(1);
     expect(remoteTransports[0].destroySession).toHaveBeenCalledWith('ws/repo/_dir');
+  });
+});
+
+describe('SessionTab — local click create-fallback after wake fails (#18)', () => {
+  it('clicks a directory tab whose wake fails → calls createRepoSession', async () => {
+    api.wakeSession.mockResolvedValue({ success: false });
+    api.createRepoSession.mockResolvedValue({ success: true, data: 'Dev/repo/_dir' });
+
+    const user = userEvent.setup();
+    render(
+      <SessionTab
+        tab={makeTab({ active: false, type: 'directory' })}
+        workspaceName="Dev"
+        repoRoot="/srv/repo"
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /repo/i }));
+
+    expect(api.wakeSession).toHaveBeenCalled();
+    expect(api.createRepoSession).toHaveBeenCalledWith('Dev', '/srv/repo', 'directory');
+  });
+
+  it('clicks a worktree tab whose wake fails → calls launchWorktreeSession', async () => {
+    api.wakeSession.mockResolvedValue({ success: false });
+    api.launchWorktreeSession.mockResolvedValue({ success: true, data: 'Dev/repo/feat-x' });
+
+    const user = userEvent.setup();
+    render(
+      <SessionTab
+        tab={makeTab({
+          active: false,
+          type: 'worktree',
+          branch: 'feat/x',
+          worktreePath: '/srv/repo/.worktrees/feat-x',
+        })}
+        workspaceName="Dev"
+        repoRoot="/srv/repo"
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /feat\/x/i }));
+
+    expect(api.launchWorktreeSession).toHaveBeenCalledWith(
+      'Dev',
+      '/srv/repo',
+      'feat/x',
+      '/srv/repo/.worktrees/feat-x',
+    );
+  });
+
+  it('clicks a workspace tab whose wake fails → calls createWorkspaceSession with extracted label', async () => {
+    api.wakeSession.mockResolvedValue({ success: false });
+    api.createWorkspaceSession.mockResolvedValue({ success: true, data: 'Dev/scratch' });
+
+    const user = userEvent.setup();
+    render(
+      <SessionTab
+        tab={makeTab({
+          active: false,
+          type: 'workspace',
+          tmuxSession: 'Dev/scratch',
+          repoName: null,
+        })}
+        workspaceName="Dev"
+        workspaceDir="/srv/dev"
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /scratch/i }));
+
+    expect(api.createWorkspaceSession).toHaveBeenCalledWith('Dev', '/srv/dev', 'scratch');
+  });
+
+  it('directory tab missing repoRoot → surfaces a console.error instead of silently no-op-ing', async () => {
+    api.wakeSession.mockResolvedValue({ success: false });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const user = userEvent.setup();
+    render(
+      <SessionTab
+        tab={makeTab({ active: false, type: 'directory' })}
+        workspaceName="Dev"
+        // repoRoot intentionally omitted
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /repo/i }));
+
+    expect(api.createRepoSession).not.toHaveBeenCalled();
+    // Look for an error mentioning the missing prop, not a silent no-op.
+    const calls = errorSpy.mock.calls.map((c) => c.join(' '));
+    expect(calls.some((line) => /repoRoot/.test(line))).toBe(true);
+
+    errorSpy.mockRestore();
   });
 });
