@@ -68,14 +68,22 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     termRef.current = term;
     fitRef.current = fitAddon;
     globalTermRef = term;
+    // Captured by the closures below — flipped to true in cleanup so any
+    // already-scheduled rAF callback short-circuits instead of touching a
+    // disposed Terminal / fitAddon (use-after-unmount guard).
+    let disposed = false;
     // Expose fit() to module-scope callers (requestTerminalFit) so view
     // changes (session/window switches) can ask for a redraw without owning
     // a ref to the hook. Schedule on rAF so layout settles first.
     globalRequestFit = () => {
-      requestAnimationFrame(() => fit());
+      requestAnimationFrame(() => {
+        if (disposed) return;
+        fit();
+      });
     };
 
     function fit() {
+      if (disposed) return;
       if (!containerRef.current) return;
       // The container may not have laid out yet on first mount. Without dimensions
       // FitAddon would compute 0 cols/rows.
@@ -86,17 +94,19 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
         firstFitDoneRef.current = true;
         if (earlyBufferRef.current.length > 0) {
           term.write(earlyBufferRef.current.join(''));
-          earlyBufferRef.current.length = 0;
+          earlyBufferRef.current = [];
         }
       }
     }
 
     // rAF instead of setTimeout(_, 100) — guarantees layout is computed before
-    // the first fit, no arbitrary delay.
+    // the first fit, no arbitrary delay. Also guarded by `disposed` so a
+    // cleanup that races a pending tryFit doesn't leave a self-rescheduling
+    // loop alive.
     let initialFitFrame = requestAnimationFrame(function tryFit() {
-      if (firstFitDoneRef.current) return;
+      if (disposed || firstFitDoneRef.current) return;
       fit();
-      if (!firstFitDoneRef.current) initialFitFrame = requestAnimationFrame(tryFit);
+      if (!disposed && !firstFitDoneRef.current) initialFitFrame = requestAnimationFrame(tryFit);
     });
 
     const resizeObserver = new ResizeObserver(() => fit());
@@ -207,6 +217,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     term.focus();
 
     return () => {
+      disposed = true;
       globalTermRef = null;
       globalRequestFit = null;
       cancelAnimationFrame(initialFitFrame);

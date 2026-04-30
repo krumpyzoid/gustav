@@ -107,7 +107,7 @@ vi.mock('../use-theme', () => ({
   xtermTheme: () => ({}),
 }));
 
-import { useTerminal } from '../use-terminal';
+import { useTerminal, requestTerminalFit } from '../use-terminal';
 
 describe('use-terminal — onData routing invariant (#15)', () => {
   beforeEach(() => {
@@ -155,5 +155,48 @@ describe('use-terminal — onData routing invariant (#15)', () => {
 
     expect(sendPtyInput).toHaveBeenCalledWith('x');
     expect(captured.writeCalls.length).toBe(writeCallsBefore);
+  });
+});
+
+describe('use-terminal — rAF use-after-unmount guard', () => {
+  it('a rAF scheduled before unmount short-circuits without calling fitAddon or terminal methods', () => {
+    // Capture the rAF callback so we can fire it manually after unmount.
+    const rafCallbacks: FrameRequestCallback[] = [];
+    const rafSpy = vi
+      .spyOn(globalThis, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        rafCallbacks.push(cb);
+        return rafCallbacks.length;
+      });
+
+    function HostHook() {
+      const ref = useRef<HTMLDivElement>(null);
+      if (ref.current === null) {
+        ref.current = document.createElement('div');
+      }
+      useTerminal(ref);
+      return null;
+    }
+
+    const { unmount } = renderHook(() => HostHook());
+
+    // Schedule a fit — under fake rAF the callback queues but does not run.
+    requestTerminalFit();
+
+    // Unmount before the queued rAF fires.
+    unmount();
+
+    // Now flush all queued rAF callbacks. The post-unmount fit must NOT
+    // touch fitAddon.fit() or term.write — both of which would be acting
+    // on a disposed Terminal instance.
+    fakeTermInstance.write.mockClear();
+    const writeCountBefore = fakeTermInstance.write.mock.calls.length;
+    for (const cb of rafCallbacks) cb(performance.now());
+
+    expect(fakeTermInstance.write.mock.calls.length).toBe(writeCountBefore);
+    // The transport must not see a stale resize push for a disposed terminal either.
+    expect(activeTransport.sendPtyResize).not.toHaveBeenCalled();
+
+    rafSpy.mockRestore();
   });
 });
