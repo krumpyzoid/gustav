@@ -99,18 +99,19 @@ const stateService = new StateService(gitAdapter, tmuxAdapter, workspaceService,
 const sessionLauncher = new SessionLauncherService(sessionService, nativeSupervisor, preferenceService);
 
 const dataDir = require('node:path').join(require('node:os').homedir(), '.local', 'share', 'gustav');
+const worktreeService = new WorktreeService(
+  gitAdapter, fsAdapter, shellAdapter, repoConfigService, sessionService, workspaceService,
+);
 const remoteService = new RemoteService({
-  stateService, sessionService, workspaceService,
+  stateService, sessionService, workspaceService, worktreeService,
   repoConfigService, preferenceService,
+  sessionLauncher, supervisor: nativeSupervisor,
   git: gitAdapter, tmux: tmuxAdapter, shell: shellAdapter, dataDir,
 });
 const remoteClientService = new RemoteClientService(dataDir);
 
 // Apply saved theme preference at startup
 themeService.setPreference(preferenceService.load().theme);
-const worktreeService = new WorktreeService(
-  gitAdapter, fsAdapter, shellAdapter, repoConfigService, sessionService, workspaceService,
-);
 
 // ── PTY ───────────────────────────────────────────────────────────
 async function getPtyClientTty(): Promise<string | null> {

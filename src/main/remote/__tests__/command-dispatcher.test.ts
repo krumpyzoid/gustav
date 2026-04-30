@@ -27,6 +27,7 @@ function makeMockDeps() {
     list: vi.fn().mockReturnValue([]),
     create: vi.fn().mockResolvedValue({ id: 'ws1', name: 'test', directory: '/tmp' }),
     findBySessionPrefix: vi.fn().mockReturnValue(null),
+    findPersistedBackend: vi.fn().mockReturnValue(null),
     getPersistedSessions: vi.fn().mockReturnValue([]),
     persistSession: vi.fn(),
     removeSession: vi.fn(),
@@ -54,9 +55,31 @@ function makeMockDeps() {
 
   const git = {
     listBranches: vi.fn().mockResolvedValue([]),
+    getWorktreeDir: vi.fn().mockReturnValue('/tmp/worktrees'),
   } as unknown as GitPort;
 
-  return { stateService, sessionService, workspaceService, tmux, repoConfigService, preferenceService, git };
+  const supervisor = {
+    hasSession: vi.fn().mockReturnValue(false),
+    listSessions: vi.fn().mockReturnValue([]),
+    listWindows: vi.fn().mockReturnValue([]),
+    createSession: vi.fn().mockResolvedValue(undefined),
+    sleepSession: vi.fn().mockResolvedValue(undefined),
+    wakeSession: vi.fn().mockResolvedValue(undefined),
+    killSession: vi.fn().mockResolvedValue(undefined),
+    addWindow: vi.fn().mockResolvedValue('w-id'),
+    selectWindow: vi.fn().mockResolvedValue(undefined),
+    killWindow: vi.fn().mockResolvedValue(undefined),
+  } as unknown as import('../../supervisor/supervisor.port').SessionSupervisorPort;
+
+  const sessionLauncher = {
+    launch: vi.fn().mockResolvedValue({ sessionId: 'ws/session', backend: 'tmux' }),
+  } as unknown as import('../../services/session-launcher.service').SessionLauncherService;
+
+  const worktreeService = {
+    create: vi.fn().mockResolvedValue(undefined),
+  } as unknown as WorktreeService;
+
+  return { stateService, sessionService, workspaceService, tmux, repoConfigService, preferenceService, git, supervisor, sessionLauncher, worktreeService };
 }
 
 describe('CommandDispatcher', () => {
@@ -231,5 +254,176 @@ describe('CommandDispatcher', () => {
     const result = await dispatcher.dispatch('get-state', {});
     expect(result.success).toBe(false);
     expect(result.error).toContain('tmux not found');
+  });
+
+  // ── Backend-aware dispatch (native-supervisor sessions) ────────────────
+  describe('backend dispatch', () => {
+    function withNativePersisted(deps: ReturnType<typeof makeMockDeps>, sessionId = 'ws/repo/_dir') {
+      deps.workspaceService.findBySessionPrefix = vi.fn().mockReturnValue({ id: 'ws1', name: 'ws' });
+      deps.workspaceService.findPersistedBackend = vi.fn().mockReturnValue('native');
+      deps.workspaceService.getPersistedSessions = vi.fn().mockReturnValue([
+        { tmuxSession: sessionId, type: 'directory', directory: '/srv/repo', windows: [{ name: 'shell', kind: 'command', command: '', directory: '/srv/repo' }], backend: 'native' },
+      ]);
+      return sessionId;
+    }
+
+    it('wake-session routes to supervisor.wakeSession when supervisor already owns the session', async () => {
+      const deps = makeMockDeps();
+      const session = withNativePersisted(deps);
+      deps.supervisor.hasSession = vi.fn().mockReturnValue(true);
+      deps.supervisor.listWindows = vi.fn().mockReturnValue([{ id: 'w0', name: 'shell', spec: {}, state: 'running', exitCode: null }]);
+      const dispatcher = new CommandDispatcher(deps);
+
+      const result = await dispatcher.dispatch('wake-session', { session });
+
+      expect(result.success).toBe(true);
+      expect(deps.supervisor.wakeSession).toHaveBeenCalledWith(session);
+      expect(deps.supervisor.createSession).not.toHaveBeenCalled();
+      expect(deps.sessionService.restoreSession).not.toHaveBeenCalled();
+    });
+
+    it('wake-session routes to supervisor.createSession when supervisor has no session', async () => {
+      const deps = makeMockDeps();
+      const session = withNativePersisted(deps);
+      deps.supervisor.hasSession = vi.fn().mockReturnValue(false);
+      deps.supervisor.listWindows = vi.fn().mockReturnValue([{ id: 'w0', name: 'shell', spec: {}, state: 'running', exitCode: null }]);
+      const dispatcher = new CommandDispatcher(deps);
+
+      const result = await dispatcher.dispatch('wake-session', { session });
+
+      expect(result.success).toBe(true);
+      expect(deps.supervisor.createSession).toHaveBeenCalledWith(expect.objectContaining({
+        sessionId: session,
+        cwd: '/srv/repo',
+      }));
+      expect(deps.sessionService.restoreSession).not.toHaveBeenCalled();
+    });
+
+    it('sleep-session routes to supervisor.sleepSession for native sessions', async () => {
+      const deps = makeMockDeps();
+      const session = withNativePersisted(deps);
+      deps.supervisor.hasSession = vi.fn().mockReturnValue(true);
+      const dispatcher = new CommandDispatcher(deps);
+
+      const result = await dispatcher.dispatch('sleep-session', { session });
+
+      expect(result.success).toBe(true);
+      expect(deps.supervisor.sleepSession).toHaveBeenCalledWith(session);
+      expect(deps.tmux.killSession).not.toHaveBeenCalled();
+    });
+
+    it('destroy-session routes to supervisor.killSession for native sessions and removes persisted entry', async () => {
+      const deps = makeMockDeps();
+      const session = withNativePersisted(deps);
+      deps.supervisor.hasSession = vi.fn().mockReturnValue(true);
+      const dispatcher = new CommandDispatcher(deps);
+
+      const result = await dispatcher.dispatch('destroy-session', { session });
+
+      expect(result.success).toBe(true);
+      expect(deps.supervisor.killSession).toHaveBeenCalledWith(session);
+      expect(deps.tmux.killSession).not.toHaveBeenCalled();
+      expect(deps.workspaceService.removeSession).toHaveBeenCalledWith('ws1', session);
+    });
+
+    it('select-window routes to supervisor for native sessions, looking up by name', async () => {
+      const deps = makeMockDeps();
+      const session = withNativePersisted(deps);
+      deps.supervisor.listWindows = vi.fn().mockReturnValue([
+        { id: 'w0', name: 'shell', spec: {}, state: 'running', exitCode: null },
+        { id: 'w1', name: 'editor', spec: {}, state: 'running', exitCode: null },
+      ]);
+      const dispatcher = new CommandDispatcher(deps);
+
+      const result = await dispatcher.dispatch('select-window', { session, window: 'editor' });
+
+      expect(result.success).toBe(true);
+      expect(deps.supervisor.selectWindow).toHaveBeenCalledWith(session, 'w1');
+      expect(deps.tmux.selectWindow).not.toHaveBeenCalled();
+    });
+
+    it('new-window routes to supervisor.addWindow + selectWindow for native sessions', async () => {
+      const deps = makeMockDeps();
+      const session = withNativePersisted(deps);
+      const dispatcher = new CommandDispatcher(deps);
+
+      const result = await dispatcher.dispatch('new-window', { session, name: 'logs' });
+
+      expect(result.success).toBe(true);
+      expect(deps.supervisor.addWindow).toHaveBeenCalledWith(session, expect.objectContaining({ name: 'logs' }));
+      expect(deps.supervisor.selectWindow).toHaveBeenCalledWith(session, 'w-id');
+      expect(deps.tmux.newWindow).not.toHaveBeenCalled();
+    });
+
+    it('kill-window routes to supervisor.killWindow for native sessions when more than one window', async () => {
+      const deps = makeMockDeps();
+      const session = withNativePersisted(deps);
+      deps.supervisor.listWindows = vi.fn().mockReturnValue([
+        { id: 'w0', name: 'shell', spec: {}, state: 'running', exitCode: null },
+        { id: 'w1', name: 'editor', spec: {}, state: 'running', exitCode: null },
+      ]);
+      const dispatcher = new CommandDispatcher(deps);
+
+      const result = await dispatcher.dispatch('kill-window', { session, windowIndex: 1 });
+
+      expect(result.success).toBe(true);
+      expect(deps.supervisor.killWindow).toHaveBeenCalledWith(session, 'w1');
+      expect(deps.supervisor.killSession).not.toHaveBeenCalled();
+      expect(deps.tmux.killWindow).not.toHaveBeenCalled();
+    });
+
+    it('kill-window of last native window kills the session', async () => {
+      const deps = makeMockDeps();
+      const session = withNativePersisted(deps);
+      deps.supervisor.listWindows = vi.fn().mockReturnValue([
+        { id: 'w0', name: 'shell', spec: {}, state: 'running', exitCode: null },
+      ]);
+      const dispatcher = new CommandDispatcher(deps);
+
+      const result = await dispatcher.dispatch('kill-window', { session, windowIndex: 0 });
+
+      expect(result.success).toBe(true);
+      expect(deps.supervisor.killSession).toHaveBeenCalledWith(session);
+      expect(deps.supervisor.killWindow).not.toHaveBeenCalled();
+    });
+
+    it('list-windows returns supervisor windows for native sessions', async () => {
+      const deps = makeMockDeps();
+      const session = withNativePersisted(deps);
+      deps.supervisor.listWindows = vi.fn().mockReturnValue([
+        { id: 'w0', name: 'shell', spec: {}, state: 'running', exitCode: null },
+        { id: 'w1', name: 'editor', spec: {}, state: 'running', exitCode: null },
+      ]);
+      const dispatcher = new CommandDispatcher(deps);
+
+      const result = await dispatcher.dispatch('list-windows', { session });
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual([
+        { index: 0, name: 'shell', active: false },
+        { index: 1, name: 'editor', active: false },
+      ]);
+      expect(deps.tmux.listWindows).not.toHaveBeenCalled();
+    });
+
+    it('create-workspace-session routes through sessionLauncher (not sessionService)', async () => {
+      const deps = makeMockDeps();
+      deps.workspaceService.list = vi.fn().mockReturnValue([{ id: 'ws1', name: 'test', directory: '/tmp' }]);
+      deps.sessionLauncher.launch = vi.fn().mockResolvedValue({ sessionId: 'test/_ws', backend: 'native' });
+      const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => true });
+
+      const result = await dispatcher.dispatch('create-workspace-session', {
+        workspaceName: 'test',
+        workspaceDir: '/tmp',
+      });
+
+      expect(result.success).toBe(true);
+      expect(deps.sessionLauncher.launch).toHaveBeenCalled();
+      expect(deps.sessionService.launchSession).not.toHaveBeenCalled();
+      expect(deps.workspaceService.persistSession).toHaveBeenCalledWith('ws1', expect.objectContaining({
+        backend: 'native',
+        type: 'workspace',
+      }));
+    });
   });
 });

@@ -18,8 +18,11 @@ export type RemoteServiceDeps = {
   stateService: StateService;
   sessionService: SessionService;
   workspaceService: WorkspaceService;
+  worktreeService: import('../services/worktree.service').WorktreeService;
   repoConfigService: import('../services/repo-config.service').RepoConfigService;
   preferenceService: import('../services/preference.service').PreferenceService;
+  sessionLauncher: import('../services/session-launcher.service').SessionLauncherService;
+  supervisor: import('../supervisor/supervisor.port').SessionSupervisorPort;
   git: GitPort;
   tmux: TmuxPort;
   shell: ShellPort;
@@ -52,8 +55,11 @@ export class RemoteService {
       stateService: deps.stateService,
       sessionService: deps.sessionService,
       workspaceService: deps.workspaceService,
+      worktreeService: deps.worktreeService,
       repoConfigService: deps.repoConfigService,
       preferenceService: deps.preferenceService,
+      sessionLauncher: deps.sessionLauncher,
+      supervisor: deps.supervisor,
       git: deps.git,
       tmux: deps.tmux,
       isAllowedDirectory: (dir) => this.isAllowedDirectory(dir),
