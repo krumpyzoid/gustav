@@ -5,6 +5,7 @@ import { execSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { isHeadless, bootHeadless } from './headless';
+import { checkSshEnv, formatSshEnvWarning } from './util/check-ssh-env';
 
 // Fix environment for packaged macOS apps launched from Finder/Dock.
 // These inherit a minimal environment that lacks Homebrew PATH and
@@ -219,6 +220,14 @@ function getServerCertFingerprint(): string | null {
 // ── App lifecycle ─────────────────────────────────────────────────
 app.on('ready', async () => {
   Menu.setApplicationMenu(null);
+
+  // Surface ssh-agent availability once at startup. Worktree creation against
+  // SSH remotes will fail without it (see #13); the warning here gives the
+  // operator a fast signal in the journal/console before that ever happens.
+  {
+    const sshWarning = formatSshEnvWarning(checkSshEnv({ env: process.env }));
+    if (sshWarning) console.warn(sshWarning);
+  }
 
   if (HEADLESS) {
     // Headless boot: no BrowserWindow, no PTY, no renderer. Remote protocol
