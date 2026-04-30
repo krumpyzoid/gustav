@@ -11,8 +11,8 @@ import type { TmuxPort } from '../ports/tmux.port';
 import type { Result, WindowSpec, SessionType } from '../domain/types';
 import { ok, err } from '../domain/result-helpers';
 import { supervisorWindowsAsInfo } from '../supervisor/supervisor-utils';
-import { buildWindowSpecs } from '../ipc/build-window-specs';
-import { applyPersistedWindowOrder } from '../ipc/apply-persisted-window-order';
+import { buildWindowSpecs } from '../domain/build-window-specs';
+import { applyPersistedWindowOrder } from '../domain/apply-persisted-window-order';
 import { RemoteCommand } from '../../shared/remote-commands';
 import { basename, join } from 'node:path';
 

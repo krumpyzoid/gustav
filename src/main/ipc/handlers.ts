@@ -16,8 +16,8 @@ import type { SessionSupervisorPort } from '../supervisor/supervisor.port';
 import type { CreateWorktreeParams, CleanTarget, Result, PersistedSession, SessionType, Preferences, WindowSpec, SessionBackend, WindowInfo } from '../domain/types';
 import type { TabConfig } from '../domain/tab-config';
 import { snapshotSessionWindows } from './snapshot-windows';
-import { buildWindowSpecs } from './build-window-specs';
-import { applyPersistedWindowOrder } from './apply-persisted-window-order';
+import { buildWindowSpecs } from '../domain/build-window-specs';
+import { applyPersistedWindowOrder } from '../domain/apply-persisted-window-order';
 import { ok, err } from '../domain/result-helpers';
 import { supervisorWindowsAsInfo as supWindowsAsInfo } from '../supervisor/supervisor-utils';
 

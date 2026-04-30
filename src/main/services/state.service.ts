@@ -5,7 +5,7 @@ import type { WorkspaceService } from './workspace.service';
 import type { SessionSupervisorPort } from '../supervisor/supervisor.port';
 import type { ClaudeStatus, WorkspaceAppState, WorkspaceState, SessionTab, RepoGroupState } from '../domain/types';
 import { worstStatus } from '../domain/types';
-import { applyPersistedWindowOrder } from '../ipc/apply-persisted-window-order';
+import { applyPersistedWindowOrder } from '../domain/apply-persisted-window-order';
 
 /** Minimal slice of the supervisor needed by StateService — keeps tests light. */
 export interface StateSupervisorView {
