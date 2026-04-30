@@ -2,7 +2,7 @@
 
 **Created**: 2026-04-30
 **Branch**: fix/remote-session-followups
-**Status**: implemented (steps 1–5; step 6 gated on smoke-test per the staged plan)
+**Status**: implemented
 
 ## Goal
 
@@ -19,9 +19,9 @@ The plan executes in three independent slices (one per issue) so each is shippab
 - [x] Clicking a killed remote repository session creates a fresh session and attaches its PTY (Step 3, tests cover all three tab types and the create-failure path)
 - [x] Clicking a killed local session that lacks the props for fresh creation surfaces an actionable error rather than silently doing nothing (Step 2)
 - [x] Local and remote click handlers share a single create-call selector — the two paths can no longer drift independently (Step 1, both paths route through `chooseCreateCall`)
-- [~] No `?1;2c` (or any DA-shaped reply tail) appears in remote sessions after repeated attaches (Step 4 filter installed; **manual smoke-test required** to confirm against a real remote)
+- [~] No `?1;2c` (or any DA-shaped reply tail) appears in remote sessions after repeated attaches (Step 4 filter installed; the residual "weird characters" reported during smoke-test were partial-sequence garbage from the IPC listener gap and should be resolved by Step 6 — re-verify)
 - [x] User input (typed characters, paste) flows through unchanged — DA-reply filter is exact-match-only with anchor regexes, tested against several non-auto-reply CSI sequences (Step 4)
-- [~] Fresh remote-session attach renders content immediately without a manual tab click (Step 5; **manual smoke-test required** to confirm. If symptom persists, Step 6 — IPC listener refactor — lands.)
+- [~] Fresh remote-session attach renders content immediately without a manual tab click (Step 5 fixed the first-attach race; cumulative lag after multiple swaps was the listener-gap bug closed by Step 6 — re-verify)
 - [x] Tab switching continues to refresh the viewport (no regression on #14 — TabBar's `requestTerminalFit()` still fires after `selectWindow`)
 - [x] All existing tests still pass; new tests added for each behavioural change (641 tests passing, +29 new)
 
