@@ -206,6 +206,31 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
       }
     }
 
+    // Detach the previous transport NOW — before the multi-second
+    // attach-pty round-trip — so its `onPtyData` listener stops painting
+    // OLD-channel frames into the xterm viewport during the swap.
+    //
+    // Why this matters: `useTerminal` subscribes to `activeTransport.onPtyData`
+    // and only re-runs that effect when `activeTransport` changes. The
+    // store doesn't flip until `setActiveTransport(remoteTransport)` runs
+    // *after* the await below. For the entire 3-5s round-trip the OLD
+    // transport stays the active one, its fanout subscriber stays alive,
+    // and its filter (`channelId === this.ptyChannelId`) keeps matching
+    // the OLD channel — so the user sees the previous session's content
+    // shifting/updating the whole time, then a sudden snap to the new
+    // session. The new transport's own `switchSession` cleanup only
+    // detaches *its* `ptyChannelId`, which is null for a freshly
+    // constructed instance, so it can't release the previous channel.
+    //
+    // detach() is idempotent — `setActiveTransport(remoteTransport)` below
+    // calls it again on the same instance and that's a no-op. Tradeoff:
+    // on attach-pty failure, the rollback below restores the prior session
+    // id but the terminal stays frozen at its last frame until the user
+    // re-clicks (the prior PTY channel is gone server-side). Acceptable
+    // — failure here is rare and the previous behaviour painted live OLD
+    // content over the optimistic new selection regardless.
+    useAppStore.getState().activeTransport.detach();
+
     // Optimistic UI update — the sidebar's selection indicator and the
     // window-tab bar react immediately, so the user sees feedback while
     // the remote `attach-pty` + `list-windows` round-trips run. Without
@@ -221,12 +246,10 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
     // when `windows.length === 0`.
     setWindows([]);
 
-    // Install a fresh RemoteGustavTransport for ongoing PTY I/O. Any
-    // prior transport (remote or local) is detached by the store, which
-    // sends detach-pty for any outstanding remote channel. Pass the live
-    // terminal size so the remote PTY is spawned at the actual viewport
-    // dimensions — without this the user sees a 80x24 layout until they
-    // resize the OS window (#14).
+    // Install a fresh RemoteGustavTransport for ongoing PTY I/O. Pass the
+    // live terminal size so the remote PTY is spawned at the actual
+    // viewport dimensions — without this the user sees a 80x24 layout
+    // until they resize the OS window (#14).
     const remoteTransport = new RemoteGustavTransport();
     const size = getTerminalSize() ?? undefined;
     const result = await remoteTransport.switchSession(sessionToAttach, size);

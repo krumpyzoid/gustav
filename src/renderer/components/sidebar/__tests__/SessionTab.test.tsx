@@ -111,6 +111,11 @@ vi.mock('../../../hooks/use-terminal', () => ({
 type StoreState = {
   activeSession: string | null;
   remoteActiveSession: string | null;
+  // Surfaced to handleRemoteClick so it can detach the previous transport
+  // before the multi-second attach-pty round-trip — without this the OLD
+  // transport's onPtyData listener keeps painting OLD-channel frames into
+  // xterm for the duration of the swap.
+  activeTransport: { detach: ReturnType<typeof vi.fn> };
   setActiveSession: (s: string | null) => void;
   setWindows: (w: WindowInfo[]) => void;
   setRemoteActiveSession: (s: string | null) => void;
@@ -159,6 +164,7 @@ beforeEach(() => {
   storeState = {
     activeSession: null,
     remoteActiveSession: null,
+    activeTransport: { detach: vi.fn() },
     setActiveSession: vi.fn((s) => { storeState.activeSession = s; }),
     setWindows: vi.fn(),
     setRemoteActiveSession: vi.fn((s) => { storeState.remoteActiveSession = s; }),
@@ -276,6 +282,32 @@ describe('SessionTab — remote click', () => {
     expect(storeState.setWindows).toHaveBeenCalledWith([]);
     // The transport itself should NOT yet be installed — that happens
     // only on switchSession success.
+    expect(storeState.setActiveTransport).not.toHaveBeenCalled();
+
+    resolveSwitch({ success: true, data: [] });
+  });
+
+  it('detaches the previous transport synchronously, before awaiting switchSession', async () => {
+    // Regression: without this, the OLD transport remains active for the
+    // entire 3-5s attach-pty round-trip and `useTerminal`'s onPtyData
+    // listener keeps painting OLD-channel frames into the xterm viewport.
+    // The user sees the previous session's content shifting/updating during
+    // the swap, then a sudden snap to the new session.
+    const user = userEvent.setup();
+    const previousDetach = vi.fn();
+    storeState.activeTransport = { detach: previousDetach };
+
+    let resolveSwitch!: (v: { success: boolean; data: WindowInfo[] }) => void;
+    const pending = new Promise<{ success: boolean; data: WindowInfo[] }>((r) => { resolveSwitch = r; });
+    remoteTransportSwitchData.push(pending as never);
+
+    render(<SessionTab tab={makeTab()} isRemote />);
+    await user.click(screen.getByRole('button', { name: /repo/i }));
+
+    // The await on switchSession is still pending, but the previous
+    // transport must already be detached so its onPtyData listener stops
+    // painting OLD-channel frames during the swap.
+    expect(previousDetach).toHaveBeenCalledTimes(1);
     expect(storeState.setActiveTransport).not.toHaveBeenCalled();
 
     resolveSwitch({ success: true, data: [] });
