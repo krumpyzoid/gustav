@@ -406,6 +406,56 @@ describe('CommandDispatcher', () => {
       expect(deps.tmux.listWindows).not.toHaveBeenCalled();
     });
 
+    it('create-repo-session worktree mode creates the worktree and launches at the worktree path', async () => {
+      const deps = makeMockDeps();
+      deps.workspaceService.list = vi.fn().mockReturnValue([{ id: 'ws1', name: 'Dev', directory: '/srv/dev' }]);
+      deps.git.getWorktreeDir = vi.fn().mockReturnValue('/srv/worktrees/repo');
+      deps.sessionService.getSessionName = vi.fn().mockReturnValue('Dev/repo/feat-x');
+      deps.sessionLauncher.launch = vi.fn().mockResolvedValue({ sessionId: 'Dev/repo/feat-x', backend: 'tmux' });
+      const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => true });
+
+      const result = await dispatcher.dispatch('create-repo-session', {
+        workspaceName: 'Dev',
+        repoRoot: '/srv/repo',
+        mode: 'worktree',
+        branch: 'feat-x',
+        base: 'origin/main',
+      });
+
+      expect(result.success).toBe(true);
+      expect(deps.worktreeService.create).toHaveBeenCalledWith({
+        repo: 'repo',
+        repoRoot: '/srv/repo',
+        branch: 'feat-x',
+        base: 'origin/main',
+      });
+      expect(deps.sessionLauncher.launch).toHaveBeenCalledWith(
+        'Dev/repo/feat-x',
+        '/srv/worktrees/repo/feat-x',
+        expect.any(Array),
+      );
+      expect(deps.workspaceService.persistSession).toHaveBeenCalledWith('ws1', expect.objectContaining({
+        type: 'worktree',
+        branch: 'feat-x',
+        repoRoot: '/srv/repo',
+      }));
+    });
+
+    it('create-repo-session worktree mode without a branch returns an error', async () => {
+      const deps = makeMockDeps();
+      const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => true });
+
+      const result = await dispatcher.dispatch('create-repo-session', {
+        workspaceName: 'Dev',
+        repoRoot: '/srv/repo',
+        mode: 'worktree',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Branch');
+      expect(deps.worktreeService.create).not.toHaveBeenCalled();
+    });
+
     it('create-workspace-session routes through sessionLauncher (not sessionService)', async () => {
       const deps = makeMockDeps();
       deps.workspaceService.list = vi.fn().mockReturnValue([{ id: 'ws1', name: 'test', directory: '/tmp' }]);
