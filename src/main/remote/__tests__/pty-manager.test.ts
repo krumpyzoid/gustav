@@ -33,13 +33,13 @@ describe('PtyManager', () => {
   });
 
   it('attaches to a tmux session and returns a channel ID', () => {
-    const channelId = manager.attach('ws/repo/main', 80, 24);
+    const channelId = manager.attachTmux('ws/repo/main', 80, 24);
     expect(typeof channelId).toBe('number');
     expect(channelId).toBeGreaterThan(0);
   });
 
   it('emits binary frames when PTY produces data', () => {
-    const channelId = manager.attach('ws/repo/main', 80, 24);
+    const channelId = manager.attachTmux('ws/repo/main', 80, 24);
 
     // Simulate PTY onData callback
     const dataCallback = mockPtyOnData.mock.calls[0]![0] as (data: string) => void;
@@ -53,7 +53,7 @@ describe('PtyManager', () => {
   });
 
   it('writes input to PTY when receiving input frames', () => {
-    const channelId = manager.attach('ws/repo/main', 80, 24);
+    const channelId = manager.attachTmux('ws/repo/main', 80, 24);
 
     const inputFrame = encodeBinaryFrame({
       channelType: ChannelType.PTY_INPUT,
@@ -66,29 +66,29 @@ describe('PtyManager', () => {
   });
 
   it('resizes the PTY', () => {
-    const channelId = manager.attach('ws/repo/main', 80, 24);
+    const channelId = manager.attachTmux('ws/repo/main', 80, 24);
     manager.resize(channelId, 120, 40);
     expect(mockPtyResize).toHaveBeenCalledWith(120, 40);
   });
 
   it('detaches and kills the PTY process', () => {
-    const channelId = manager.attach('ws/repo/main', 80, 24);
+    const channelId = manager.attachTmux('ws/repo/main', 80, 24);
     manager.detach(channelId);
     expect(mockPtyKill).toHaveBeenCalled();
     expect(manager.isAttached(channelId)).toBe(false);
   });
 
   it('supports multiple simultaneous attachments', () => {
-    const id1 = manager.attach('ws/repo/main', 80, 24);
-    const id2 = manager.attach('ws/repo/feat', 80, 24);
+    const id1 = manager.attachTmux('ws/repo/main', 80, 24);
+    const id2 = manager.attachTmux('ws/repo/feat', 80, 24);
     expect(id1).not.toBe(id2);
     expect(manager.isAttached(id1)).toBe(true);
     expect(manager.isAttached(id2)).toBe(true);
   });
 
   it('detaches all sessions on destroyAll', () => {
-    manager.attach('ws/repo/main', 80, 24);
-    manager.attach('ws/repo/feat', 80, 24);
+    manager.attachTmux('ws/repo/main', 80, 24);
+    manager.attachTmux('ws/repo/feat', 80, 24);
     manager.destroyAll();
     expect(mockPtyKill).toHaveBeenCalledTimes(2);
   });
@@ -228,7 +228,7 @@ describe('PtyManager', () => {
     it('destroyAll detaches both tmux and supervisor channels', () => {
       const { supervisor } = makeSupervisor();
       const m = new PtyManager((f) => emittedFrames.push(f), supervisor as any);
-      m.attach('ws/repo/main', 80, 24);
+      m.attachTmux('ws/repo/main', 80, 24);
       m.attachSupervisor('ws/repo/_dir', 80, 24);
 
       m.destroyAll();

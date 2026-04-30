@@ -37,12 +37,13 @@ export class LocalTransport implements SessionTransport {
   // ── PTY data plane ─────────────────────────────────────────────
   sendPtyInput(data: string): void {
     const active = this.getActiveSession();
-    // If the active session is supervisor-backed, route input there; else
-    // fall through to the legacy tmux PTY. Best-effort detection: the
-    // app store does not yet track per-session backend on the renderer
-    // (Phase 3 follow-up), so we always send to both — the supervisor
-    // ignores input for unknown session ids and tmux is the no-op when
-    // no client is attached.
+    // TODO(Phase 3.5): once per-session backend is tracked on the
+    // renderer (the app store will know which sessions are native vs
+    // tmux), branch on that here instead of dual-writing. The current
+    // dual-dispatch is a strangler artefact that contradicts the
+    // single-arbiter intent in docs/specs/architecture-evolution.md
+    // (Decision 4) — supervisor and tmux both see every keystroke
+    // until the renderer can pick the right one.
     if (active) {
       try { window.api.supervisor?.sendInput(active, data); } catch { /* noop */ }
     }

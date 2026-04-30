@@ -158,7 +158,7 @@ export function App() {
       <NewSessionDialog
         open={remoteTarget?.kind === 'session'}
         onClose={() => setRemoteTarget(null)}
-        workspace={remoteTarget?.kind === 'session' ? remoteTarget.workspace : undefined}
+        workspaceDescriptor={remoteTarget?.kind === 'session' ? remoteTarget.workspace : undefined}
         transport={remoteTransport}
       />
       <NewStandaloneDialog

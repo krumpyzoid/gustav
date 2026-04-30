@@ -77,17 +77,18 @@ export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRe
     const fromIdx = ids.indexOf(draggedId);
     if (fromIdx === -1) return;
 
-    // Remove dragged item
-    ids.splice(fromIdx, 1);
+    const withoutDragged = ids.filter((_, i) => i !== fromIdx);
+    const targetIdx = withoutDragged.indexOf(targetId);
+    if (targetIdx === -1) return;
+    const insertAt = edge === 'bottom' ? targetIdx + 1 : targetIdx;
 
-    // Find target position after removal
-    let toIdx = ids.indexOf(targetId);
-    if (toIdx === -1) return;
-    if (edge === 'bottom') toIdx += 1;
+    const reordered = [
+      ...withoutDragged.slice(0, insertAt),
+      draggedId,
+      ...withoutDragged.slice(insertAt),
+    ];
 
-    ids.splice(toIdx, 0, draggedId);
-
-    await window.api.reorderWorkspaces(ids);
+    await window.api.reorderWorkspaces(reordered);
     refreshState();
   }, [workspaces]);
 

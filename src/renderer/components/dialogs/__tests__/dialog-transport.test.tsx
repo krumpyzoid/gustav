@@ -118,6 +118,7 @@ describe('NewStandaloneDialog — transport routing', () => {
 
 describe('NewWorktreeDialog — transport routing', () => {
   it('uses transport.getBranches when a transport prop is provided', async () => {
+    const { waitFor } = await import('@testing-library/react');
     const transport = makeTransport({
       getBranches: vi.fn().mockResolvedValue([{ name: 'feat/x', isRemote: false }]),
     });
@@ -133,10 +134,7 @@ describe('NewWorktreeDialog — transport routing', () => {
       />,
     );
 
-    // Wait for branches load
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(transport.getBranches).toHaveBeenCalledWith('/srv/repo');
+    await waitFor(() => expect(transport.getBranches).toHaveBeenCalledWith('/srv/repo'));
     expect(api.getBranches).not.toHaveBeenCalled();
   });
 

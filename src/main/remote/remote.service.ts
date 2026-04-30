@@ -329,7 +329,7 @@ export class RemoteService {
     const backend = this.deps.workspaceService.findPersistedBackend(session) ?? 'tmux';
     const channelId = backend === 'native'
       ? this.ptyManager.attachSupervisor(session, cols, rows)
-      : this.ptyManager.attach(session, cols, rows);
+      : this.ptyManager.attachTmux(session, cols, rows);
 
     this.server?.sendText(encodeControlMessage({
       type: 'session-command',

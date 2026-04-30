@@ -27,15 +27,26 @@ export class PtyManager {
   ) {}
 
   /** Attach to a tmux session via `tmux attach`. */
-  attach(tmuxSession: string, cols: number, rows: number): number {
+  attachTmux(tmuxSession: string, cols: number, rows: number): number {
     const channelId = this.nextChannelId++;
+
+    // Pass a minimal env to the spawned tmux client to avoid leaking
+    // host-process secrets (API keys, GITHUB_TOKEN, AWS creds, etc.)
+    // through the remote PTY. tmux only needs TERM/PATH/HOME/USER.
+    const minimalEnv: Record<string, string> = {
+      TERM: 'xterm-256color',
+      PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+      HOME: process.env.HOME ?? '/',
+    };
+    if (process.env.USER) minimalEnv.USER = process.env.USER;
+    if (process.env.LANG) minimalEnv.LANG = process.env.LANG;
 
     const ptyProcess = pty.spawn('tmux', ['attach', '-t', tmuxSession], {
       name: 'xterm-256color',
       cols,
       rows,
       cwd: process.env.HOME,
-      env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
+      env: minimalEnv,
     });
 
     ptyProcess.onData((data: string) => {
