@@ -326,15 +326,17 @@ export class RemoteService {
 
     // Backend dispatch: native-supervisor sessions cannot be reached via
     // `tmux attach`; route them through the supervisor data plane instead.
-    const backend = this.deps.workspaceService.findPersistedBackend(session) ?? 'tmux';
+    const backend = this.deps.workspaceService.resolveBackend(session);
     const channelId = backend === 'native'
       ? this.ptyManager.attachSupervisor(session, cols, rows)
       : this.ptyManager.attachTmux(session, cols, rows);
 
+    // Result envelope shape — `data` carries command-specific data so the
+    // renderer's `result.data` reads consistently across all commands.
     this.server?.sendText(encodeControlMessage({
       type: 'session-command',
       id: msgId,
-      payload: { success: true, channelId },
+      payload: { success: true, data: { channelId } },
     }));
   }
 

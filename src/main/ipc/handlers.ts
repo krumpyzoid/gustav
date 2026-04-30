@@ -18,7 +18,7 @@ import type { TabConfig } from '../domain/tab-config';
 import { snapshotSessionWindows } from './snapshot-windows';
 import { buildWindowSpecs } from './build-window-specs';
 import { applyPersistedWindowOrder } from './apply-persisted-window-order';
-import { ok as resultOk, err as resultErr } from '../domain/result-helpers';
+import { ok, err } from '../domain/result-helpers';
 import { supervisorWindowsAsInfo as supWindowsAsInfo } from '../supervisor/supervisor-utils';
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -40,9 +40,6 @@ function isTabConfigArray(v: unknown): v is TabConfig[] {
     return true;
   });
 }
-
-const ok = resultOk;
-const err = resultErr;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -814,14 +811,18 @@ export function registerHandlers(deps: {
   ipcMain.handle(Channels.REMOTE_SESSION_COMMAND, async (_event, action: string, params: Record<string, unknown>) => {
     if (!remoteClientService) return err('Remote client service not available');
     try {
-      // Commands that need a response from the server
-      if (action === 'attach-pty' || action === 'wake-session') {
-        const response = await remoteClientService.sendCommandAndWait(action, params);
-        return ok(response);
+      // Only the binary-channel PTY data plane is fire-and-forget — those
+      // frames flow over the binary WebSocket channel and have no response.
+      // Every other command (lifecycle, window ops, creation, queries)
+      // round-trips so the renderer can react to server-side success/error.
+      if (action === 'detach-pty' || action === 'resize-pty') {
+        remoteClientService.sendCommand(action, params);
+        return ok(undefined);
       }
-      // Fire-and-forget commands
-      remoteClientService.sendCommand(action, params);
-      return ok(undefined);
+      // Server emits a Result-shaped payload — return it directly so the
+      // renderer sees the server's success/error rather than the IPC bridge's.
+      // Wrapping in another `ok(response)` would double-wrap the envelope.
+      return await remoteClientService.sendCommandAndWait(action, params);
     } catch (e) {
       return err((e as Error).message);
     }
