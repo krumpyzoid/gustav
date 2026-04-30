@@ -1,8 +1,8 @@
 # Plan: Fix remote-session follow-ups (#16, #17, #18)
 
 **Created**: 2026-04-30
-**Branch**: main
-**Status**: approved
+**Branch**: fix/remote-session-followups
+**Status**: implemented (steps 1–5; step 6 gated on smoke-test per the staged plan)
 
 ## Goal
 
@@ -16,14 +16,14 @@ The plan executes in three independent slices (one per issue) so each is shippab
 
 ## Acceptance Criteria
 
-- [ ] Clicking a killed remote repository session creates a fresh session and attaches its PTY (no manual creation flow needed)
-- [ ] Clicking a killed local session that lacks the props for fresh creation surfaces an actionable error rather than silently doing nothing
-- [ ] Local and remote click handlers share a single create-call selector — the two paths can no longer drift independently
-- [ ] No `?1;2c` (or any DA-shaped reply tail) appears in remote sessions after repeated attaches
-- [ ] User input (typed characters, paste) flows through unchanged — DA-reply filter must be exact-match-only, never swallows real input
-- [ ] Fresh remote-session attach renders content immediately without a manual tab click
-- [ ] Tab switching continues to refresh the viewport (no regression on #14)
-- [ ] All existing tests still pass; new tests added for each behavioural change
+- [x] Clicking a killed remote repository session creates a fresh session and attaches its PTY (Step 3, tests cover all three tab types and the create-failure path)
+- [x] Clicking a killed local session that lacks the props for fresh creation surfaces an actionable error rather than silently doing nothing (Step 2)
+- [x] Local and remote click handlers share a single create-call selector — the two paths can no longer drift independently (Step 1, both paths route through `chooseCreateCall`)
+- [~] No `?1;2c` (or any DA-shaped reply tail) appears in remote sessions after repeated attaches (Step 4 filter installed; **manual smoke-test required** to confirm against a real remote)
+- [x] User input (typed characters, paste) flows through unchanged — DA-reply filter is exact-match-only with anchor regexes, tested against several non-auto-reply CSI sequences (Step 4)
+- [~] Fresh remote-session attach renders content immediately without a manual tab click (Step 5; **manual smoke-test required** to confirm. If symptom persists, Step 6 — IPC listener refactor — lands.)
+- [x] Tab switching continues to refresh the viewport (no regression on #14 — TabBar's `requestTerminalFit()` still fires after `selectWindow`)
+- [x] All existing tests still pass; new tests added for each behavioural change (641 tests passing, +29 new)
 
 ## Steps
 
