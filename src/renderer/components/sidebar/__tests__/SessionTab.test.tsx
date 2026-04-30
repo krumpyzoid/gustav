@@ -37,10 +37,15 @@ const remoteTransports: MockedTransport[] = [];
 const localTransports: MockedTransport[] = [];
 /** Queue of switchSession resolutions consumed FIFO by each new remote transport. */
 const remoteTransportSwitchData: Array<{ success: boolean; data?: WindowInfo[]; error?: string }> = [];
+/** Queue of wakeSession resolutions consumed FIFO by each new remote transport. */
+const remoteTransportWakeData: Array<{ success: boolean; data?: WindowInfo[]; error?: string }> = [];
 
 function makeMockedTransport(kind: 'local' | 'remote'): MockedTransport {
-  const armed = kind === 'remote' && remoteTransportSwitchData.length > 0
+  const armedSwitch = kind === 'remote' && remoteTransportSwitchData.length > 0
     ? remoteTransportSwitchData.shift()!
+    : { success: true, data: [] };
+  const armedWake = kind === 'remote' && remoteTransportWakeData.length > 0
+    ? remoteTransportWakeData.shift()!
     : { success: true, data: [] };
   return {
     kind,
@@ -49,9 +54,9 @@ function makeMockedTransport(kind: 'local' | 'remote'): MockedTransport {
     onPtyData: vi.fn(() => () => {}),
     getState: vi.fn(),
     onStateUpdate: vi.fn(() => () => {}),
-    switchSession: vi.fn().mockResolvedValue(armed),
+    switchSession: vi.fn().mockResolvedValue(armedSwitch),
     sleepSession: vi.fn().mockResolvedValue({ success: true, data: undefined }),
-    wakeSession: vi.fn().mockResolvedValue({ success: true, data: [] }),
+    wakeSession: vi.fn().mockResolvedValue(armedWake),
     destroySession: vi.fn().mockResolvedValue({ success: true, data: undefined }),
     selectWindow: vi.fn(),
     newWindow: vi.fn(),
@@ -114,6 +119,7 @@ beforeEach(() => {
   remoteTransports.length = 0;
   localTransports.length = 0;
   remoteTransportSwitchData.length = 0;
+  remoteTransportWakeData.length = 0;
   for (const fn of Object.values(api)) fn.mockReset?.();
   api.switchSession.mockResolvedValue({ success: true, data: [] });
   api.wakeSession.mockResolvedValue({ success: false });
@@ -187,6 +193,25 @@ describe('SessionTab — remote click', () => {
     const [wakeTransport, attachTransport] = remoteTransports;
     expect(wakeTransport.wakeSession).toHaveBeenCalledWith('ws/repo/_dir');
     expect(attachTransport.switchSession).toHaveBeenCalledWith('ws/repo/_dir');
+  });
+
+  it('does NOT proceed to attach when the remote wake fails', async () => {
+    const user = userEvent.setup();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // First-constructed remote transport's wakeSession resolves with failure.
+    remoteTransportWakeData.push({ success: false, error: 'no persisted' });
+
+    render(<SessionTab tab={makeTab({ active: false })} isRemote />);
+    await user.click(screen.getByRole('button', { name: /repo/i }));
+
+    // Exactly one transient transport for the wake — the attach was aborted.
+    expect(remoteTransports.length).toBe(1);
+    expect(remoteTransports[0].wakeSession).toHaveBeenCalledWith('ws/repo/_dir');
+    expect(remoteTransports[0].switchSession).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalled();
+    expect(storeState.setActiveTransport).not.toHaveBeenCalled();
+
+    errorSpy.mockRestore();
   });
 });
 

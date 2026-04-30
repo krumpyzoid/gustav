@@ -123,8 +123,15 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
     if (isInactive) {
       // Wake the remote session first via a transient transport — the
       // persistent transport (below) attaches a PTY only after the
-      // session exists on the remote side.
-      await new RemoteGustavTransport().wakeSession(tab.tmuxSession);
+      // session exists on the remote side. Aborting on wake failure
+      // prevents `tmux attach` from running against a non-existent
+      // session and surfacing tmux's dying-tty banner in the terminal.
+      const wakeResult = await new RemoteGustavTransport().wakeSession(tab.tmuxSession);
+      if (!wakeResult.success) {
+        console.error('Remote wake failed:', wakeResult.error);
+        refreshState();
+        return;
+      }
     }
 
     // Install a fresh RemoteGustavTransport for ongoing PTY I/O. Any
