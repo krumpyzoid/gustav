@@ -199,6 +199,21 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
       }
     }
 
+    // Optimistic UI update — the sidebar's selection indicator and the
+    // window-tab bar react immediately, so the user sees feedback while
+    // the remote `attach-pty` + `list-windows` round-trips run. Without
+    // this, the click looks dead for the duration of the round-trip
+    // (often 3-5 seconds on a remote host). Capture the prior selection
+    // for rollback on failure.
+    const priorActive = useAppStore.getState().activeSession;
+    const priorRemoteActive = useAppStore.getState().remoteActiveSession;
+    setActiveSession(null);
+    setRemoteActiveSession(sessionToAttach);
+    // Clear the window-tab bar so we don't render stale tabs from the
+    // previous session against the new selection. The TabBar early-returns
+    // when `windows.length === 0`.
+    setWindows([]);
+
     // Install a fresh RemoteGustavTransport for ongoing PTY I/O. Any
     // prior transport (remote or local) is detached by the store, which
     // sends detach-pty for any outstanding remote channel. Pass the live
@@ -209,8 +224,6 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
     const size = getTerminalSize() ?? undefined;
     const result = await remoteTransport.switchSession(sessionToAttach, size);
     if (result.success) {
-      setActiveSession(null);
-      setRemoteActiveSession(sessionToAttach);
       setActiveTransport(remoteTransport);
       setWindows(result.data);
       // The hook's [activeTransport] effect now drives the post-swap fit
@@ -219,6 +232,11 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
       // subscription, which is the bug #16 was filed to fix.
     } else {
       remoteTransport.detach();
+      // Roll back the optimistic selection so the sidebar reflects what
+      // the user actually has attached.
+      setActiveSession(priorActive);
+      setRemoteActiveSession(priorRemoteActive);
+      refreshState();
     }
   }
 

@@ -258,6 +258,45 @@ describe('SessionTab — remote click', () => {
     expect(attachTransport.switchSession).toHaveBeenCalledWith('ws/repo/_dir', undefined);
   });
 
+  it('updates remoteActiveSession optimistically before the switchSession round-trip resolves', async () => {
+    const user = userEvent.setup();
+    let resolveSwitch!: (v: { success: boolean; data: WindowInfo[] }) => void;
+    const pending = new Promise<{ success: boolean; data: WindowInfo[] }>((r) => { resolveSwitch = r; });
+    remoteTransportSwitchData.push(pending as never);
+
+    render(<SessionTab tab={makeTab()} isRemote />);
+
+    // Awaiting user.click resolves once the handler has reached its first
+    // suspension — the optimistic state writes happen synchronously before
+    // `await switchSession`, so they should already be observable here even
+    // though the round-trip hasn't resolved.
+    await user.click(screen.getByRole('button', { name: /repo/i }));
+
+    expect(storeState.setRemoteActiveSession).toHaveBeenCalledWith('ws/repo/_dir');
+    expect(storeState.setWindows).toHaveBeenCalledWith([]);
+    // The transport itself should NOT yet be installed — that happens
+    // only on switchSession success.
+    expect(storeState.setActiveTransport).not.toHaveBeenCalled();
+
+    resolveSwitch({ success: true, data: [] });
+  });
+
+  it('rolls back the optimistic selection when switchSession fails', async () => {
+    const user = userEvent.setup();
+    storeState.activeSession = 'previous-local';
+    storeState.remoteActiveSession = null;
+    remoteTransportSwitchData.push({ success: false, error: 'attach failed' });
+
+    render(<SessionTab tab={makeTab()} isRemote />);
+    await user.click(screen.getByRole('button', { name: /repo/i }));
+
+    // Optimistic update happened then was rolled back to the captured prior values.
+    expect(storeState.setRemoteActiveSession).toHaveBeenCalledWith('ws/repo/_dir');
+    expect(storeState.setRemoteActiveSession).toHaveBeenLastCalledWith(null);
+    expect(storeState.setActiveSession).toHaveBeenLastCalledWith('previous-local');
+    expect(storeState.setActiveTransport).not.toHaveBeenCalled();
+  });
+
   it('drops a concurrent click while the previous click is still in-flight', async () => {
     const user = userEvent.setup();
     let resolveSwitch!: (v: { success: boolean; data: WindowInfo[] }) => void;
