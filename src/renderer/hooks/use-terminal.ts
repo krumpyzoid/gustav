@@ -8,9 +8,34 @@ import { useAppStore } from './use-app-state';
 import type { SessionTransport } from '../lib/transport/session-transport';
 
 let globalTermRef: Terminal | null = null;
+let globalRequestFit: (() => void) | null = null;
 
 export function focusTerminal() {
   globalTermRef?.focus();
+}
+
+/**
+ * Live cols/rows from the mounted xterm.js instance, or null if the terminal
+ * isn't mounted yet (initial app boot, before React paints). Callers should
+ * pass this through to `switchSession({ cols, rows })` so remote PTYs are
+ * spawned at the actual viewport size.
+ */
+export function getTerminalSize(): { cols: number; rows: number } | null {
+  const t = globalTermRef;
+  if (!t) return null;
+  return { cols: t.cols, rows: t.rows };
+}
+
+/**
+ * Ask the mounted terminal to refit and push the resulting cols/rows to the
+ * active transport. Use this after any *view-changing* operation that the
+ * `ResizeObserver` won't see — session switches and tab/window switches —
+ * so the PTY's dimensions and xterm.js's geometry stay in agreement (#14).
+ *
+ * No-op when no terminal is mounted (e.g. tests, headless boot).
+ */
+export function requestTerminalFit(): void {
+  globalRequestFit?.();
 }
 
 export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>) {
@@ -43,8 +68,22 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     termRef.current = term;
     fitRef.current = fitAddon;
     globalTermRef = term;
+    // Captured by the closures below — flipped to true in cleanup so any
+    // already-scheduled rAF callback short-circuits instead of touching a
+    // disposed Terminal / fitAddon (use-after-unmount guard).
+    let disposed = false;
+    // Expose fit() to module-scope callers (requestTerminalFit) so view
+    // changes (session/window switches) can ask for a redraw without owning
+    // a ref to the hook. Schedule on rAF so layout settles first.
+    globalRequestFit = () => {
+      requestAnimationFrame(() => {
+        if (disposed) return;
+        fit();
+      });
+    };
 
     function fit() {
+      if (disposed) return;
       if (!containerRef.current) return;
       // The container may not have laid out yet on first mount. Without dimensions
       // FitAddon would compute 0 cols/rows.
@@ -55,17 +94,19 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
         firstFitDoneRef.current = true;
         if (earlyBufferRef.current.length > 0) {
           term.write(earlyBufferRef.current.join(''));
-          earlyBufferRef.current.length = 0;
+          earlyBufferRef.current = [];
         }
       }
     }
 
     // rAF instead of setTimeout(_, 100) — guarantees layout is computed before
-    // the first fit, no arbitrary delay.
+    // the first fit, no arbitrary delay. Also guarded by `disposed` so a
+    // cleanup that races a pending tryFit doesn't leave a self-rescheduling
+    // loop alive.
     let initialFitFrame = requestAnimationFrame(function tryFit() {
-      if (firstFitDoneRef.current) return;
+      if (disposed || firstFitDoneRef.current) return;
       fit();
-      if (!firstFitDoneRef.current) initialFitFrame = requestAnimationFrame(tryFit);
+      if (!disposed && !firstFitDoneRef.current) initialFitFrame = requestAnimationFrame(tryFit);
     });
 
     const resizeObserver = new ResizeObserver(() => fit());
@@ -104,6 +145,14 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     // Input relay — route through the active transport regardless of where
     // the session lives.
+    //
+    // Invariant (#15): everything xterm.js emits via `onData` — typed
+    // keystrokes AND auto-generated terminal protocol replies (DA1 / DA2,
+    // cursor position, OSC reports, …) — MUST reach `transport.sendPtyInput`
+    // and MUST NEVER be delivered into `term.write`. Reply bytes echoed back
+    // to the visible buffer surface as glitches like literal `?1;2c`
+    // appearing at the prompt. Do not branch on `data` here, do not buffer
+    // it across transport swaps — just pass it straight through.
     term.onData((data) => {
       currentTransport().sendPtyInput(data);
     });
@@ -168,7 +217,9 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     term.focus();
 
     return () => {
+      disposed = true;
       globalTermRef = null;
+      globalRequestFit = null;
       cancelAnimationFrame(initialFitFrame);
       document.removeEventListener('keydown', handleKeyDown);
       cleanupTheme();

@@ -98,7 +98,10 @@ export class LocalTransport implements SessionTransport {
   }
 
   // ── Session lifecycle commands ─────────────────────────────────
-  async switchSession(session: string): Promise<Result<WindowInfo[]>> {
+  // The optional `_opts` { cols, rows } is consumed only by remote transports
+  // (the remote PTY is spawned at attach time and needs a real size). The
+  // local PTY is already sized — fit() pushes resizes via sendPtyResize.
+  async switchSession(session: string, _opts?: { cols: number; rows: number }): Promise<Result<WindowInfo[]>> {
     // Best-effort attach: if the session is supervisor-owned the supervisor
     // needs a client to drive its latest-wins size policy. Sending an
     // attach for a tmux-only session is a no-op (the supervisor returns

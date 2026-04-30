@@ -7,6 +7,7 @@ import { PtyManager } from './pty-manager';
 import { TunnelManager } from './tunnel-manager';
 import { generateSelfSignedCert, type TlsCert } from './crypto';
 import { decodeControlMessage, encodeControlMessage, ChannelType, decodeBinaryFrame } from './protocol';
+import { clampPtyDim } from './clamp-pty-dim';
 import type { StateService } from '../services/state.service';
 import type { SessionService } from '../services/session.service';
 import type { WorkspaceService } from '../services/workspace.service';
@@ -312,8 +313,11 @@ export class RemoteService {
       return;
     }
 
-    const cols = (params.cols as number) || 80;
-    const rows = (params.rows as number) || 24;
+    // Defence-in-depth: clamp dimensions from a (post-auth) remote client to
+    // a sane range — non-finite, fractional, negative, or absurdly-large
+    // values would otherwise reach node-pty / xterm.js resize logic.
+    const cols = clampPtyDim(params.cols, 80);
+    const rows = clampPtyDim(params.rows, 24);
 
     // Backend dispatch: native-supervisor sessions cannot be reached via
     // `tmux attach`; route them through the supervisor data plane instead.
@@ -338,8 +342,10 @@ export class RemoteService {
 
   private handleResizePty(params: Record<string, unknown>): void {
     const channelId = params.channelId as number;
-    const cols = params.cols as number;
-    const rows = params.rows as number;
+    // Same clamping rationale as handleAttachPty: protect node-pty from
+    // bogus resize values arriving over the wire.
+    const cols = clampPtyDim(params.cols, 80);
+    const rows = clampPtyDim(params.rows, 24);
     this.ptyManager?.resize(channelId, cols, rows);
   }
 

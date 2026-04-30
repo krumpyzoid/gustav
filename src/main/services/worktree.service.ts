@@ -5,6 +5,7 @@ import type { ShellPort } from '../ports/shell.port';
 import type { RepoConfigService } from './repo-config.service';
 import type { SessionService } from './session.service';
 import type { WorkspaceService } from './workspace.service';
+import { classifyGitFetchError } from './git-error-classifier';
 import type {
   CreateWorktreeParams,
   CleanCandidate,
@@ -51,7 +52,13 @@ export class WorktreeService {
       await this.git.worktreeAdd(repoRoot, wtPath, branch);
     } else {
       const baseRef = base || cfg?.baseBranch || 'origin/main';
-      await this.git.fetch(repoRoot);
+      try {
+        await this.git.fetch(repoRoot);
+      } catch (e) {
+        // Surface ssh-agent-unreachable as a structured error so the renderer
+        // can show actionable guidance instead of raw stderr.
+        throw classifyGitFetchError(e);
+      }
       await this.git.worktreeAdd(repoRoot, wtPath, branch, { newBranch: true, base: baseRef });
     }
 

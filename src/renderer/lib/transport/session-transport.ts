@@ -45,8 +45,13 @@ export interface SessionTransport {
   onStateUpdate(listener: (state: WorkspaceAppState) => void): () => void;
 
   // ── Session lifecycle commands (request/response) ──────────────
-  /** Bind the transport to a session. For remote, this attaches a PTY channel. */
-  switchSession(session: string): Promise<Result<WindowInfo[]>>;
+  /**
+   * Bind the transport to a session. For remote, this attaches a PTY channel
+   * — pass the live `cols`/`rows` so the remote PTY is sized to the renderer's
+   * actual viewport from the start (no flicker, no resize-to-render). Local
+   * transports ignore the dimensions because the local PTY is already sized.
+   */
+  switchSession(session: string, opts?: { cols: number; rows: number }): Promise<Result<WindowInfo[]>>;
   sleepSession(session: string): Promise<Result<void>>;
   wakeSession(session: string): Promise<Result<WindowInfo[]>>;
   destroySession(session: string): Promise<Result<void>>;

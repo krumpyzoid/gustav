@@ -84,6 +84,23 @@ describe('RemoteGustavTransport', () => {
     expect(api.sendRemotePtyResize).toHaveBeenCalledWith(42, 120, 30);
   });
 
+  it('switchSession forwards caller-provided cols/rows to attach-pty', async () => {
+    const remoteWindows: WindowInfo[] = [{ index: 0, name: 'Editor', active: true }];
+    api.remoteSessionCommand.mockImplementation((action: string) => {
+      if (action === 'attach-pty') return Promise.resolve({ success: true, data: { channelId: 7 } });
+      if (action === 'list-windows') return Promise.resolve({ success: true, data: remoteWindows });
+      return Promise.resolve({ success: true });
+    });
+
+    const t = new RemoteGustavTransport();
+    await t.switchSession('Dev/_ws', { cols: 173, rows: 47 });
+
+    expect(api.remoteSessionCommand).toHaveBeenCalledWith(
+      'attach-pty',
+      { tmuxSession: 'Dev/_ws', cols: 173, rows: 47 },
+    );
+  });
+
   it('switchSession to a new session detaches the previous PTY first', async () => {
     api.remoteSessionCommand.mockImplementation((action: string) => {
       if (action === 'attach-pty') return Promise.resolve({ success: true, data: { channelId: 1 } });

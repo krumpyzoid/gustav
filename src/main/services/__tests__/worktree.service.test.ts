@@ -153,6 +153,52 @@ describe('WorktreeService.create', () => {
     // Should have created the git worktree
     expect(git.worktreeAdd).toHaveBeenCalled();
   });
+
+  it('rethrows SSH-agent-shaped fetch failures with code SSH_AGENT_UNAVAILABLE', async () => {
+    const git = makeMockGit();
+    const fs = makeMockFs();
+    vi.mocked(fs.exists).mockReturnValue(false);
+    vi.mocked(git.branchExists).mockResolvedValue(null);
+    vi.mocked(git.fetch).mockRejectedValue(
+      new Error(
+        [
+          'Command failed: git -C /repo fetch origin --quiet',
+          'ssh_askpass: exec(/usr/lib/ssh/ssh-askpass): No such file or directory',
+          'git@host: Permission denied (publickey,password).',
+          'fatal: Could not read from remote repository.',
+        ].join('\n'),
+      ),
+    );
+
+    const svc = new WorktreeService(git, fs, makeMockShell(), makeMockRepoConfig(), makeMockSession(), makeMockWorkspaces([]));
+
+    let caught: (Error & { code?: string }) | null = null;
+    try {
+      await svc.create({ repo: 'api', repoRoot: '/repo', branch: 'feat', base: 'origin/main' });
+    } catch (e) {
+      caught = e as Error & { code?: string };
+    }
+    expect(caught).not.toBeNull();
+    expect(caught?.code).toBe('SSH_AGENT_UNAVAILABLE');
+    expect(caught?.message).toMatch(/ssh.?agent/i);
+    expect(git.worktreeAdd).not.toHaveBeenCalled();
+  });
+
+  it('passes through unrelated fetch failures without classification', async () => {
+    const git = makeMockGit();
+    const fs = makeMockFs();
+    vi.mocked(fs.exists).mockReturnValue(false);
+    vi.mocked(git.branchExists).mockResolvedValue(null);
+    const original = new Error('fatal: unable to access https://host/repo.git/: Could not resolve host');
+    vi.mocked(git.fetch).mockRejectedValue(original);
+
+    const svc = new WorktreeService(git, fs, makeMockShell(), makeMockRepoConfig(), makeMockSession(), makeMockWorkspaces([]));
+
+    await expect(
+      svc.create({ repo: 'api', repoRoot: '/repo', branch: 'feat', base: 'origin/main' }),
+    ).rejects.toThrow(original);
+    expect(git.worktreeAdd).not.toHaveBeenCalled();
+  });
 });
 
 describe('WorktreeService.remove', () => {

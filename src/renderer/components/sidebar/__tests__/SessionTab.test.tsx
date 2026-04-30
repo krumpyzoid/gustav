@@ -86,6 +86,15 @@ vi.mock('../../../lib/transport/local-transport', () => ({
   LocalTransport: MockLocalTransport,
 }));
 
+// Default to "no terminal mounted" so existing tests assert switchSession
+// is called with `undefined`. Tests that need a specific size override this
+// mock per-test via `vi.mocked(getTerminalSize).mockReturnValueOnce(...)`.
+vi.mock('../../../hooks/use-terminal', () => ({
+  getTerminalSize: vi.fn(() => null),
+  focusTerminal: vi.fn(),
+  requestTerminalFit: vi.fn(),
+}));
+
 // ── Store mock ────────────────────────────────────────────────────
 
 type StoreState = {
@@ -178,9 +187,40 @@ describe('SessionTab — remote click', () => {
     expect(remoteTransports.length).toBe(1);
     const persistent = remoteTransports[0];
 
-    expect(persistent.switchSession).toHaveBeenCalledWith('ws/repo/_dir');
+    expect(persistent.switchSession).toHaveBeenCalledWith('ws/repo/_dir', undefined);
     expect(storeState.setActiveTransport).toHaveBeenCalledWith(persistent);
     expect(storeState.setWindows).toHaveBeenCalledWith(remoteWindows);
+  });
+
+  it('forwards the live terminal size to switchSession when a terminal is mounted', async () => {
+    const { getTerminalSize } = await import('../../../hooks/use-terminal');
+    vi.mocked(getTerminalSize).mockReturnValueOnce({ cols: 173, rows: 47 });
+
+    const user = userEvent.setup();
+    const remoteWindows: WindowInfo[] = [
+      { index: 0, name: 'main', active: true },
+    ];
+    remoteTransportSwitchData.push({ success: true, data: remoteWindows });
+
+    render(<SessionTab tab={makeTab()} isRemote />);
+    await user.click(screen.getByRole('button', { name: /repo/i }));
+
+    const persistent = remoteTransports[0];
+    expect(persistent.switchSession).toHaveBeenCalledWith('ws/repo/_dir', { cols: 173, rows: 47 });
+  });
+
+  it('requests a terminal fit after a successful remote switchSession', async () => {
+    const { requestTerminalFit } = await import('../../../hooks/use-terminal');
+    vi.mocked(requestTerminalFit).mockClear();
+
+    const user = userEvent.setup();
+    const remoteWindows: WindowInfo[] = [{ index: 0, name: 'main', active: true }];
+    remoteTransportSwitchData.push({ success: true, data: remoteWindows });
+
+    render(<SessionTab tab={makeTab()} isRemote />);
+    await user.click(screen.getByRole('button', { name: /repo/i }));
+
+    expect(requestTerminalFit).toHaveBeenCalled();
   });
 
   it('wakes an inactive remote session via a transient transport before attaching', async () => {
@@ -194,7 +234,7 @@ describe('SessionTab — remote click', () => {
     expect(remoteTransports.length).toBe(2);
     const [wakeTransport, attachTransport] = remoteTransports;
     expect(wakeTransport.wakeSession).toHaveBeenCalledWith('ws/repo/_dir');
-    expect(attachTransport.switchSession).toHaveBeenCalledWith('ws/repo/_dir');
+    expect(attachTransport.switchSession).toHaveBeenCalledWith('ws/repo/_dir', undefined);
   });
 
   it('drops a concurrent click while the previous click is still in-flight', async () => {

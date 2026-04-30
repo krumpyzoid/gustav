@@ -1,6 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useAppStore } from '../../hooks/use-app-state';
-import { focusTerminal } from '../../hooks/use-terminal';
+import { focusTerminal, requestTerminalFit } from '../../hooks/use-terminal';
 import { SortableItem } from '../sidebar/SortableItem';
 import { reorderList } from '../../lib/reorder-list';
 import { LocalTransport } from '../../lib/transport/local-transport';
@@ -58,6 +58,7 @@ export function TabBar() {
     setActiveTransport,
   } = useAppStore();
   const [isAdding, setIsAdding] = useState(false);
+  const clickInFlightRef = useRef(false);
 
   // The session this tab bar operates on — local or remote, whichever the
   // active transport is currently bound to.
@@ -78,14 +79,29 @@ export function TabBar() {
 
   if (windows.length === 0) return null;
 
+  // Re-entry guard: rapid tab clicks could otherwise issue overlapping
+  // selectWindow RPCs whose optimistic `setWindows` calls leave the
+  // window-active state divergent from the actual tmux selection.
+  // Drop concurrent invocations until the in-flight one settles.
+  // (Mirrors `SessionTab.handleClick`'s pattern.)
+
   async function handleClick(windowName: string) {
     if (!session) return;
-    setWindows(windows.map((w) => ({ ...w, active: w.name === windowName })));
-    await activeTransport.selectWindow(session, windowName);
-    // The button briefly steals focus on mousedown — restore it to the terminal
-    // so the user can keep typing. (This used to be done by preventDefault on
-    // mousedown, but that path blocks pragmatic-drag-and-drop's drag-start.)
-    focusTerminal();
+    if (clickInFlightRef.current) return;
+    clickInFlightRef.current = true;
+    try {
+      setWindows(windows.map((w) => ({ ...w, active: w.name === windowName })));
+      await activeTransport.selectWindow(session, windowName);
+      // Refit so remote sessions whose new window was rendered at stale
+      // dimensions get a fresh redraw against the live viewport (#14).
+      requestTerminalFit();
+      // The button briefly steals focus on mousedown — restore it to the terminal
+      // so the user can keep typing. (This used to be done by preventDefault on
+      // mousedown, but that path blocks pragmatic-drag-and-drop's drag-start.)
+      focusTerminal();
+    } finally {
+      clickInFlightRef.current = false;
+    }
   }
 
   async function handleAdd(name: string) {
@@ -117,10 +133,11 @@ export function TabBar() {
         setActiveTransport(new LocalTransport());
       }
     } else {
-      const remaining = windows.filter((w) => w.index !== windowIndex);
-      if (!remaining.some((w) => w.active)) {
-        remaining[0].active = true;
-      }
+      const filtered = windows.filter((w) => w.index !== windowIndex);
+      const hasActive = filtered.some((w) => w.active);
+      const remaining = filtered.map((w, i) =>
+        !hasActive && i === 0 ? { ...w, active: true } : w,
+      );
       setWindows(remaining);
       await activeTransport.killWindow(session, windowIndex);
     }

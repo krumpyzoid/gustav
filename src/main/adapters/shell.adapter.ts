@@ -11,7 +11,11 @@ export class ShellAdapter implements ShellPort {
         cmd,
         {
           cwd: opts?.cwd,
-          env: opts?.env ? { ...process.env, ...opts.env } : undefined,
+          // Always spread process.env so callers without an `env` overlay still
+          // inherit ambient vars (SSH_AUTH_SOCK, PATH, HOME, …). Node's
+          // `env: undefined` would also inherit, but stating it explicitly
+          // prevents accidental "minimal env" regressions in future edits.
+          env: { ...process.env, ...opts?.env },
           timeout: opts?.timeout ?? 30_000,
           encoding: 'utf-8',
         },
@@ -34,7 +38,7 @@ export class ShellAdapter implements ShellPort {
         args,
         {
           cwd: opts?.cwd,
-          env: opts?.env ? { ...process.env, ...opts.env } : undefined,
+          env: { ...process.env, ...opts?.env },
           timeout: opts?.timeout ?? 30_000,
           encoding: 'utf-8',
         },
