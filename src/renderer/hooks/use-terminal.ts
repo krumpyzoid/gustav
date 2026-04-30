@@ -258,22 +258,52 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     return cleanup;
   }, [activeTransport]);
 
-  // ── Auto-fit on transport change (#16) ──────────────────────────
-  // After every transport swap, the new PTY's dimensions and xterm.js's
-  // viewport must be re-synced. Without this, switching to a fresh remote
-  // transport leaves the new PTY at its attach-time geometry while the
-  // renderer paints onto the (potentially different) container size — the
-  // user sees a stale or clipped buffer until they manually click a window
-  // tab. Driving the fit from a `[activeTransport]` effect closes the race
-  // by guaranteeing the fit runs *after* React's commit (and thus after
-  // the new transport is the one `currentTransport()` returns).
+  // ── Auto-fit + force-refresh on transport change (#16) ─────────
+  // After every transport swap two things must happen:
+  //
+  // 1. xterm.js's viewport must be re-synced to the container (fit).
+  // 2. The remote tmux client must redraw the new session's screen.
+  //
+  // (2) is the subtle one. tmux only repaints the viewport on SIGWINCH,
+  // and the kernel's `TIOCSWINSZ` short-circuits when the new size
+  // matches the old (`drivers/tty/tty_io.c` does a memcmp before
+  // calling `kill_pgrp`). So the obvious post-attach `sendPtyResize(cols,
+  // rows)` is a silent no-op: the PTY was spawned at exactly those
+  // dimensions, the resize doesn't change them, no signal fires, no
+  // redraw is issued, and the user stares at the previous session's
+  // content for several seconds until natural traffic prompts a
+  // partial paint over the stale buffer (visible as "mixed" content).
+  // Manually resizing the OS window did force a redraw — because that
+  // changes dimensions — which is the symptom that pinned the cause.
+  //
+  // We therefore *wiggle* the size: shrink rows by one, then restore.
+  // Both transitions differ from the previous size and each triggers
+  // SIGWINCH, and tmux issues a full redraw on either signal. The final
+  // resize lands at the intended dimensions.
+  //
+  // The wiggle must run *after* the data-subscription effect above has
+  // re-subscribed against the new transport — otherwise the redraw
+  // frames flow into the fanout with no subscribers and are dropped.
+  // React runs `useEffect`s in source order on the same commit, so this
+  // effect's rAF callback fires after the subscription is live; the
+  // rAF gives React a frame to commit before we touch the new PTY.
   //
   // Cleanup cancels the pending rAF so a swap-then-immediate-unmount
-  // doesn't leave a frame queued against a torn-down terminal. The
-  // mount-effect's `disposed` flag is the safety net; this cancel is
-  // defensive hygiene.
+  // doesn't leave a frame queued against a torn-down terminal.
   useEffect(() => {
-    const id = requestAnimationFrame(() => requestTerminalFit());
+    const id = requestAnimationFrame(() => {
+      // `globalTermRef` is nulled by the mount-effect cleanup, so it is
+      // our "still mounted" signal here. The cleanup below cancels this
+      // rAF in production, but the guard is the safety net if the cancel
+      // races (or if a test harness doesn't honour it).
+      if (!globalTermRef) return;
+      requestTerminalFit();
+      const t = termRef.current;
+      if (!t || t.rows < 2) return;
+      const transport = useAppStore.getState().activeTransport;
+      transport.sendPtyResize(t.cols, t.rows - 1);
+      transport.sendPtyResize(t.cols, t.rows);
+    });
     return () => cancelAnimationFrame(id);
   }, [activeTransport]);
 

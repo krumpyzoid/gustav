@@ -196,7 +196,7 @@ describe('use-terminal — onData routing invariant (#15)', () => {
 });
 
 describe('use-terminal — auto-fit on transport change (#16)', () => {
-  it('fires sendPtyResize on the NEW transport when activeTransport changes', () => {
+  it('fires the SIGWINCH wiggle on the NEW transport when activeTransport changes', () => {
     const rafCallbacks: FrameRequestCallback[] = [];
     const rafSpy = vi
       .spyOn(globalThis, 'requestAnimationFrame')
@@ -225,10 +225,15 @@ describe('use-terminal — auto-fit on transport change (#16)', () => {
     );
 
     // Flush any pending rAFs from initial mount so the rest of the test
-    // sees only frames scheduled by the post-swap effect. Then clear the
-    // old transport's spy so the post-swap "old NOT called" assertion is
-    // measured cleanly from the swap onwards.
-    for (const cb of rafCallbacks.splice(0)) cb(performance.now());
+    // sees only frames scheduled by the post-swap effect. Drain in a loop
+    // because each wiggle-effect callback schedules a chained rAF (via
+    // `requestTerminalFit`) — a single splice would leave the chained one
+    // pending and it would fire under the *new* transport after the swap,
+    // muddying the assertions below. Then clear the old transport's spy
+    // so the post-swap "old NOT called" assertion is clean.
+    while (rafCallbacks.length > 0) {
+      for (const cb of rafCallbacks.splice(0)) cb(performance.now());
+    }
     activeTransport.sendPtyResize.mockClear();
 
     // Swap to a new transport with its own sendPtyResize spy.
@@ -242,11 +247,27 @@ describe('use-terminal — auto-fit on transport change (#16)', () => {
     };
     rerender({ tick: 1 });
 
-    // Drain frames scheduled by the [activeTransport] effect.
-    for (const cb of rafCallbacks.splice(0)) cb(performance.now());
+    // Drain frames scheduled by the [activeTransport] effect (and the
+    // chained fit rAF that the wiggle effect's `requestTerminalFit`
+    // queues).
+    while (rafCallbacks.length > 0) {
+      for (const cb of rafCallbacks.splice(0)) cb(performance.now());
+    }
 
-    // Exactly one resize per swap, on the NEW transport.
-    expect(newSendPtyResize).toHaveBeenCalledTimes(1);
+    // The wiggle is *two* resizes on the NEW transport: shrink rows by
+    // one, then restore. Each transition differs from the previous size
+    // and fires SIGWINCH (TIOCSWINSZ short-circuits on equal sizes, so
+    // a single same-size resize would be a silent no-op and tmux would
+    // never refresh on attach). The fakeTermInstance reports cols=173,
+    // rows=47, so the wiggle pair is (173, 46) then (173, 47). The
+    // chained `requestTerminalFit` adds extra (173, 47) calls but those
+    // don't change the PTY size; what matters is that the (173, 46) leg
+    // appears and the final dimension is back at (173, 47).
+    const calls = newSendPtyResize.mock.calls;
+    const wiggleIdx = calls.findIndex(([c, r]) => c === 173 && r === 46);
+    expect(wiggleIdx).toBeGreaterThanOrEqual(0);
+    expect(calls[wiggleIdx + 1]).toEqual([173, 47]);
+    expect(calls[calls.length - 1]).toEqual([173, 47]);
     // And NOT on the old transport — the rAFs scheduled after the swap
     // must read the post-commit transport via currentTransport().
     expect(activeTransport.sendPtyResize).not.toHaveBeenCalled();

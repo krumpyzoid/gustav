@@ -105,16 +105,16 @@ export class RemoteGustavTransport implements SessionTransport {
     }
     this.ptyChannelId = channelId;
 
-    // Tickle the freshly-attached PTY with a resize so tmux issues a full
-    // redraw. tmux only repaints the viewport on SIGWINCH, and the
-    // [activeTransport]-effect's auto-fit runs *before* the channelId is
-    // available (see RemoteGustavTransport.sendPtyResize: drops with a
-    // console.warn when ptyChannelId is null), so without an explicit
-    // post-attach resize the user sees a blank terminal until they
-    // manually resize the OS window. node-pty's `resize()` issues an ioctl
-    // SIGWINCH unconditionally — tmux interprets that as "redraw" — so we
-    // can use the attach dimensions as the tickle.
-    window.api.sendRemotePtyResize(channelId, cols, rows);
+    // The post-attach SIGWINCH that prompts tmux to redraw the new viewport
+    // is now driven by `useTerminal`'s `[activeTransport]` effect — see the
+    // wiggle there. We can't drive it here: the data-subscription effect
+    // doesn't re-subscribe against this transport until *after*
+    // `setActiveTransport`, which only runs once this method returns and
+    // the caller installs us. Any redraw frames sent now would land in the
+    // fanout with no subscribers and be dropped — which is what the
+    // previous "tickle" did silently (it also had a stale premise: a
+    // same-size `TIOCSWINSZ` does *not* issue SIGWINCH, the kernel
+    // short-circuits on `memcmp` equality).
 
     const windows = await window.api.remoteSessionCommand(RemoteCommand.ListWindows, { session });
     if (!windows.success) {

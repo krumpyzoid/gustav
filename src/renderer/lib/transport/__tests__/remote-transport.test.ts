@@ -86,7 +86,13 @@ describe('RemoteGustavTransport', () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
-  it('switchSession tickles the new PTY with a resize so tmux redraws on attach', async () => {
+  it('switchSession does NOT issue a resize before returning — the redraw wiggle now lives in useTerminal', async () => {
+    // Sending a resize here would land in the fanout with no subscribers
+    // (use-terminal only re-subscribes against this transport once the
+    // store flips, which happens *after* this method returns), so the
+    // redraw frames would be dropped. The wiggle that actually triggers
+    // tmux's refresh runs from `useTerminal`'s `[activeTransport]` effect,
+    // by which point the new subscriber is live.
     api.remoteSessionCommand.mockImplementation((action: string) => {
       if (action === 'attach-pty') return Promise.resolve({ success: true, data: { channelId: 5 } });
       return Promise.resolve({ success: true, data: [] });
@@ -95,9 +101,7 @@ describe('RemoteGustavTransport', () => {
     const t = new RemoteGustavTransport();
     await t.switchSession('Dev/_ws', { cols: 132, rows: 50 });
 
-    // Without this resize, tmux on the remote sits on its previous redraw
-    // until the user manually resizes the OS window.
-    expect(api.sendRemotePtyResize).toHaveBeenCalledWith(5, 132, 50);
+    expect(api.sendRemotePtyResize).not.toHaveBeenCalled();
   });
 
   it('switchSession sends attach-pty and stores the returned channel id', async () => {
