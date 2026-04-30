@@ -38,7 +38,20 @@ export class RemoteGustavTransport implements SessionTransport {
   }
 
   onPtyData(listener: (data: string) => void): () => void {
-    const cleanup = window.api.onRemotePtyData(listener);
+    // Filter by this transport's channel id so frames from a not-yet-
+    // detached previous channel don't bleed into a new transport's
+    // listener after a swap. Without this filter the user sees the OLD
+    // session's content for the duration of the OLD detach-pty round-
+    // trip on the server, which can read like a 3-5s lag if state
+    // collection or other slow ops are queued ahead of the detach.
+    //
+    // ptyChannelId is null until switchSession resolves; frames received
+    // before then are dropped, which is correct — there's no channel for
+    // them to belong to yet.
+    const cleanup = window.api.onRemotePtyData(({ channelId, data }) => {
+      if (channelId !== this.ptyChannelId) return;
+      listener(data);
+    });
     return this.track(cleanup);
   }
 

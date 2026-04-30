@@ -6,9 +6,15 @@ import { createPtyDataFanout } from './pty-data-fanout';
 // remote tab, open another) tears down the IPC listener mid-stream and
 // any frame arriving in the gap is dropped — the cause of the lag and
 // "weird characters" described in #16.
-const remotePtyDataFanout = createPtyDataFanout<string>();
-ipcRenderer.on('remote-pty-data', (_e, data: string) => {
-  remotePtyDataFanout.dispatch(data);
+//
+// The fan-out value carries the channelId so renderer-side transports can
+// filter to their own channel — see RemoteGustavTransport.onPtyData. Stale
+// frames from a not-yet-detached previous channel must not reach the new
+// transport's listener.
+type RemotePtyFrame = { channelId: number; data: string };
+const remotePtyDataFanout = createPtyDataFanout<RemotePtyFrame>();
+ipcRenderer.on('remote-pty-data', (_e, frame: RemotePtyFrame) => {
+  remotePtyDataFanout.dispatch(frame);
 });
 
 contextBridge.exposeInMainWorld('api', {
@@ -125,8 +131,10 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('remote-state-update', handler);
   },
   // The IPC listener is permanent (above); subscribe/unsubscribe is just
-  // an in-memory Set update. No data drops across transport swaps.
-  onRemotePtyData: (cb: (data: string) => void) => remotePtyDataFanout.subscribe(cb),
+  // an in-memory Set update. No data drops across transport swaps. The
+  // callback receives the channelId so the subscriber can filter — see
+  // RemoteGustavTransport.onPtyData for the filtering policy.
+  onRemotePtyData: (cb: (frame: { channelId: number; data: string }) => void) => remotePtyDataFanout.subscribe(cb),
   onRemoteConnectionStatus: (cb: (status: string) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, status: string) => cb(status);
     ipcRenderer.on('remote-connection-status', handler);

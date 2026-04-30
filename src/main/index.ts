@@ -372,10 +372,16 @@ app.on('ready', async () => {
   });
   remoteClientService.onPtyData((data) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      // Decode binary frame in main process — send only the payload string to renderer
-      // Frame format: [1 byte channel type][4 bytes channel ID][N bytes payload]
-      const payload = Buffer.isBuffer(data) && data.length > 5 ? data.subarray(5).toString() : '';
-      mainWindow.webContents.send(Channels.REMOTE_PTY_DATA, payload);
+      // Decode binary frame: [1 byte channel type][4 bytes channel ID][N bytes payload]
+      // We forward `channelId` to the renderer so each transport's onPtyData
+      // can filter to its own channel — without this, frames from a still-
+      // alive OLD channel hit the NEW transport's listener after a swap and
+      // the user sees the prior session's content for the duration of the
+      // OLD detach-pty round-trip.
+      if (!Buffer.isBuffer(data) || data.length < 5) return;
+      const channelId = data.readUInt32BE(1);
+      const payload = data.subarray(5).toString();
+      mainWindow.webContents.send(Channels.REMOTE_PTY_DATA, { channelId, data: payload });
     }
   });
   remoteClientService.onStatusChange((status) => {

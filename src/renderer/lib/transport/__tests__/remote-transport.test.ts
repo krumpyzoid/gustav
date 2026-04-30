@@ -54,6 +54,38 @@ describe('RemoteGustavTransport', () => {
 
   // ── switchSession attaches a remote PTY ─────────────────────────
 
+  it('onPtyData filters frames by channelId — only frames matching the attached channel reach the listener', async () => {
+    let dispatchFrame!: (frame: { channelId: number; data: string }) => void;
+    api.onRemotePtyData.mockImplementation((cb) => {
+      dispatchFrame = cb;
+      return () => {};
+    });
+    api.remoteSessionCommand.mockImplementation((action: string) => {
+      if (action === 'attach-pty') return Promise.resolve({ success: true, data: { channelId: 7 } });
+      return Promise.resolve({ success: true, data: [] });
+    });
+
+    const t = new RemoteGustavTransport();
+    const listener = vi.fn();
+    t.onPtyData(listener);
+
+    // Before attach: ptyChannelId is null, frames are dropped regardless.
+    dispatchFrame({ channelId: 7, data: 'pre-attach' });
+    expect(listener).not.toHaveBeenCalled();
+
+    // Attach to channel 7.
+    await t.switchSession('Dev/_ws');
+
+    // Stale frame from a different channel must not reach the listener.
+    dispatchFrame({ channelId: 99, data: 'stale-other-channel' });
+    expect(listener).not.toHaveBeenCalled();
+
+    // Matching channel reaches the listener with just the data.
+    dispatchFrame({ channelId: 7, data: 'live-data' });
+    expect(listener).toHaveBeenCalledWith('live-data');
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
   it('switchSession sends attach-pty and stores the returned channel id', async () => {
     const remoteWindows: WindowInfo[] = [
       { index: 0, name: 'Editor', active: true },
