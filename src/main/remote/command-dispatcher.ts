@@ -13,6 +13,7 @@ import { ok, err } from '../domain/result-helpers';
 import { supervisorWindowsAsInfo } from '../supervisor/supervisor-utils';
 import { buildWindowSpecs } from '../ipc/build-window-specs';
 import { applyPersistedWindowOrder } from '../ipc/apply-persisted-window-order';
+import { RemoteCommand } from '../../shared/remote-commands';
 import { basename, join } from 'node:path';
 
 export type DispatcherDeps = {
@@ -90,10 +91,10 @@ export class CommandDispatcher {
   async dispatch(command: string, params: Record<string, unknown>): Promise<DispatchResult> {
     try {
       switch (command) {
-        case 'get-state':
+        case RemoteCommand.GetState:
           return ok(await this.deps.stateService.collectWorkspaces());
 
-        case 'get-branches': {
+        case RemoteCommand.GetBranches: {
           const repoRoot = params.repoRoot as string;
           if (!validateRepoPath(repoRoot)) return err('Invalid argument');
           if (!this.deps.isAllowedDirectory(repoRoot)) {
@@ -102,7 +103,7 @@ export class CommandDispatcher {
           return ok(await this.deps.git.listBranches(repoRoot));
         }
 
-        case 'discover-repos': {
+        case RemoteCommand.DiscoverRepos: {
           const dir = params.directory as string;
           if (!validateRepoPath(dir)) return err('Invalid argument');
           if (!this.deps.isAllowedDirectory(dir)) {
@@ -111,7 +112,7 @@ export class CommandDispatcher {
           return ok(this.deps.workspaceService.discoverGitRepos(dir, 3));
         }
 
-        case 'select-window': {
+        case RemoteCommand.SelectWindow: {
           const session = params.session as string;
           const window = params.window as string;
           if (!this.deps.workspaceService.findBySessionPrefix(session) && !session.startsWith('_standalone/')) {
@@ -127,7 +128,7 @@ export class CommandDispatcher {
           return ok(undefined);
         }
 
-        case 'new-window': {
+        case RemoteCommand.NewWindow: {
           const session = params.session as string;
           const name = params.name as string;
           if (!this.deps.workspaceService.findBySessionPrefix(session) && !session.startsWith('_standalone/')) {
@@ -156,7 +157,7 @@ export class CommandDispatcher {
           return ok(undefined);
         }
 
-        case 'kill-window': {
+        case RemoteCommand.KillWindow: {
           const session = params.session as string;
           const windowIndex = params.windowIndex as number;
           if (!this.deps.workspaceService.findBySessionPrefix(session) && !session.startsWith('_standalone/')) {
@@ -192,7 +193,7 @@ export class CommandDispatcher {
           return ok(undefined);
         }
 
-        case 'set-window-order': {
+        case RemoteCommand.SetWindowOrder: {
           const session = params.session as string;
           const names = params.names as string[];
           if (typeof session !== 'string' || !session) return err('Invalid session');
@@ -205,7 +206,7 @@ export class CommandDispatcher {
           return ok(undefined);
         }
 
-        case 'list-windows': {
+        case RemoteCommand.ListWindows: {
           const session = params.session as string;
           if (!this.deps.workspaceService.findBySessionPrefix(session) && !session.startsWith('_standalone/')) {
             return err('Unknown session');
@@ -221,7 +222,7 @@ export class CommandDispatcher {
           return ok(applyPersistedWindowOrder(live, persisted?.windows ?? []));
         }
 
-        case 'sleep-session': {
+        case RemoteCommand.SleepSession: {
           const session = params.session as string;
           if (!this.deps.workspaceService.findBySessionPrefix(session) && !session.startsWith('_standalone/')) {
             return err('Unknown session');
@@ -238,7 +239,7 @@ export class CommandDispatcher {
           return ok(undefined);
         }
 
-        case 'wake-session': {
+        case RemoteCommand.WakeSession: {
           const session = params.session as string;
           const ws = this.deps.workspaceService.findBySessionPrefix(session);
           if (!ws) return err('No persisted session found');
@@ -263,7 +264,7 @@ export class CommandDispatcher {
           return ok(undefined);
         }
 
-        case 'destroy-session': {
+        case RemoteCommand.DestroySession: {
           const session = params.session as string;
           if (!this.deps.workspaceService.findBySessionPrefix(session) && !session.startsWith('_standalone/')) {
             return err('Unknown session');
@@ -282,7 +283,7 @@ export class CommandDispatcher {
           return ok(undefined);
         }
 
-        case 'create-workspace-session': {
+        case RemoteCommand.CreateWorkspaceSession: {
           const { workspaceName, workspaceDir, label } = params as {
             workspaceName: string; workspaceDir: string; label?: string;
           };
@@ -321,7 +322,7 @@ export class CommandDispatcher {
           return ok(launched.sessionId);
         }
 
-        case 'create-repo-session': {
+        case RemoteCommand.CreateRepoSession: {
           const { workspaceName, repoRoot, mode, branch, base } = params as {
             workspaceName: string; repoRoot: string; mode: string;
             branch?: string; base?: string;
@@ -390,7 +391,7 @@ export class CommandDispatcher {
           return ok(launched.sessionId);
         }
 
-        case 'create-standalone-session': {
+        case RemoteCommand.CreateStandaloneSession: {
           const { label, dir } = params as { label: string; dir: string };
           if (!validateLabel(label)) return err('Invalid argument');
           if (!validateRepoPath(dir)) return err('Invalid argument');

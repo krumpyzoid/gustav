@@ -220,6 +220,24 @@ describe('PtyManager', () => {
       expect(dataListeners.size).toBe(1);
     });
 
+    it('attachSupervisor re-applies cols/rows when reusing an existing channel', () => {
+      const { supervisor } = makeSupervisor();
+      const m = new PtyManager((f) => emittedFrames.push(f), supervisor as any);
+
+      m.attachSupervisor('ws/repo/_dir', 80, 24);
+      m.attachSupervisor('ws/repo/_dir', 132, 50);
+
+      // attachClient called once on first attach; resizeClient called once on
+      // the idempotent re-attach so the supervisor reflects the new viewport.
+      expect(supervisor.attachClient).toHaveBeenCalledTimes(1);
+      expect(supervisor.resizeClient).toHaveBeenCalledWith(
+        'ws/repo/_dir',
+        expect.any(String),
+        132,
+        50,
+      );
+    });
+
     it('attachSupervisor without a configured supervisor throws', () => {
       const m = new PtyManager((f) => emittedFrames.push(f));
       expect(() => m.attachSupervisor('ws/repo/_dir', 80, 24)).toThrow(/supervisor not configured/);

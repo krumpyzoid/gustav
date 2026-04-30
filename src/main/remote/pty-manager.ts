@@ -70,7 +70,11 @@ export class PtyManager {
    * window over a channel and routes input back via the supervisor's
    * latest-wins client model. Idempotent per `sessionId`: if the same
    * session is already attached, returns the existing channel id rather
-   * than registering a second listener (which would emit duplicate frames). */
+   * than registering a second listener (which would emit duplicate frames).
+   * Idempotent re-attaches re-apply the caller's `cols`/`rows` so a client
+   * reconnecting at a different terminal size sees correct line wrapping;
+   * without this, the supervisor would keep the original attach's
+   * dimensions until the user resized manually. */
   attachSupervisor(sessionId: string, cols: number, rows: number): number {
     if (!this.supervisor) {
       throw new Error('PtyManager: supervisor not configured for native attach');
@@ -79,6 +83,7 @@ export class PtyManager {
     // onWindowData listeners (which would emit duplicate frames to the client).
     for (const [chId, entry] of this.entries) {
       if (entry.kind === 'native' && entry.sessionId === sessionId) {
+        this.supervisor.resizeClient(sessionId, entry.clientId, cols, rows);
         return chId;
       }
     }
