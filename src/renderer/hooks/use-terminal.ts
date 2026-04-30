@@ -267,8 +267,14 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
   // tab. Driving the fit from a `[activeTransport]` effect closes the race
   // by guaranteeing the fit runs *after* React's commit (and thus after
   // the new transport is the one `currentTransport()` returns).
+  //
+  // Cleanup cancels the pending rAF so a swap-then-immediate-unmount
+  // doesn't leave a frame queued against a torn-down terminal. The
+  // mount-effect's `disposed` flag is the safety net; this cancel is
+  // defensive hygiene.
   useEffect(() => {
-    requestTerminalFit();
+    const id = requestAnimationFrame(() => requestTerminalFit());
+    return () => cancelAnimationFrame(id);
   }, [activeTransport]);
 
   return { termRef, fitRef };
