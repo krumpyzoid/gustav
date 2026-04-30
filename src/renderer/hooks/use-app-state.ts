@@ -64,10 +64,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
   activeTransport: new LocalTransport(),
   setFromState: (state) => {
     const grouped = groupByWorkspace(state);
+    // When a remote transport is active, the windows slice is owned by the
+    // transport (populated by switchSession + TabBar's optimistic updates).
+    // The local 1Hz state poll has no knowledge of the remote-active session,
+    // so applying its windows would clobber the correct remote windows.
+    const isRemote = get().activeTransport.kind === 'remote';
     set({
       defaultWorkspace: grouped.defaultWorkspace,
       workspaces: grouped.workspaces,
-      windows: grouped.windows,
+      ...(isRemote ? {} : { windows: grouped.windows }),
     });
   },
   setActiveSession: (activeSession) => set({ activeSession }),
