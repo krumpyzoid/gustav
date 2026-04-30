@@ -135,6 +135,14 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     // Input relay — route through the active transport regardless of where
     // the session lives.
+    //
+    // Invariant (#15): everything xterm.js emits via `onData` — typed
+    // keystrokes AND auto-generated terminal protocol replies (DA1 / DA2,
+    // cursor position, OSC reports, …) — MUST reach `transport.sendPtyInput`
+    // and MUST NEVER be delivered into `term.write`. Reply bytes echoed back
+    // to the visible buffer surface as glitches like literal `?1;2c`
+    // appearing at the prompt. Do not branch on `data` here, do not buffer
+    // it across transport swaps — just pass it straight through.
     term.onData((data) => {
       currentTransport().sendPtyInput(data);
     });
