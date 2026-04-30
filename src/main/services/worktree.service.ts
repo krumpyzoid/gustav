@@ -1,4 +1,4 @@
-import { join, basename, resolve } from 'node:path';
+import { join, basename, resolve, isAbsolute, relative } from 'node:path';
 import type { GitPort } from '../ports/git.port';
 import type { FileSystemPort } from '../ports/filesystem.port';
 import type { ShellPort } from '../ports/shell.port';
@@ -28,11 +28,13 @@ export class WorktreeService {
     const wtPath = join(wtDir, branch);
 
     // Path-traversal guard: a `branch` like '../escape' would resolve outside
-    // the repo's .worktrees directory. Reject anything that doesn't resolve
-    // strictly inside wtDir before any filesystem mutation runs.
+    // the repo's .worktrees directory. Use path.relative so the check is
+    // expressed as containment (rather than a string-prefix match with a
+    // load-bearing '/' suffix that's easy to drop in a future edit).
     const wtPathAbs = resolve(wtPath);
     const wtDirAbs = resolve(wtDir);
-    if (wtPathAbs !== wtDirAbs && !wtPathAbs.startsWith(wtDirAbs + '/')) {
+    const rel = relative(wtDirAbs, wtPathAbs);
+    if (rel === '..' || rel.startsWith('../') || isAbsolute(rel)) {
       throw new Error(`Invalid branch name: resolved path ${wtPathAbs} escapes worktree dir ${wtDirAbs}`);
     }
 

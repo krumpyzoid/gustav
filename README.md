@@ -42,6 +42,8 @@ Click any session in the sidebar to switch to it. The terminal attaches instantl
 
 Put a session to sleep when you're not using it — it frees the tmux session but remembers everything: window layout, Claude session IDs, running commands. Wake it later and it restores exactly where you left off.
 
+> Sessions are tmux-backed by default. A native-supervisor backend is available behind a strangler flag (`sessionSupervisor: 'native'` in `~/.local/share/gustav/preferences.json`) for early testing — see [docs/specs/architecture-evolution.md](docs/specs/architecture-evolution.md) for details.
+
 **Sleep All** (moon icon in the top bar) pauses every active session.
 
 ### Worktrees

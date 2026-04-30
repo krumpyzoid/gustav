@@ -265,7 +265,7 @@ flowchart LR
   Port["SessionTransport (port)"]
   Local["LocalTransport"]
   Remote["RemoteGustavTransport"]
-  Ssh["SshTransport (Phase 5)"]
+  Ssh["SshTransport (Phase 6)"]
   Tmux["tmux"]
   Stream["claude --output-format=stream-json"]
   Lazygit["lazygit (PTY)"]
