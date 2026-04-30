@@ -1,4 +1,3 @@
-import { useRef } from 'react';
 import type { SessionTab as SessionTabType, ClaudeStatus } from '../../../main/domain/types';
 import { StatusIcon } from './StatusIcon';
 import { useAppStore, refreshState } from '../../hooks/use-app-state';
@@ -10,6 +9,17 @@ import { LocalTransport } from '../../lib/transport/local-transport';
 import { RemoteGustavTransport } from '../../lib/transport/remote-transport';
 import { getTerminalSize } from '../../hooks/use-terminal';
 import { chooseCreateCall } from './create-call-selector';
+
+/**
+ * Module-level click-sequence counter shared by every `SessionTab` instance
+ * in the sidebar. Each click bumps it and captures a ticket; after the
+ * `switchSession` round-trip, a handler whose ticket no longer matches the
+ * latest value treats itself as superseded and discards its result. This is
+ * the cross-tab "latest wins" policy — without it, fast cycles between
+ * different session tabs leave the user on whichever switchSession resolved
+ * last in *server queue order*, not the last one the user actually clicked.
+ */
+let switchSequence = 0;
 
 function statusLabel(status: ClaudeStatus): string {
   if (status === 'action') return 'needs input';
@@ -75,25 +85,22 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
   const isInactive = !tab.active;
   const label = statusLabel(tab.status);
 
-  // Re-entry guard for click handlers: a rapid double-click could otherwise
-  // open two PTY channels on the server (the first never gets detached
-  // because the second `setActiveTransport` overwrites it). Drop concurrent
-  // invocations until the in-flight one settles.
-  const inFlightRef = useRef(false);
-
   async function handleClick() {
-    if (inFlightRef.current) return;
-    inFlightRef.current = true;
-    try {
-      await handleClickInner();
-    } finally {
-      inFlightRef.current = false;
-    }
+    // Latest-wins: each click bumps the module-level sequence counter and
+    // captures its own ticket. After awaiting the network round-trip, a
+    // handler whose ticket no longer matches the current counter discards
+    // its result — preventing a fast burst of clicks from leaving the
+    // user on whichever session happened to *resolve last in the order
+    // the server queue processed them*. The latest click always wins,
+    // and superseded handlers detach their unused transport so the
+    // server-side PTY channel is not orphaned.
+    const ticket = ++switchSequence;
+    await handleClickInner(ticket);
   }
 
-  async function handleClickInner() {
+  async function handleClickInner(ticket: number) {
     if (isRemote) {
-      await handleRemoteClick();
+      await handleRemoteClick(ticket);
       return;
     }
     if (isInactive) {
@@ -154,7 +161,7 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
     }
   }
 
-  async function handleRemoteClick() {
+  async function handleRemoteClick(ticket: number) {
     // The session id we end up attaching may not be the same as `tab.tmuxSession`:
     // for a killed session, the create-* path returns a fresh id.
     let sessionToAttach = tab.tmuxSession;
@@ -223,6 +230,17 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
     const remoteTransport = new RemoteGustavTransport();
     const size = getTerminalSize() ?? undefined;
     const result = await remoteTransport.switchSession(sessionToAttach, size);
+
+    // Latest-wins: a click that arrived later has already incremented the
+    // counter past our ticket. Detach the unused transport (so its
+    // server-side PTY channel doesn't orphan) and abandon — leave the
+    // store untouched so the LATER click's optimistic state and eventual
+    // result remain authoritative.
+    if (ticket !== switchSequence) {
+      remoteTransport.detach();
+      return;
+    }
+
     if (result.success) {
       setActiveTransport(remoteTransport);
       setWindows(result.data);

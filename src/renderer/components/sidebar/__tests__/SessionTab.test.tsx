@@ -297,24 +297,38 @@ describe('SessionTab — remote click', () => {
     expect(storeState.setActiveTransport).not.toHaveBeenCalled();
   });
 
-  it('drops a concurrent click while the previous click is still in-flight', async () => {
+  it('latest-wins: a superseded click discards its result and the transport is detached', async () => {
     const user = userEvent.setup();
-    let resolveSwitch!: (v: { success: boolean; data: WindowInfo[] }) => void;
-    const pending = new Promise<{ success: boolean; data: WindowInfo[] }>((r) => { resolveSwitch = r; });
-    // First transport's switchSession is pending until we resolve it.
-    remoteTransportSwitchData.push(pending as never);
+
+    // Stage TWO pending switchSession promises in order — first click gets
+    // the slow one, second click resolves immediately.
+    let resolveFirst!: (v: { success: boolean; data: WindowInfo[] }) => void;
+    const slowFirst = new Promise<{ success: boolean; data: WindowInfo[] }>((r) => { resolveFirst = r; });
+    remoteTransportSwitchData.push(slowFirst as never);
+    remoteTransportSwitchData.push({ success: true, data: [{ index: 0, name: 'second', active: true }] } as never);
 
     render(<SessionTab tab={makeTab()} isRemote />);
     const button = screen.getByRole('button', { name: /repo/i });
 
-    // Click twice in rapid succession before the first await settles.
+    // Two clicks before the first round-trip resolves: latest wins.
     await user.click(button);
     await user.click(button);
 
-    // Second click is dropped: only one transport constructed for the click.
-    expect(remoteTransports.length).toBe(1);
+    // Both transports were constructed (latest-wins doesn't drop the call).
+    expect(remoteTransports.length).toBe(2);
 
-    resolveSwitch({ success: true, data: [] });
+    // The second click resolved synchronously and installed its transport.
+    expect(storeState.setActiveTransport).toHaveBeenCalledTimes(1);
+    expect(storeState.setActiveTransport).toHaveBeenCalledWith(remoteTransports[1]);
+
+    // Now resolve the first click. Its handler must observe staleness,
+    // detach its transport, and NOT replace the active transport.
+    resolveFirst({ success: true, data: [] });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(remoteTransports[0].detach).toHaveBeenCalled();
+    // setActiveTransport still only called once — the stale result was discarded.
+    expect(storeState.setActiveTransport).toHaveBeenCalledTimes(1);
   });
 
   it('does NOT install the transport when switchSession fails after a successful wake', async () => {
