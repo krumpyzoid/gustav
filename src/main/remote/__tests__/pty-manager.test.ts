@@ -186,7 +186,10 @@ describe('PtyManager', () => {
       m.resize(channelId, 132, 50);
 
       expect(supervisor.resizeClient).toHaveBeenCalledWith(
-        expect.objectContaining({ sessionId: 'ws/repo/_dir', cols: 132, rows: 50 }),
+        'ws/repo/_dir',
+        expect.any(String),
+        132,
+        50,
       );
     });
 

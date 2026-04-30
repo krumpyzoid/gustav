@@ -15,16 +15,21 @@ import type { SessionTransport } from '../../lib/transport/session-transport';
 interface Props {
   open: boolean;
   onClose: () => void;
-  workspaceId: string | null;
+  /** Local workspace lookup key. Ignored when `workspace` is supplied. */
+  workspaceId?: string | null;
+  /** Direct workspace descriptor — required when targeting a workspace
+   * that's not in the local store (e.g. a remote workspace). Takes
+   * precedence over `workspaceId`. */
+  workspace?: { name: string; directory: string };
   /** Transport to dispatch the create through. Defaults to LocalTransport
    * so existing callers (local sidebar) keep working unchanged. */
   transport?: SessionTransport;
 }
 
-export function NewSessionDialog({ open, onClose, workspaceId, transport }: Props) {
+export function NewSessionDialog({ open, onClose, workspaceId, workspace, transport }: Props) {
   const activeTransport: SessionTransport = transport ?? new LocalTransport();
   const { workspaces } = useAppStore();
-  const ws = workspaces.find((w) => w.workspace?.id === workspaceId)?.workspace;
+  const ws = workspace ?? workspaces.find((w) => w.workspace?.id === workspaceId)?.workspace;
 
   const [wsLabel, setWsLabel] = useState('');
   const [error, setError] = useState('');

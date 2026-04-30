@@ -101,12 +101,7 @@ export class PtyManager {
     if (entry.kind === 'tmux') {
       entry.ptyProcess.resize(cols, rows);
     } else {
-      this.supervisor?.resizeClient({
-        sessionId: entry.sessionId,
-        clientId: entry.clientId,
-        cols,
-        rows,
-      });
+      this.supervisor?.resizeClient(entry.sessionId, entry.clientId, cols, rows);
     }
   }
 
