@@ -31,6 +31,9 @@ type MockedTransport = {
   newWindow: ReturnType<typeof vi.fn>;
   killWindow: ReturnType<typeof vi.fn>;
   setWindowOrder: ReturnType<typeof vi.fn>;
+  createWorkspaceSession: ReturnType<typeof vi.fn>;
+  createRepoSession: ReturnType<typeof vi.fn>;
+  createStandaloneSession: ReturnType<typeof vi.fn>;
   detach: ReturnType<typeof vi.fn>;
 };
 
@@ -40,6 +43,8 @@ const localTransports: MockedTransport[] = [];
 const remoteTransportSwitchData: Array<{ success: boolean; data?: WindowInfo[]; error?: string }> = [];
 /** Queue of wakeSession resolutions consumed FIFO by each new remote transport. */
 const remoteTransportWakeData: Array<{ success: boolean; data?: WindowInfo[]; error?: string }> = [];
+/** Queue of create*Session resolutions consumed FIFO by each new remote transport. */
+const remoteTransportCreateData: Array<{ success: boolean; data?: string; error?: string }> = [];
 
 function makeMockedTransport(kind: 'local' | 'remote'): MockedTransport {
   const armedSwitch = kind === 'remote' && remoteTransportSwitchData.length > 0
@@ -48,6 +53,9 @@ function makeMockedTransport(kind: 'local' | 'remote'): MockedTransport {
   const armedWake = kind === 'remote' && remoteTransportWakeData.length > 0
     ? remoteTransportWakeData.shift()!
     : { success: true, data: [] };
+  const armedCreate = kind === 'remote' && remoteTransportCreateData.length > 0
+    ? remoteTransportCreateData.shift()!
+    : { success: true, data: 'Dev/repo/_dir' };
   return {
     kind,
     ownsWindows: kind === 'remote',
@@ -64,6 +72,9 @@ function makeMockedTransport(kind: 'local' | 'remote'): MockedTransport {
     newWindow: vi.fn(),
     killWindow: vi.fn(),
     setWindowOrder: vi.fn(),
+    createWorkspaceSession: vi.fn().mockResolvedValue(armedCreate),
+    createRepoSession: vi.fn().mockResolvedValue(armedCreate),
+    createStandaloneSession: vi.fn().mockResolvedValue(armedCreate),
     detach: vi.fn(),
   };
 }
@@ -134,6 +145,7 @@ beforeEach(() => {
   localTransports.length = 0;
   remoteTransportSwitchData.length = 0;
   remoteTransportWakeData.length = 0;
+  remoteTransportCreateData.length = 0;
   for (const fn of Object.values(api)) fn.mockReset?.();
   api.switchSession.mockResolvedValue({ success: true, data: [] });
   api.wakeSession.mockResolvedValue({ success: false });
@@ -331,6 +343,163 @@ describe('SessionTab — sleep / destroy command routing', () => {
 
     expect(remoteTransports.length).toBe(1);
     expect(remoteTransports[0].destroySession).toHaveBeenCalledWith('ws/repo/_dir');
+  });
+});
+
+describe('SessionTab — remote click create-fallback after wake fails (#18)', () => {
+  it('killed remote directory session: wake fails → createRepoSession is called on the remote transport', async () => {
+    // Arm the wake to fail (consumed by transport 0, the wake transient)
+    remoteTransportWakeData.push({ success: false, error: 'session not found' });
+    // The mock constructor shifts one item per queue per `new`, so transport 0
+    // (wake transient) eats the head of switchData even though it never calls
+    // switchSession; transport 1 (the persistent attach transport) gets the
+    // second entry. Push a placeholder + the meaningful response.
+    remoteTransportSwitchData.push({ success: true, data: [] });
+    const remoteWindows: WindowInfo[] = [{ index: 0, name: 'main', active: true }];
+    remoteTransportSwitchData.push({ success: true, data: remoteWindows });
+
+    const user = userEvent.setup();
+    render(
+      <SessionTab
+        tab={makeTab({ active: false, type: 'directory' })}
+        workspaceName="Dev"
+        repoRoot="/srv/repo"
+        isRemote
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /repo/i }));
+
+    // First transport is the wake-transient; on failure the click flow
+    // should construct another transport and call createRepoSession on it.
+    const calledCreate = remoteTransports.some((t) =>
+      (t.createRepoSession as ReturnType<typeof vi.fn>).mock.calls.some(
+        (c) => c[0] === 'Dev' && c[1] === '/srv/repo' && c[2] === 'directory',
+      ),
+    );
+    expect(calledCreate).toBe(true);
+
+    // After successful create, the persistent transport should be installed.
+    expect(storeState.setRemoteActiveSession).toHaveBeenCalled();
+    expect(storeState.setActiveTransport).toHaveBeenCalled();
+    // The fresh-session window list (returned by switchSession on the persistent
+    // transport) must be applied to the renderer's `windows` state.
+    expect(storeState.setWindows).toHaveBeenCalledWith(remoteWindows);
+  });
+
+  it('killed remote session: when create itself fails after wake fails → no transport installed', async () => {
+    // Wake fails → create is attempted → create itself fails. Both armed
+    // through the queue so the wake transient (the first new transport)
+    // returns failure for both wakeSession and createRepoSession.
+    remoteTransportWakeData.push({ success: false, error: 'session not found' });
+    remoteTransportCreateData.push({ success: false, error: 'remote create failed' });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const user = userEvent.setup();
+    render(
+      <SessionTab
+        tab={makeTab({ active: false, type: 'directory' })}
+        workspaceName="Dev"
+        repoRoot="/srv/repo"
+        isRemote
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /repo/i }));
+
+    // No persistent transport should be installed when the create call fails.
+    expect(storeState.setActiveTransport).not.toHaveBeenCalled();
+    expect(storeState.setRemoteActiveSession).not.toHaveBeenCalled();
+    // The wake transient must have been detached cleanly.
+    expect(remoteTransports[0].detach).toHaveBeenCalled();
+    // The error is surfaced.
+    const calls = errorSpy.mock.calls.map((c) => c.join(' '));
+    expect(calls.some((line) => /remote create.*failed/i.test(line))).toBe(true);
+
+    errorSpy.mockRestore();
+  });
+
+  it('killed remote worktree session: wake fails → createRepoSession with mode worktree + branch', async () => {
+    remoteTransportWakeData.push({ success: false, error: 'session not found' });
+    remoteTransportSwitchData.push({ success: true, data: [] });
+
+    const user = userEvent.setup();
+    render(
+      <SessionTab
+        tab={makeTab({
+          active: false,
+          type: 'worktree',
+          branch: 'feat/x',
+          worktreePath: '/srv/repo/.worktrees/feat-x',
+          tmuxSession: 'Dev/repo/feat-x',
+        })}
+        workspaceName="Dev"
+        repoRoot="/srv/repo"
+        isRemote
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /feat\/x/i }));
+
+    const allCalls = remoteTransports.flatMap((t) =>
+      (t.createRepoSession as ReturnType<typeof vi.fn>).mock.calls,
+    );
+    expect(allCalls.some((c) => c[0] === 'Dev' && c[1] === '/srv/repo' && c[2] === 'worktree' && c[3] === 'feat/x')).toBe(true);
+  });
+
+  it('killed remote workspace session: wake fails → createWorkspaceSession with extracted label', async () => {
+    remoteTransportWakeData.push({ success: false, error: 'session not found' });
+    remoteTransportSwitchData.push({ success: true, data: [] });
+
+    const user = userEvent.setup();
+    render(
+      <SessionTab
+        tab={makeTab({
+          active: false,
+          type: 'workspace',
+          tmuxSession: 'Dev/scratch',
+          repoName: null,
+        })}
+        workspaceName="Dev"
+        workspaceDir="/srv/dev"
+        isRemote
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /scratch/i }));
+
+    const allCalls = remoteTransports.flatMap((t) =>
+      (t.createWorkspaceSession as ReturnType<typeof vi.fn>).mock.calls,
+    );
+    expect(allCalls.some((c) => c[0] === 'Dev' && c[1] === '/srv/dev' && c[2] === 'scratch')).toBe(true);
+  });
+
+  it('remote directory tab missing repoRoot → console.error, no create, no transport installed', async () => {
+    remoteTransportWakeData.push({ success: false, error: 'session not found' });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const user = userEvent.setup();
+    render(
+      <SessionTab
+        tab={makeTab({ active: false, type: 'directory' })}
+        workspaceName="Dev"
+        // repoRoot intentionally omitted
+        isRemote
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /repo/i }));
+
+    // No create call on any transport.
+    for (const t of remoteTransports) {
+      expect(t.createRepoSession).not.toHaveBeenCalled();
+      expect(t.createWorkspaceSession).not.toHaveBeenCalled();
+    }
+    expect(storeState.setActiveTransport).not.toHaveBeenCalled();
+    const calls = errorSpy.mock.calls.map((c) => c.join(' '));
+    expect(calls.some((line) => /repoRoot/.test(line))).toBe(true);
+
+    errorSpy.mockRestore();
   });
 });
 

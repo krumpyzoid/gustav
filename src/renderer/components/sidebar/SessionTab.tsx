@@ -155,6 +155,10 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
   }
 
   async function handleRemoteClick() {
+    // The session id we end up attaching may not be the same as `tab.tmuxSession`:
+    // for a killed session, the create-* path returns a fresh id.
+    let sessionToAttach = tab.tmuxSession;
+
     if (isInactive) {
       // Wake the remote session first via a transient transport — the
       // persistent transport (below) attaches a PTY only after the
@@ -165,9 +169,30 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
       try {
         const wakeResult = await wakeTransport.wakeSession(tab.tmuxSession);
         if (!wakeResult.success) {
-          console.error('Remote wake failed:', wakeResult.error);
-          refreshState();
-          return;
+          // Killed-session restart: wake has nothing persisted to bring
+          // back. Fall back to fresh creation, mirroring the local path
+          // and routing through the same `chooseCreateCall` selector
+          // (#18) so the two paths can't drift apart.
+          const choice = chooseCreateCall(tab, { workspaceName, workspaceDir, repoRoot });
+          if (choice.kind === 'unsupported') {
+            console.error(`[gustav] cannot start remote session for ${tab.tmuxSession}: ${choice.reason}`);
+            refreshState();
+            return;
+          }
+          let createResult: { success: boolean; data?: string; error?: string } | undefined;
+          if (choice.kind === 'workspace') {
+            createResult = await wakeTransport.createWorkspaceSession(choice.workspaceName, choice.workspaceDir, choice.label);
+          } else if (choice.kind === 'worktree') {
+            createResult = await wakeTransport.createRepoSession(choice.workspaceName, choice.repoRoot, 'worktree', choice.branch);
+          } else if (choice.kind === 'directory') {
+            createResult = await wakeTransport.createRepoSession(choice.workspaceName, choice.repoRoot, 'directory');
+          }
+          if (!createResult?.success || !createResult.data) {
+            console.error('Remote create after killed session failed:', createResult?.error);
+            refreshState();
+            return;
+          }
+          sessionToAttach = createResult.data;
         }
       } finally {
         wakeTransport.detach();
@@ -182,10 +207,10 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
     // resize the OS window (#14).
     const remoteTransport = new RemoteGustavTransport();
     const size = getTerminalSize() ?? undefined;
-    const result = await remoteTransport.switchSession(tab.tmuxSession, size);
+    const result = await remoteTransport.switchSession(sessionToAttach, size);
     if (result.success) {
       setActiveSession(null);
-      setRemoteActiveSession(tab.tmuxSession);
+      setRemoteActiveSession(sessionToAttach);
       setActiveTransport(remoteTransport);
       setWindows(result.data);
       // Refit after the new transport is installed so the PTY's dimensions
