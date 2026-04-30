@@ -69,15 +69,19 @@ export class RemoteGustavTransport implements SessionTransport {
    * the window list. We detach any previous channel first to keep the
    * server's per-channel bookkeeping clean.
    */
-  async switchSession(session: string): Promise<Result<WindowInfo[]>> {
+  async switchSession(session: string, opts?: { cols: number; rows: number }): Promise<Result<WindowInfo[]>> {
     if (this.ptyChannelId !== null) {
       window.api.remoteSessionCommand(RemoteCommand.DetachPty, { channelId: this.ptyChannelId });
       this.ptyChannelId = null;
     }
 
+    // Fall back to 80x24 only when the caller doesn't know the size yet (rare —
+    // call sites should always pass the live terminal cols/rows, see #14).
+    const cols = opts?.cols ?? 80;
+    const rows = opts?.rows ?? 24;
     const attach = await window.api.remoteSessionCommand(
       RemoteCommand.AttachPty,
-      { tmuxSession: session, cols: 80, rows: 24 },
+      { tmuxSession: session, cols, rows },
     );
     if (!attach.success) {
       return { success: false, error: attach.error ?? 'attach-pty failed' };

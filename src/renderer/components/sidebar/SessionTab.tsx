@@ -8,6 +8,7 @@ import { Folder, GitBranch, Moon, Terminal, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { LocalTransport } from '../../lib/transport/local-transport';
 import { RemoteGustavTransport } from '../../lib/transport/remote-transport';
+import { getTerminalSize } from '../../hooks/use-terminal';
 
 function statusLabel(status: ClaudeStatus): string {
   if (status === 'action') return 'needs input';
@@ -170,9 +171,13 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
 
     // Install a fresh RemoteGustavTransport for ongoing PTY I/O. Any
     // prior transport (remote or local) is detached by the store, which
-    // sends detach-pty for any outstanding remote channel.
+    // sends detach-pty for any outstanding remote channel. Pass the live
+    // terminal size so the remote PTY is spawned at the actual viewport
+    // dimensions — without this the user sees a 80x24 layout until they
+    // resize the OS window (#14).
     const remoteTransport = new RemoteGustavTransport();
-    const result = await remoteTransport.switchSession(tab.tmuxSession);
+    const size = getTerminalSize() ?? undefined;
+    const result = await remoteTransport.switchSession(tab.tmuxSession, size);
     if (result.success) {
       setActiveSession(null);
       setRemoteActiveSession(tab.tmuxSession);

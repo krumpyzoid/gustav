@@ -13,6 +13,18 @@ export function focusTerminal() {
   globalTermRef?.focus();
 }
 
+/**
+ * Live cols/rows from the mounted xterm.js instance, or null if the terminal
+ * isn't mounted yet (initial app boot, before React paints). Callers should
+ * pass this through to `switchSession({ cols, rows })` so remote PTYs are
+ * spawned at the actual viewport size.
+ */
+export function getTerminalSize(): { cols: number; rows: number } | null {
+  const t = globalTermRef;
+  if (!t) return null;
+  return { cols: t.cols, rows: t.rows };
+}
+
 export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>) {
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
