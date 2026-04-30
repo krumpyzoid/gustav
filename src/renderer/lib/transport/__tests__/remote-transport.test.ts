@@ -86,6 +86,20 @@ describe('RemoteGustavTransport', () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
+  it('switchSession tickles the new PTY with a resize so tmux redraws on attach', async () => {
+    api.remoteSessionCommand.mockImplementation((action: string) => {
+      if (action === 'attach-pty') return Promise.resolve({ success: true, data: { channelId: 5 } });
+      return Promise.resolve({ success: true, data: [] });
+    });
+
+    const t = new RemoteGustavTransport();
+    await t.switchSession('Dev/_ws', { cols: 132, rows: 50 });
+
+    // Without this resize, tmux on the remote sits on its previous redraw
+    // until the user manually resizes the OS window.
+    expect(api.sendRemotePtyResize).toHaveBeenCalledWith(5, 132, 50);
+  });
+
   it('switchSession sends attach-pty and stores the returned channel id', async () => {
     const remoteWindows: WindowInfo[] = [
       { index: 0, name: 'Editor', active: true },

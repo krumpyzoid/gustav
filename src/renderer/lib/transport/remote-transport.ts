@@ -105,6 +105,17 @@ export class RemoteGustavTransport implements SessionTransport {
     }
     this.ptyChannelId = channelId;
 
+    // Tickle the freshly-attached PTY with a resize so tmux issues a full
+    // redraw. tmux only repaints the viewport on SIGWINCH, and the
+    // [activeTransport]-effect's auto-fit runs *before* the channelId is
+    // available (see RemoteGustavTransport.sendPtyResize: drops with a
+    // console.warn when ptyChannelId is null), so without an explicit
+    // post-attach resize the user sees a blank terminal until they
+    // manually resize the OS window. node-pty's `resize()` issues an ioctl
+    // SIGWINCH unconditionally — tmux interprets that as "redraw" — so we
+    // can use the attach dimensions as the tickle.
+    window.api.sendRemotePtyResize(channelId, cols, rows);
+
     const windows = await window.api.remoteSessionCommand(RemoteCommand.ListWindows, { session });
     if (!windows.success) {
       return { success: false, error: windows.error ?? 'list-windows failed' };
