@@ -26,6 +26,7 @@ export type ActiveSessionGetter = () => string | null;
  */
 export class LocalTransport implements SessionTransport {
   readonly kind = 'local' as const;
+  readonly ownsWindows = false;
 
   private cleanups = new Set<() => void>();
   private getActiveSession: ActiveSessionGetter;

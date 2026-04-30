@@ -64,16 +64,17 @@ export const useAppStore = create<AppStore>((set, get) => ({
   activeTransport: new LocalTransport(),
   setFromState: (state) => {
     const grouped = groupByWorkspace(state);
-    // When a remote transport is active, the windows slice is owned by the
-    // transport: it's last set by `RemoteGustavTransport.switchSession`
-    // (via `setWindows`) and by `TabBar`'s optimistic updates. The local
-    // 1Hz state poll has no knowledge of the remote-active session, so
-    // applying its windows would clobber the correct remote windows.
-    const isRemote = get().activeTransport.kind === 'remote';
+    // When the active transport claims ownership of `windows`, the local
+    // 1Hz state push must not overwrite it — the transport's
+    // `switchSession` result and `TabBar`'s optimistic updates are the
+    // source of truth. This is expressed as a transport capability
+    // (`ownsWindows`) rather than a `kind === 'remote'` sniff so a third
+    // transport (SSH, headless, future native) opts in by setting the flag.
+    const transportOwnsWindows = get().activeTransport.ownsWindows;
     set({
       defaultWorkspace: grouped.defaultWorkspace,
       workspaces: grouped.workspaces,
-      ...(isRemote ? {} : { windows: grouped.windows }),
+      ...(transportOwnsWindows ? {} : { windows: grouped.windows }),
     });
   },
   setActiveSession: (activeSession) => set({ activeSession }),

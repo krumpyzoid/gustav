@@ -19,6 +19,20 @@ export interface SessionTransport {
   /** Tag for diagnostics and the (rare) place that legitimately needs to differentiate. */
   readonly kind: 'local' | 'remote';
 
+  /**
+   * Whether this transport is the authoritative owner of the renderer's
+   * `windows` slice while it's the active transport. When true, the
+   * renderer's local 1Hz state push must NOT overwrite `windows` —
+   * `switchSession` and the TabBar's optimistic updates own that field.
+   * When false, the local poll is the source of truth.
+   *
+   * Local transports run on the same Electron process as the state poll,
+   * so the poll always knows the active session and can rebuild windows
+   * authoritatively. Remote transports leave the local poll blind, so
+   * the transport's own `switchSession` result must be preserved.
+   */
+  readonly ownsWindows: boolean;
+
   // ── PTY data plane (fire-and-forget) ────────────────────────────
   sendPtyInput(data: string): void;
   sendPtyResize(cols: number, rows: number): void;

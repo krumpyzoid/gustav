@@ -103,7 +103,9 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
         refreshState();
         return;
       }
-      // Fallback: create fresh session (for entries with no persisted snapshot)
+      // Fallback: create fresh session (for entries with no persisted snapshot).
+      // Construct the transport eagerly so it can be detached on every error
+      // path; only `setActiveTransport` callers transfer ownership to the store.
       let result: { success: boolean; data?: string; error?: string } | undefined;
       if (tab.type === 'workspace' && workspaceName && workspaceDir) {
         const parts = tab.tmuxSession.split('/');
@@ -118,9 +120,15 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
       if (result?.success && result.data) {
         setActiveSession(result.data);
         const localTransport = new LocalTransport();
-        setActiveTransport(localTransport);
         const switchResult = await localTransport.switchSession(result.data);
-        if (switchResult.success) setWindows(switchResult.data as WindowInfo[]);
+        if (switchResult.success) {
+          // Store takes ownership; previous transport detached automatically.
+          setActiveTransport(localTransport);
+          setWindows(switchResult.data as WindowInfo[]);
+        } else {
+          // The transport was never installed; release any tracked subscriptions.
+          localTransport.detach();
+        }
         refreshState();
       }
       return;
@@ -130,10 +138,14 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
     // which tears down any remote PTY channel.
     setRemoteActiveSession(null);
     const localTransport = new LocalTransport();
-    setActiveTransport(localTransport);
-    setActiveSession(tab.tmuxSession);
     const result = await localTransport.switchSession(tab.tmuxSession);
-    if (result.success) setWindows(result.data as WindowInfo[]);
+    if (result.success) {
+      setActiveSession(tab.tmuxSession);
+      setActiveTransport(localTransport);
+      setWindows(result.data as WindowInfo[]);
+    } else {
+      localTransport.detach();
+    }
   }
 
   async function handleRemoteClick() {
@@ -143,11 +155,16 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
       // session exists on the remote side. Aborting on wake failure
       // prevents `tmux attach` from running against a non-existent
       // session and surfacing tmux's dying-tty banner in the terminal.
-      const wakeResult = await new RemoteGustavTransport().wakeSession(tab.tmuxSession);
-      if (!wakeResult.success) {
-        console.error('Remote wake failed:', wakeResult.error);
-        refreshState();
-        return;
+      const wakeTransport = new RemoteGustavTransport();
+      try {
+        const wakeResult = await wakeTransport.wakeSession(tab.tmuxSession);
+        if (!wakeResult.success) {
+          console.error('Remote wake failed:', wakeResult.error);
+          refreshState();
+          return;
+        }
+      } finally {
+        wakeTransport.detach();
       }
     }
 
@@ -161,26 +178,39 @@ export function SessionTab({ tab, workspaceName, workspaceDir, repoRoot, onReque
       setRemoteActiveSession(tab.tmuxSession);
       setActiveTransport(remoteTransport);
       setWindows(result.data);
+    } else {
+      remoteTransport.detach();
     }
   }
 
   // For one-off lifecycle commands (sleep / destroy) the transport choice
   // is determined by where the session lives, not by which transport is
-  // currently bound for PTY I/O. We construct a transient adapter so the
-  // call site stays uniform.
+  // currently bound for PTY I/O. We construct a transient adapter and
+  // detach it after the one-shot call so any tracked subscriptions are
+  // released even though the transport is never installed in the store.
   function transportForSession(): LocalTransport | RemoteGustavTransport {
     return isRemote ? new RemoteGustavTransport() : new LocalTransport();
   }
 
   async function handleSleep(e: React.MouseEvent) {
     e.stopPropagation();
-    await transportForSession().sleepSession(tab.tmuxSession);
+    const t = transportForSession();
+    try {
+      await t.sleepSession(tab.tmuxSession);
+    } finally {
+      t.detach();
+    }
     refreshState();
   }
 
   async function handleDestroy(e: React.MouseEvent) {
     e.stopPropagation();
-    await transportForSession().destroySession(tab.tmuxSession);
+    const t = transportForSession();
+    try {
+      await t.destroySession(tab.tmuxSession);
+    } finally {
+      t.detach();
+    }
     refreshState();
   }
 

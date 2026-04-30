@@ -17,6 +17,7 @@ import type { SessionTransport } from '../../../lib/transport/session-transport'
 
 type MockedTransport = {
   kind: 'local' | 'remote';
+  ownsWindows: boolean;
   sendPtyInput: ReturnType<typeof vi.fn>;
   sendPtyResize: ReturnType<typeof vi.fn>;
   onPtyData: ReturnType<typeof vi.fn>;
@@ -49,6 +50,7 @@ function makeMockedTransport(kind: 'local' | 'remote'): MockedTransport {
     : { success: true, data: [] };
   return {
     kind,
+    ownsWindows: kind === 'remote',
     sendPtyInput: vi.fn(),
     sendPtyResize: vi.fn(),
     onPtyData: vi.fn(() => () => {}),
@@ -193,6 +195,26 @@ describe('SessionTab — remote click', () => {
     const [wakeTransport, attachTransport] = remoteTransports;
     expect(wakeTransport.wakeSession).toHaveBeenCalledWith('ws/repo/_dir');
     expect(attachTransport.switchSession).toHaveBeenCalledWith('ws/repo/_dir');
+  });
+
+  it('drops a concurrent click while the previous click is still in-flight', async () => {
+    const user = userEvent.setup();
+    let resolveSwitch!: (v: { success: boolean; data: WindowInfo[] }) => void;
+    const pending = new Promise<{ success: boolean; data: WindowInfo[] }>((r) => { resolveSwitch = r; });
+    // First transport's switchSession is pending until we resolve it.
+    remoteTransportSwitchData.push(pending as never);
+
+    render(<SessionTab tab={makeTab()} isRemote />);
+    const button = screen.getByRole('button', { name: /repo/i });
+
+    // Click twice in rapid succession before the first await settles.
+    await user.click(button);
+    await user.click(button);
+
+    // Second click is dropped: only one transport constructed for the click.
+    expect(remoteTransports.length).toBe(1);
+
+    resolveSwitch({ success: true, data: [] });
   });
 
   it('does NOT install the transport when switchSession fails after a successful wake', async () => {

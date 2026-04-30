@@ -15,6 +15,7 @@ import { RemoteCommand } from '../../../shared/remote-commands';
  */
 export class RemoteGustavTransport implements SessionTransport {
   readonly kind = 'remote' as const;
+  readonly ownsWindows = true;
 
   private ptyChannelId: number | null = null;
   private cleanups = new Set<() => void>();

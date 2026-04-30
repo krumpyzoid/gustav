@@ -32,6 +32,11 @@ export function App() {
   useTheme();
   useKeyboardShortcuts();
 
+  // Subscribe to workspaces so derived dialog inputs (delete, settings)
+  // re-read reactively rather than via `useAppStore.getState()` calls
+  // that would silently miss updates.
+  const workspaces = useAppStore((s) => s.workspaces);
+
   const sidebarRef = useRef<HTMLElement>(null);
   const [view, setView] = useState<View>('terminal');
   const [settingsSection, setSettingsSection] = useState('appearance');
@@ -89,7 +94,7 @@ export function App() {
             onPinRepos={(wsId) => setPinReposWorkspaceId(wsId)}
             onEditWorkspace={(wsId) => setEditWorkspaceId(wsId)}
             onDeleteWorkspace={(wsId) => {
-              const ws = useAppStore.getState().workspaces.find((w) => w.workspace?.id === wsId);
+              const ws = workspaces.find((w) => w.workspace?.id === wsId);
               if (ws) setDeleteWorkspace(ws);
             }}
             onEditSettings={(wsId) => setSettingsWorkspaceId(wsId)}
@@ -205,7 +210,7 @@ export function App() {
         workspace={deleteWorkspace}
       />
       {(() => {
-        const ws = useAppStore.getState().workspaces.find((w) => w.workspace?.id === settingsWorkspaceId)?.workspace;
+        const ws = workspaces.find((w) => w.workspace?.id === settingsWorkspaceId)?.workspace;
         if (!ws) return null;
         return (
           <WorkspaceSettingsDialog

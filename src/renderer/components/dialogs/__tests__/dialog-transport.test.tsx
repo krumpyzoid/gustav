@@ -35,6 +35,7 @@ beforeEach(() => {
 function makeTransport(overrides: Partial<SessionTransport> = {}, kind: 'local' | 'remote' = 'remote'): SessionTransport {
   return {
     kind,
+    ownsWindows: kind === 'remote',
     sendPtyInput: vi.fn(),
     sendPtyResize: vi.fn(),
     onPtyData: vi.fn(() => () => {}),

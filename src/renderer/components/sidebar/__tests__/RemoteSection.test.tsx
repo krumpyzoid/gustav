@@ -81,4 +81,48 @@ describe('RemoteSection', () => {
 
     expect(onAddWorktree).toHaveBeenCalledWith('repo', '/srv/dev/repo', 'RemoteDev');
   });
+
+  it('forwards onRemoveWorktree when a remote worktree session triggers remove', async () => {
+    const onRemoveWorktree = vi.fn();
+    const worktreeTab = {
+      tmuxSession: 'RemoteDev/repo/feat-x',
+      type: 'worktree' as const,
+      repoName: 'repo',
+      branch: 'feat-x',
+      worktreePath: '/srv/dev/repo/.worktrees/feat-x',
+      status: 'none' as const,
+      active: false,
+      workspaceId: 'ws1',
+    };
+    storeState.remoteState = {
+      ...remoteState,
+      workspaces: [
+        {
+          workspace: { id: 'ws1', name: 'RemoteDev', directory: '/srv/dev' },
+          sessions: [],
+          repoGroups: [
+            {
+              repoName: 'repo',
+              repoRoot: '/srv/dev/repo',
+              currentBranch: 'main',
+              sessions: [worktreeTab],
+            },
+          ],
+          status: 'none' as const,
+        },
+      ],
+    };
+
+    const user = userEvent.setup();
+    render(<RemoteSection onRemoveWorktree={onRemoveWorktree} />);
+
+    // The trash button on a worktree session has title "Delete worktree".
+    const removeBtn = await screen.findByTitle(/Delete worktree/i);
+    await user.click(removeBtn);
+
+    expect(onRemoveWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({ tmuxSession: 'RemoteDev/repo/feat-x', branch: 'feat-x' }),
+      '/srv/dev/repo',
+    );
+  });
 });
