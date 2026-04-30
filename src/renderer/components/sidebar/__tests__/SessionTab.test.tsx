@@ -195,6 +195,19 @@ describe('SessionTab — remote click', () => {
     expect(attachTransport.switchSession).toHaveBeenCalledWith('ws/repo/_dir');
   });
 
+  it('does NOT install the transport when switchSession fails after a successful wake', async () => {
+    const user = userEvent.setup();
+    // First transport handles wake (success); second transport's switchSession fails.
+    remoteTransportSwitchData.push({ success: true, data: [] }); // wakeSession's internal switch (none)
+    remoteTransportSwitchData.push({ success: false, error: 'attach failed' });
+
+    render(<SessionTab tab={makeTab({ active: false })} isRemote />);
+    await user.click(screen.getByRole('button', { name: /repo/i }));
+
+    // setActiveTransport must not be called when attach fails.
+    expect(storeState.setActiveTransport).not.toHaveBeenCalled();
+  });
+
   it('does NOT proceed to attach when the remote wake fails', async () => {
     const user = userEvent.setup();
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});

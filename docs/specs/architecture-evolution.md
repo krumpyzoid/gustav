@@ -334,3 +334,24 @@ Phase 3 instantiates `NativeSupervisor` always; the IPC surface is live regardle
 - Migrating `use-terminal` (renderer hook) and other consumers to drive `SupervisorClient` directly when the preference is `native`. The IPC surface and client wrapper exist; the consumer migration is mechanical but voluminous.
 - A UI control for the preference (advanced settings panel).
 - Removing tmux: blocked until the native path is dogfood-stable for at least one release.
+
+## Phase 2 — Implementation Notes (2026-04-30)
+
+Phase 2 transport unification has shipped:
+
+- **`SessionTransport` port** (`src/renderer/lib/transport/session-transport.ts`) — the renderer dispatches every session command (PTY data, lifecycle, window ops, creation) through this single port. Two adapters implement it today: `LocalTransport` (delegates to `window.api`) and `RemoteGustavTransport` (delegates to `window.api.remoteSessionCommand` over the WebSocket). `LocalTransport` multiplexes the legacy tmux PTY stream and the supervisor data stream during the strangler migration.
+- **`CommandDispatcher`** (`src/main/remote/command-dispatcher.ts`) — the server-side mirror of the local IPC handler. Carries full `sessionSupervisor` strangler awareness: every lifecycle/window command branches on `WorkspaceService.resolveBackend(session)` and routes to either tmux or the supervisor. `create-repo-session` (worktree mode) actually creates the worktree on the server and launches a session at the worktree path.
+- **Shared helpers** (`src/main/services/workspace.service.ts:resolveBackend`, `src/main/supervisor/supervisor-utils.ts`, `src/main/domain/result-helpers.ts`, `src/shared/remote-commands.ts`) — extracted so `handlers.ts` and `command-dispatcher.ts` cannot drift on backend dispatch, window-info synthesis, result construction, or wire-format command names.
+- **Security-hardened dispatcher** — every user-controlled value (branch, label, workspaceName, repoRoot, dir) is allow-list-validated at the boundary before reaching adapters. `GitAdapter` uses argv-based `execFile` exclusively (never `shell.exec`) so branch names cannot become shell metacharacters. Worktree paths are realpath-asserted to live inside `.worktrees`. Errors returned to the client are sanitised.
+
+### Phase 2a vs 2b staging note
+
+The **handlers.ts ↔ command-dispatcher.ts** files still carry parallel switch logic for backend dispatch. Phase 2a (this branch) extracts the load-bearing helpers; Phase 2b (a follow-up) is the natural home for collapsing the residual switch duplication into a `SessionLifecycleService` that both adapters call. Deferred to keep the transport unification PR review-able.
+
+### Deferred to Phase 2b / follow-up
+
+- `SessionLifecycleService` — collapse the wake/sleep/destroy/window-op switch duplication between `handlers.ts` and `command-dispatcher.ts` into one service so both adapters become thin envelopes.
+- Per-client rate limiting on `discover-repos` and `get-branches` in the remote dispatcher.
+- Async iteration in `discoverGitRepos` to keep deep workspace trees from blocking the event loop.
+- Replay-on-attach for native remote sessions (send `supervisor.getReplay(...)` once on `attachSupervisor`).
+- A remote directory picker so `NewStandaloneDialog` doesn't require manual path entry when the transport is remote.

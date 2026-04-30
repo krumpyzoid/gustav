@@ -142,6 +142,23 @@ Scenario: Client destroys a remote session
   When the user clicks "Destroy" and confirms
   Then the session is permanently removed on the server
   And it disappears from the client's sidebar
+
+Scenario: Client creates a worktree on the remote server
+  Given the client is viewing a remote workspace's repo
+  When the user opens "New Worktree" on a repo, enters a branch name, and confirms
+  Then the server validates the branch name against the dispatcher allow-list
+  And rejects branches that contain "..", start with "-" or "/", or include shell metacharacters
+  And the server creates the git worktree on the remote inside the repo's .worktrees directory
+  And the worktree path is asserted to live inside .worktrees before any filesystem mutation
+  And a session is launched at the worktree path on the remote
+  And it appears in the remote sidebar
+
+Scenario: Server rejects malicious worktree creation arguments
+  Given an authenticated remote client
+  When the client sends create-repo-session with branch "x'; rm -rf /; '"
+  Then the server rejects the command with a sanitised "Invalid argument" error
+  And no shell command is constructed from the branch value
+  And no filesystem mutation runs
 ```
 
 ### Feature: Remote Terminal Interaction
@@ -313,8 +330,10 @@ Gustav's hexagonal architecture maps cleanly to this feature:
 |-------|--------------|---------|
 | **Adapter** | `remote-server.adapter.ts` | WSS server, TLS, connection lifecycle |
 | **Port** | `remote-server.port.ts` | Interface for remote server operations |
-| **Service** | `remote.service.ts` | Auth logic, pairing code management, client session |
+| **Service** | `remote.service.ts` | Auth logic, pairing code management, client session, attach-pty routing by backend |
+| **Service** | `command-dispatcher.ts` | Server-side dispatcher for every remote session command (lifecycle, window ops, creation). Mirrors the local IPC handler's `sessionSupervisor` strangler — branches on `WorkspaceService.resolveBackend(session)` and routes to either tmux or the native supervisor. Validates user-controlled inputs at the boundary. |
 | **Service** | `port-scanner.service.ts` | Detect listening ports via `ss -tlnp` + pane output parsing |
+| **Adapter** | `pty-manager.ts` | Polymorphic per-channel PTY manager. `attachTmux` spawns `tmux attach`; `attachSupervisor` streams `SessionSupervisor.onWindowData` for native sessions. |
 | **IPC handler** | Extensions to `handlers.ts` | New channels: `enable-remote`, `get-host-info`, `disconnect-client` |
 
 The server reuses existing services — `StateService`, `SessionService`, `WorkspaceService` — by exposing them over WebSocket instead of IPC. The `remote.service.ts` acts as a bridge: it receives commands from the WebSocket, calls the same service methods the IPC handlers call, and sends results back.
@@ -384,8 +403,14 @@ Detected ports are included in the state update broadcast, so the client sees th
 - **Mutual authentication** — Both sides prove identity with Ed25519 signatures. Prevents MITM on reconnect.
 - **Single-client lock** — Server rejects additional connections while one is active. No session hijacking.
 - **No shell access beyond tmux** — The server only exposes its existing Gustav service API. No arbitrary command execution beyond what tmux sessions already provide.
+- **Argv-based git invocations** — Every git command in `GitAdapter` is dispatched via `ShellPort.execFile` (argv array, no shell parsing). Branch names, repo paths, and refspecs cannot become shell metacharacters. `shell.exec` (which spawns `/bin/sh -c`) is forbidden in the adapter and is reserved for callers that genuinely need shell features (e.g. `postCreateCommand`, which runs in the worktree's cwd).
+- **Boundary input validation** — `CommandDispatcher` rejects malformed or dangerous values before they reach any adapter: branch names match a narrow allow-list and forbid `..`, leading `-`, leading `/`, or oversize values; labels and workspace names forbid path separators and control characters; repo paths reject NUL bytes; lengths are bounded.
+- **Worktree path containment** — `WorktreeService.create` realpath-asserts the resolved worktree path lives inside the repo's `.worktrees` directory before any filesystem mutation, so a `..`-bearing branch cannot write files outside the repo.
+- **Persisted-session gate for `attach-pty`** — beyond the regex check on session names, `attach-pty` requires the session to match a persisted entry, closing the gap where any `<workspace>/<arbitrary>` value would otherwise pass the prefix check.
+- **Sanitised errors** — the dispatcher's catch-all returns categorised errors (`Not found` / `Invalid argument` / `Internal error`) and logs full details server-side, so filesystem paths and internals don't leak over the WebSocket.
+- **Minimal env on PTY spawn** — the tmux client spawned for a remote attach inherits only `TERM`/`PATH`/`HOME`/`USER`/`LANG`, not the full host environment, to avoid leaking host-side secrets through the remote terminal.
 - **Port tunnels are explicit** — Tunnels only created on user action. No automatic exposure.
-- **Rate limiting** — Failed auth attempts rate-limited (max 5 per minute) to prevent brute-force on pairing codes.
+- **Rate limiting** — Failed auth attempts rate-limited (max 5 per minute) to prevent brute-force on pairing codes. Per-command rate limiting on `discover-repos` / `get-branches` is a planned follow-up.
 
 ### 3.5 Data Flow Summary
 

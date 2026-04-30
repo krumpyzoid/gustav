@@ -465,6 +465,76 @@ describe('CommandDispatcher', () => {
       expect(deps.worktreeService.create).not.toHaveBeenCalled();
     });
 
+    it('sleep-session for a native session does NOT call supervisor.sleepSession when hasSession=false', async () => {
+      const deps = makeMockDeps();
+      const session = withNativePersisted(deps);
+      deps.supervisor.hasSession = vi.fn().mockReturnValue(false);
+      const dispatcher = new CommandDispatcher(deps);
+
+      const result = await dispatcher.dispatch('sleep-session', { session });
+
+      expect(result.success).toBe(true);
+      expect(deps.supervisor.sleepSession).not.toHaveBeenCalled();
+    });
+
+    it('destroy-session for a native session with hasSession=false still removes the persisted entry', async () => {
+      const deps = makeMockDeps();
+      const session = withNativePersisted(deps);
+      deps.supervisor.hasSession = vi.fn().mockReturnValue(false);
+      const dispatcher = new CommandDispatcher(deps);
+
+      const result = await dispatcher.dispatch('destroy-session', { session });
+
+      expect(result.success).toBe(true);
+      expect(deps.supervisor.killSession).not.toHaveBeenCalled();
+      expect(deps.workspaceService.removeSession).toHaveBeenCalledWith('ws1', session);
+    });
+
+    it('select-window native returns an error when the named window is not found', async () => {
+      const deps = makeMockDeps();
+      const session = withNativePersisted(deps);
+      deps.supervisor.listWindows = vi.fn().mockReturnValue([
+        { id: 'w0', name: 'shell', spec: {}, state: 'running', exitCode: null },
+      ]);
+      const dispatcher = new CommandDispatcher(deps);
+
+      const result = await dispatcher.dispatch('select-window', { session, window: 'editor' });
+
+      expect(result.success).toBe(false);
+      expect(deps.supervisor.selectWindow).not.toHaveBeenCalled();
+    });
+
+    it('wake-session returns "No persisted session found" when the workspace prefix is unknown', async () => {
+      const deps = makeMockDeps();
+      // Default mocks: findBySessionPrefix returns null
+      const dispatcher = new CommandDispatcher(deps);
+
+      const result = await dispatcher.dispatch('wake-session', { session: 'NoSuch/_dir' });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/No persisted session found|Not found/);
+    });
+
+    it('create-repo-session directory mode launches the session at repoRoot (no worktree creation)', async () => {
+      const deps = makeMockDeps();
+      deps.workspaceService.list = vi.fn().mockReturnValue([{ id: 'ws1', name: 'Dev', directory: '/srv/dev' }]);
+      const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => true });
+
+      const result = await dispatcher.dispatch('create-repo-session', {
+        workspaceName: 'Dev',
+        repoRoot: '/srv/repo',
+        mode: 'directory',
+      });
+
+      expect(result.success).toBe(true);
+      expect(deps.worktreeService.create).not.toHaveBeenCalled();
+      expect(deps.sessionLauncher.launch).toHaveBeenCalledWith(
+        expect.any(String),
+        '/srv/repo',
+        expect.any(Array),
+      );
+    });
+
     it('rejects a malicious branch (path traversal / shell injection chars) before any side effects', async () => {
       const deps = makeMockDeps();
       const dispatcher = new CommandDispatcher({ ...deps, isAllowedDirectory: () => true });

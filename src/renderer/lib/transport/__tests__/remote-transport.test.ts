@@ -108,6 +108,20 @@ describe('RemoteGustavTransport', () => {
     expect(api.sendRemotePtyInput).toHaveBeenLastCalledWith(2, 'x');
   });
 
+  it('switchSession returns an error when attach-pty data has no channelId field', async () => {
+    api.remoteSessionCommand.mockImplementation((action: string) => {
+      if (action === 'attach-pty') return Promise.resolve({ success: true, data: { channelId: 'not-a-number' } });
+      return Promise.resolve({ success: true, data: [] });
+    });
+
+    const t = new RemoteGustavTransport();
+    const result = await t.switchSession('Dev/_ws');
+
+    expect(result).toEqual({ success: false, error: 'attach-pty did not return a channelId' });
+    // No follow-up list-windows when the channelId guard fires.
+    expect(api.remoteSessionCommand).not.toHaveBeenCalledWith('list-windows', expect.anything());
+  });
+
   it('switchSession returns the attach failure as a Result error when attach-pty fails', async () => {
     api.remoteSessionCommand.mockImplementation((action: string) => {
       if (action === 'attach-pty') return Promise.resolve({ success: false, error: 'not connected' });

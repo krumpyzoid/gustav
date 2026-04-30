@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useAppStore } from '../use-app-state';
 import { LocalTransport } from '../../lib/transport/local-transport';
 import { RemoteGustavTransport } from '../../lib/transport/remote-transport';
@@ -81,6 +81,24 @@ describe('useAppStore.setFromState', () => {
     useAppStore.getState().setFromState(stateWithWindows([]));
 
     expect(useAppStore.getState().windows).toEqual(bWindows);
+  });
+
+  it('setActiveTransport detaches the previous transport exactly once, even if set to the same instance again', () => {
+    const a = new LocalTransport();
+    const b = new RemoteGustavTransport();
+    const aDetach = vi.fn();
+    const bDetach = vi.fn();
+    a.detach = aDetach;
+    b.detach = bDetach;
+
+    useAppStore.setState({ activeTransport: a });
+
+    useAppStore.getState().setActiveTransport(b);
+    expect(aDetach).toHaveBeenCalledTimes(1);
+
+    // Setting the same transport again is a no-op (no double-detach of b).
+    useAppStore.getState().setActiveTransport(b);
+    expect(bDetach).not.toHaveBeenCalled();
   });
 
   it('still updates workspaces and defaultWorkspace when remote (only windows is preserved)', () => {

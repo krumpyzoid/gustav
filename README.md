@@ -98,8 +98,9 @@ The connection is saved automatically. Next time, just click your desktop in the
 ### What You Can Do Remotely
 
 - See all your workspaces and sessions with live Claude status
-- Click a remote session to attach — the terminal streams in real time
-- Create, sleep, wake, and destroy remote sessions
+- Click a remote session to attach — the terminal streams in real time (works for both tmux- and native-supervisor-backed sessions)
+- Create new sessions on the remote server: workspace sessions, repo directory sessions, **worktree sessions** (git worktree created server-side), and standalone sessions
+- Sleep, wake, and destroy remote sessions
 - Forward dev server ports: if something runs on `localhost:5173` on your desktop, forward it so your laptop can access it too
 
 ### Network
