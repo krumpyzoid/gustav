@@ -18,6 +18,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { refreshState } from '../../hooks/use-app-state';
+import { LocalTransport } from '../../lib/transport/local-transport';
+import type { SessionTransport } from '../../lib/transport/session-transport';
 import type { BranchInfo } from '../../../main/domain/types';
 
 interface Props {
@@ -26,9 +28,11 @@ interface Props {
   repo: string;
   repoRoot: string;
   workspaceName?: string;
+  transport?: SessionTransport;
 }
 
-export function NewWorktreeDialog({ open, onClose, repo, repoRoot, workspaceName }: Props) {
+export function NewWorktreeDialog({ open, onClose, repo, repoRoot, workspaceName, transport }: Props) {
+  const activeTransport: SessionTransport = transport ?? new LocalTransport();
   const [branch, setBranch] = useState('');
   const [base, setBase] = useState('origin/main');
   const [branches, setBranches] = useState<BranchInfo[]>([]);
@@ -37,9 +41,9 @@ export function NewWorktreeDialog({ open, onClose, repo, repoRoot, workspaceName
 
   useEffect(() => {
     if (open && repoRoot) {
-      window.api.getBranches(repoRoot).then(setBranches);
+      activeTransport.getBranches(repoRoot).then(setBranches);
     }
-  }, [open, repoRoot]);
+  }, [open, repoRoot, activeTransport]);
 
   async function handleCreate() {
     if (!branch.trim()) return;
@@ -48,8 +52,10 @@ export function NewWorktreeDialog({ open, onClose, repo, repoRoot, workspaceName
 
     let result;
     if (workspaceName) {
-      result = await window.api.createRepoSession(workspaceName, repoRoot, 'worktree', branch.trim(), base);
+      result = await activeTransport.createRepoSession(workspaceName, repoRoot, 'worktree', branch.trim(), base);
     } else {
+      // Local-only fallback: bare worktree without a workspace context.
+      // Remote does not support this path.
       result = await window.api.createWorktree({ repo, repoRoot, branch: branch.trim(), base });
     }
     setLoading(false);

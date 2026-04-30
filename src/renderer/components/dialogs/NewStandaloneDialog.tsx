@@ -9,13 +9,18 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { refreshState } from '../../hooks/use-app-state';
+import { LocalTransport } from '../../lib/transport/local-transport';
+import type { SessionTransport } from '../../lib/transport/session-transport';
 
 interface Props {
   open: boolean;
   onClose: () => void;
+  transport?: SessionTransport;
 }
 
-export function NewStandaloneDialog({ open, onClose }: Props) {
+export function NewStandaloneDialog({ open, onClose, transport }: Props) {
+  const activeTransport: SessionTransport = transport ?? new LocalTransport();
+  const isRemote = activeTransport.kind === 'remote';
   const [label, setLabel] = useState('');
   const [directory, setDirectory] = useState('');
   const [error, setError] = useState('');
@@ -43,7 +48,7 @@ export function NewStandaloneDialog({ open, onClose }: Props) {
     e.preventDefault();
     if (!label.trim() || !directory.trim()) return;
     setError('');
-    const result = await window.api.createStandaloneSession(label.trim(), directory.trim());
+    const result = await activeTransport.createStandaloneSession(label.trim(), directory.trim());
     if (result.success) {
       refreshState();
       onClose();
@@ -74,14 +79,20 @@ export function NewStandaloneDialog({ open, onClose }: Props) {
             <div className="flex gap-2 mt-1">
               <Input
                 value={directory}
-                readOnly
+                onChange={(e) => setDirectory(e.target.value)}
+                readOnly={!isRemote}
                 placeholder="/home/user/dir"
                 className="bg-background border-border text-foreground flex-1"
               />
-              <Button type="button" variant="outline" onClick={handleSelectDir}>
-                Browse
-              </Button>
+              {!isRemote && (
+                <Button type="button" variant="outline" onClick={handleSelectDir}>
+                  Browse
+                </Button>
+              )}
             </div>
+            {isRemote && (
+              <p className="text-xs text-muted-foreground mt-1">Enter a path on the remote host</p>
+            )}
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex justify-end gap-2">
