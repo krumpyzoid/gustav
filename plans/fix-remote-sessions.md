@@ -2,7 +2,7 @@
 
 **Created**: 2026-04-30
 **Branch**: `fix/remote-sessions`
-**Status**: approved
+**Status**: implemented
 
 ## Goal
 
@@ -12,15 +12,15 @@ Spec reference: `specs/remote-control.md` (remote-control invariants — TLS, si
 
 ## Acceptance Criteria
 
-- [ ] Clicking a window tab on a live remote session leaves the active-tab indicator on the clicked tab indefinitely (no revert after the next state poll).
-- [ ] Switching between two live remote sessions shows each session's own tabs in the header.
-- [ ] Clicking an inactive remote session in the sidebar wakes the session on the remote host and the terminal attaches successfully — for both `tmux` and `native` backends.
-- [ ] When a remote wake fails, the user sees a clear error path (logged + state refresh), not `[lost tty]` in the terminal.
-- [ ] Remote `wake-session`, `sleep-session`, `destroy-session`, `select-window`, `new-window`, `kill-window`, `list-windows` work for native-supervisor-backed sessions on the remote host.
-- [ ] User can create a new workspace session, worktree session, and standalone session on a connected remote host through the existing dialogs reached from the remote sidebar.
-- [ ] Remote `create-repo-session` with `mode: 'worktree'` creates the git worktree on the remote and launches a session at that path (no longer a stub).
-- [ ] Local behavior (no remote connected) is unchanged across all flows.
-- [ ] All new tests pass; existing tests still pass.
+- [x] Clicking a window tab on a live remote session leaves the active-tab indicator on the clicked tab indefinitely (no revert after the next state poll). _Pinned by `use-app-state.test.ts`._
+- [x] Switching between two live remote sessions shows each session's own tabs in the header. _Pinned by `use-app-state.test.ts`._
+- [x] Clicking an inactive remote session in the sidebar wakes the session on the remote host and the terminal attaches successfully — for both `tmux` and `native` backends. _Pinned by `command-dispatcher.test.ts` + `pty-manager.test.ts`._
+- [x] When a remote wake fails, the user sees a clear error path (logged + state refresh), not `[lost tty]` in the terminal. _Pinned by `SessionTab.test.tsx`._
+- [x] Remote `wake-session`, `sleep-session`, `destroy-session`, `select-window`, `new-window`, `kill-window`, `list-windows` work for native-supervisor-backed sessions on the remote host. _Pinned by `command-dispatcher.test.ts` backend dispatch suite._
+- [x] User can create a new workspace session, worktree session, and standalone session on a connected remote host through the existing dialogs reached from the remote sidebar. _Pinned by `dialog-transport.test.tsx` + `RemoteSection.test.tsx`._
+- [x] Remote `create-repo-session` with `mode: 'worktree'` creates the git worktree on the remote and launches a session at that path. _Pinned by `command-dispatcher.test.ts` worktree tests._
+- [x] Local behavior (no remote connected) is unchanged across all flows. _All 493 pre-existing tests still pass._
+- [x] All new tests pass; existing tests still pass. _531 tests pass (up from 493)._
 
 ## Steps
 
