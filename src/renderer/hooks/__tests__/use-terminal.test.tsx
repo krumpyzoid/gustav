@@ -52,7 +52,7 @@ vi.mock('@xterm/addon-fit', () => {
   FakeFitAddon.prototype.fit = vi.fn();
   return { FitAddon: FakeFitAddon };
 });
-vi.mock('@xterm/xterm/css/xterm.css', () => ({}), { virtual: true });
+vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
 
 // jsdom doesn't ship ResizeObserver — give the hook a no-op so its mount
 // effect doesn't blow up.
@@ -61,8 +61,7 @@ class FakeResizeObserver {
   unobserve = () => {};
   disconnect = () => {};
 }
-// @ts-expect-error — test-only polyfill
-globalThis.ResizeObserver = FakeResizeObserver;
+(globalThis as unknown as { ResizeObserver: typeof FakeResizeObserver }).ResizeObserver = FakeResizeObserver;
 
 // Stub window.api so the hook's theme/clipboard wiring doesn't blow up.
 beforeEach(() => {
@@ -120,7 +119,6 @@ describe('use-terminal — onData routing invariant (#15)', () => {
       const ref = useRef<HTMLDivElement>(null);
       // Pretend the container is laid out — we only need a non-null ref.
       if (ref.current === null) {
-        // @ts-expect-error — test-only mutation
         ref.current = document.createElement('div');
       }
       useTerminal(ref);
@@ -144,7 +142,6 @@ describe('use-terminal — onData routing invariant (#15)', () => {
     function HostHook() {
       const ref = useRef<HTMLDivElement>(null);
       if (ref.current === null) {
-        // @ts-expect-error — test-only mutation
         ref.current = document.createElement('div');
       }
       useTerminal(ref);
