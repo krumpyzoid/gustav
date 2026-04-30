@@ -30,6 +30,7 @@ function makeMockTmux(): TmuxPort {
 function makeMockShell(): ShellPort {
   return {
     exec: vi.fn().mockResolvedValue(''),
+    execFile: vi.fn().mockResolvedValue(''),
     execSync: vi.fn().mockReturnValue(''),
   };
 }
