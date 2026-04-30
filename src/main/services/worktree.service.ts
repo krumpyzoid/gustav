@@ -1,4 +1,4 @@
-import { join, basename } from 'node:path';
+import { join, basename, resolve, isAbsolute, relative } from 'node:path';
 import type { GitPort } from '../ports/git.port';
 import type { FileSystemPort } from '../ports/filesystem.port';
 import type { ShellPort } from '../ports/shell.port';
@@ -26,6 +26,18 @@ export class WorktreeService {
     const { repoRoot, branch, base } = params;
     const wtDir = this.git.getWorktreeDir(repoRoot);
     const wtPath = join(wtDir, branch);
+
+    // Path-traversal guard: a `branch` like '../escape' would resolve outside
+    // the repo's .worktrees directory. Use path.relative so the check is
+    // expressed as containment (rather than a string-prefix match with a
+    // load-bearing '/' suffix that's easy to drop in a future edit).
+    const wtPathAbs = resolve(wtPath);
+    const wtDirAbs = resolve(wtDir);
+    const rel = relative(wtDirAbs, wtPathAbs);
+    if (rel === '..' || rel.startsWith('../') || isAbsolute(rel)) {
+      throw new Error(`Invalid branch name: resolved path ${wtPathAbs} escapes worktree dir ${wtDirAbs}`);
+    }
+
     const cfg = this.repoConfig.get(repoRoot);
 
     if (this.fs.exists(wtPath)) {
@@ -60,8 +72,11 @@ export class WorktreeService {
     }
 
     // Post-create command (replaces the old [install] block + checkbox).
+    // Run the user-configured command directly via shell.exec — Node's exec
+    // already wraps in /bin/sh. The previous outer `sh -c '${cmd}'` wrapper
+    // could be broken by single quotes inside the command.
     if (cfg?.postCreateCommand) {
-      await this.shell.exec(`sh -c '${cfg.postCreateCommand}'`, { cwd: wtPath });
+      await this.shell.exec(cfg.postCreateCommand, { cwd: wtPath });
     }
   }
 
@@ -127,9 +142,10 @@ export class WorktreeService {
           const existence = await this.git.branchExists(repoRoot, branch);
           if (existence === 'local') {
             try {
-              await this.shell.exec(
-                `git -C '${repoRoot}' show-ref --verify --quiet refs/remotes/origin/${branch}`,
-              );
+              await this.shell.execFile('git', [
+                '-C', repoRoot, 'show-ref', '--verify', '--quiet',
+                `refs/remotes/origin/${branch}`,
+              ]);
             } catch {
               candidates.push({
                 repo: repoName,
@@ -184,12 +200,20 @@ export class WorktreeService {
   }
 
   /** Find the tmux session name for a worktree (if persisted) and clean up
-   *  both tmux and persisted state. No-op when nothing is tracked for the path. */
+   *  both tmux and persisted state. The persisted-state cleanup runs even
+   *  when killing the tmux session fails — a tmux session that was already
+   *  killed externally (or whose server died) shouldn't block removing the
+   *  sidebar entry, since the user explicitly asked us to delete it. */
   private async killSessionAndRemoveEntry(wtPath: string): Promise<void> {
     const sessionName = this.findPersistedSessionName(wtPath);
     if (!sessionName) return;
 
-    await this.session.kill(sessionName);
+    try {
+      await this.session.kill(sessionName);
+    } catch {
+      // Tmux session already gone or server unreachable — proceed to clean
+      // up the persisted entry regardless.
+    }
 
     const ws = this.workspaces.findBySessionPrefix(sessionName);
     if (ws) {

@@ -42,6 +42,8 @@ Click any session in the sidebar to switch to it. The terminal attaches instantl
 
 Put a session to sleep when you're not using it — it frees the tmux session but remembers everything: window layout, Claude session IDs, running commands. Wake it later and it restores exactly where you left off.
 
+> Sessions are tmux-backed by default. A native-supervisor backend is available behind a strangler flag (`sessionSupervisor: 'native'` in `~/.local/share/gustav/preferences.json`) for early testing — see [docs/specs/architecture-evolution.md](docs/specs/architecture-evolution.md) for details.
+
 **Sleep All** (moon icon in the top bar) pauses every active session.
 
 ### Worktrees
@@ -98,8 +100,9 @@ The connection is saved automatically. Next time, just click your desktop in the
 ### What You Can Do Remotely
 
 - See all your workspaces and sessions with live Claude status
-- Click a remote session to attach — the terminal streams in real time
-- Create, sleep, wake, and destroy remote sessions
+- Click a remote session to attach — the terminal streams in real time (works for both tmux- and native-supervisor-backed sessions)
+- Create new sessions on the remote server: workspace sessions, repo directory sessions, **worktree sessions** (git worktree created server-side), and standalone sessions
+- Sleep, wake, and destroy remote sessions
 - Forward dev server ports: if something runs on `localhost:5173` on your desktop, forward it so your laptop can access it too
 
 ### Network

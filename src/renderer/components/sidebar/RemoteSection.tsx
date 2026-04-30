@@ -1,6 +1,7 @@
-import { Wifi, WifiOff, Loader2 } from 'lucide-react';
+import { Wifi, WifiOff, Loader2, Plus } from 'lucide-react';
 import { useAppStore } from '../../hooks/use-app-state';
 import { WorkspaceAccordion } from './WorkspaceAccordion';
+import type { SessionTab as SessionTabType } from '../../../main/domain/types';
 import type { RemoteConnectionStatus } from '../../hooks/use-app-state';
 
 function StatusBadge({ status }: { status: RemoteConnectionStatus }) {
@@ -24,7 +25,20 @@ function statusLabel(status: RemoteConnectionStatus): string {
   }
 }
 
-export function RemoteSection() {
+interface Props {
+  /** Called with `(workspaceName, workspaceDir)` when the user picks
+   * "Create new session" inside a remote workspace's "+" dropdown. */
+  onNewSession?: (workspaceName: string, workspaceDir: string) => void;
+  /** Called with `(label, dir)` when the user wants to add a remote
+   * standalone session. */
+  onNewStandalone?: () => void;
+  /** Called when the user opens the worktree dialog from a remote repo. */
+  onAddWorktree?: (repoName: string, repoRoot: string, workspaceName: string) => void;
+  /** Called when the user removes a worktree session in the remote tree. */
+  onRemoveWorktree?: (tab: SessionTabType, repoRoot: string) => void;
+}
+
+export function RemoteSection({ onNewSession, onNewStandalone, onAddWorktree, onRemoveWorktree }: Props = {}) {
   const { remoteState, remoteConnectionStatus } = useAppStore();
 
   if (remoteConnectionStatus === 'disconnected' && !remoteState) {
@@ -36,7 +50,18 @@ export function RemoteSection() {
       <div className="flex items-center gap-1.5 px-3 py-1 text-xs text-muted-foreground">
         <StatusBadge status={remoteConnectionStatus} />
         <span className="font-medium uppercase tracking-wide">Remote</span>
-        <span className="ml-auto">{statusLabel(remoteConnectionStatus)}</span>
+        <span className="ml-auto flex items-center gap-1">
+          {statusLabel(remoteConnectionStatus)}
+          {remoteConnectionStatus === 'connected' && onNewStandalone && (
+            <button
+              onClick={onNewStandalone}
+              className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer ml-1"
+              title="New remote standalone session"
+            >
+              <Plus size={12} />
+            </button>
+          )}
+        </span>
       </div>
 
       {remoteConnectionStatus !== 'connected' && remoteConnectionStatus !== 'disconnected' && (
@@ -52,6 +77,7 @@ export function RemoteSection() {
             <WorkspaceAccordion
               state={remoteState.defaultWorkspace}
               isRemote
+              onRemoveWorktree={onRemoveWorktree}
             />
           )}
 
@@ -61,6 +87,13 @@ export function RemoteSection() {
               key={ws.workspace?.id ?? 'default'}
               state={ws}
               isRemote
+              onAddSession={
+                onNewSession && ws.workspace
+                  ? () => onNewSession(ws.workspace!.name, ws.workspace!.directory)
+                  : undefined
+              }
+              onAddWorktree={onAddWorktree}
+              onRemoveWorktree={onRemoveWorktree}
             />
           ))}
         </div>

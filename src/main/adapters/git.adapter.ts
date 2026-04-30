@@ -3,13 +3,23 @@ import type { GitPort } from '../ports/git.port';
 import type { WorktreeEntry, BranchExistence, BranchInfo } from '../domain/types';
 import type { ShellPort } from '../ports/shell.port';
 
+/**
+ * GitAdapter routes every git invocation through `shell.execFile` so that
+ * user-controlled arguments (branch names, repo paths, refs) cannot escape
+ * shell quoting. Never use `shell.exec` here — `git -C '${repoRoot}' …` is
+ * vulnerable to command injection because single quotes can be closed.
+ */
 export class GitAdapter implements GitPort {
   constructor(private shell: ShellPort) {}
 
+  private git(repoRoot: string, ...args: string[]): Promise<string> {
+    return this.shell.execFile('git', ['-C', repoRoot, ...args]);
+  }
+
   async getRepoRoot(cwd: string): Promise<string> {
-    const gitCommon = await this.shell.exec(`git -C '${cwd}' rev-parse --git-common-dir`);
+    const gitCommon = await this.git(cwd, 'rev-parse', '--git-common-dir');
     if (gitCommon === '.git') {
-      return this.shell.exec(`git -C '${cwd}' rev-parse --show-toplevel`);
+      return this.git(cwd, 'rev-parse', '--show-toplevel');
     }
     const { dirname } = await import('node:path');
     return dirname(gitCommon);
@@ -17,7 +27,7 @@ export class GitAdapter implements GitPort {
 
   async getCurrentBranch(repoRoot: string): Promise<string | null> {
     try {
-      const branch = await this.shell.exec(`git -C '${repoRoot}' rev-parse --abbrev-ref HEAD`);
+      const branch = await this.git(repoRoot, 'rev-parse', '--abbrev-ref', 'HEAD');
       return branch.trim() || null;
     } catch {
       return null;
@@ -62,17 +72,13 @@ export class GitAdapter implements GitPort {
 
   async branchExists(repoRoot: string, branch: string): Promise<BranchExistence> {
     try {
-      await this.shell.exec(
-        `git -C '${repoRoot}' show-ref --verify --quiet refs/heads/${branch}`,
-      );
+      await this.git(repoRoot, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`);
       return 'local';
     } catch {
       // not local
     }
     try {
-      await this.shell.exec(
-        `git -C '${repoRoot}' show-ref --verify --quiet refs/remotes/origin/${branch}`,
-      );
+      await this.git(repoRoot, 'show-ref', '--verify', '--quiet', `refs/remotes/origin/${branch}`);
       return 'remote';
     } catch {
       return null;
@@ -80,12 +86,8 @@ export class GitAdapter implements GitPort {
   }
 
   async listBranches(repoRoot: string): Promise<BranchInfo[]> {
-    const localRaw = await this.shell.exec(
-      `git -C '${repoRoot}' for-each-ref --format='%(refname:short)' refs/heads/`,
-    ).catch(() => '');
-    const remoteRaw = await this.shell.exec(
-      `git -C '${repoRoot}' for-each-ref --format='%(refname:short)' refs/remotes/origin/`,
-    ).catch(() => '');
+    const localRaw = await this.git(repoRoot, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/').catch(() => '');
+    const remoteRaw = await this.git(repoRoot, 'for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin/').catch(() => '');
 
     const locals = new Set(localRaw.split('\n').filter(Boolean));
     const remotes = new Set(
@@ -105,7 +107,7 @@ export class GitAdapter implements GitPort {
 
   async isBranchMerged(repoRoot: string, branch: string, into: string): Promise<boolean> {
     try {
-      const result = await this.shell.exec(`git -C '${repoRoot}' branch --merged ${into}`);
+      const result = await this.git(repoRoot, 'branch', '--merged', into);
       return result.split('\n').some((line) => line.trim().replace(/^\* /, '') === branch);
     } catch {
       return false;
@@ -113,8 +115,9 @@ export class GitAdapter implements GitPort {
   }
 
   async fetch(repoRoot: string, opts?: { prune?: boolean }): Promise<void> {
-    const pruneFlag = opts?.prune ? ' --prune' : '';
-    await this.shell.exec(`git -C '${repoRoot}' fetch origin --quiet${pruneFlag}`);
+    const args = ['fetch', 'origin', '--quiet'];
+    if (opts?.prune) args.push('--prune');
+    await this.git(repoRoot, ...args);
   }
 
   async worktreeAdd(
@@ -124,34 +127,32 @@ export class GitAdapter implements GitPort {
     opts?: { newBranch?: boolean; base?: string },
   ): Promise<void> {
     if (opts?.newBranch && opts.base) {
-      await this.shell.exec(`git -C '${repoRoot}' worktree add '${path}' -b '${branch}' '${opts.base}'`);
+      await this.git(repoRoot, 'worktree', 'add', path, '-b', branch, opts.base);
     } else {
-      await this.shell.exec(`git -C '${repoRoot}' worktree add '${path}' '${branch}'`);
+      await this.git(repoRoot, 'worktree', 'add', path, branch);
     }
   }
 
   async worktreeRemove(repoRoot: string, path: string): Promise<void> {
-    await this.shell.exec(`git -C '${repoRoot}' worktree remove '${path}' --force`);
+    await this.git(repoRoot, 'worktree', 'remove', path, '--force');
   }
 
   async worktreePrune(repoRoot: string): Promise<void> {
-    await this.shell.exec(`git -C '${repoRoot}' worktree prune`);
+    await this.git(repoRoot, 'worktree', 'prune');
   }
 
   async branchDelete(repoRoot: string, branch: string): Promise<void> {
-    await this.shell.exec(`git -C '${repoRoot}' branch -d '${branch}'`);
+    await this.git(repoRoot, 'branch', '-d', branch);
   }
 
   async worktreeListPorcelain(repoRoot: string): Promise<string> {
-    return this.shell.exec(`git -C '${repoRoot}' worktree list --porcelain`);
+    return this.git(repoRoot, 'worktree', 'list', '--porcelain');
   }
 
   async getUpstreams(repoRoot: string): Promise<Map<string, string>> {
     const result = new Map<string, string>();
     try {
-      const raw = await this.shell.exec(
-        `git -C '${repoRoot}' for-each-ref --format='%(refname:short) %(upstream:short)' refs/heads/`,
-      );
+      const raw = await this.git(repoRoot, 'for-each-ref', '--format=%(refname:short) %(upstream:short)', 'refs/heads/');
       for (const line of raw.split('\n')) {
         if (!line.trim()) continue;
         const spaceIdx = line.indexOf(' ');

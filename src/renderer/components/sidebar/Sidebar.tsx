@@ -59,9 +59,15 @@ interface Props {
   onEditRepoSettings: (repoRoot: string, repoName: string, workspaceId: string | null) => void;
   onOpenSettings: () => void;
   onConnectRemote?: () => void;
+  // Remote create affordances — open the same dialogs the local sidebar uses
+  // but routed through a RemoteGustavTransport.
+  onNewRemoteSession?: (workspaceName: string, workspaceDir: string) => void;
+  onNewRemoteStandalone?: () => void;
+  onAddRemoteWorktree?: (repoName: string, repoRoot: string, workspaceName: string) => void;
+  onRemoveRemoteWorktree?: (tab: SessionTabType, repoRoot: string) => void;
 }
 
-export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRepos, onEditWorkspace, onDeleteWorkspace, onEditSettings, onEditRepoSettings, onRemoveWorktree, onAddWorktree, onUnpinRepo, onOpenSettings, onConnectRemote }: Props) {
+export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRepos, onEditWorkspace, onDeleteWorkspace, onEditSettings, onEditRepoSettings, onRemoveWorktree, onAddWorktree, onUnpinRepo, onOpenSettings, onConnectRemote, onNewRemoteSession, onNewRemoteStandalone, onAddRemoteWorktree, onRemoveRemoteWorktree }: Props) {
   const { defaultWorkspace, workspaces } = useAppStore();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -71,17 +77,18 @@ export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRe
     const fromIdx = ids.indexOf(draggedId);
     if (fromIdx === -1) return;
 
-    // Remove dragged item
-    ids.splice(fromIdx, 1);
+    const withoutDragged = ids.filter((_, i) => i !== fromIdx);
+    const targetIdx = withoutDragged.indexOf(targetId);
+    if (targetIdx === -1) return;
+    const insertAt = edge === 'bottom' ? targetIdx + 1 : targetIdx;
 
-    // Find target position after removal
-    let toIdx = ids.indexOf(targetId);
-    if (toIdx === -1) return;
-    if (edge === 'bottom') toIdx += 1;
+    const reordered = [
+      ...withoutDragged.slice(0, insertAt),
+      draggedId,
+      ...withoutDragged.slice(insertAt),
+    ];
 
-    ids.splice(toIdx, 0, draggedId);
-
-    await window.api.reorderWorkspaces(ids);
+    await window.api.reorderWorkspaces(reordered);
     refreshState();
   }, [workspaces]);
 
@@ -191,7 +198,12 @@ export function Sidebar({ onNewWorkspace, onNewStandalone, onNewSession, onPinRe
         ))}
 
         {/* Remote section */}
-        <RemoteSection />
+        <RemoteSection
+          onNewSession={onNewRemoteSession}
+          onNewStandalone={onNewRemoteStandalone}
+          onAddWorktree={onAddRemoteWorktree}
+          onRemoveWorktree={onRemoveRemoteWorktree}
+        />
       </div>
 
     </>

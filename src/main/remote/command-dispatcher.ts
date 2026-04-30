@@ -1,232 +1,238 @@
 import type { StateService } from '../services/state.service';
-import type { SessionService } from '../services/session.service';
 import type { WorkspaceService } from '../services/workspace.service';
-import type { RepoConfigService } from '../services/repo-config.service';
-import type { PreferenceService } from '../services/preference.service';
+import type { SessionLifecycleService } from '../services/session-lifecycle.service';
 import type { GitPort } from '../ports/git.port';
 import type { TmuxPort } from '../ports/tmux.port';
 import type { Result } from '../domain/types';
-import { buildWindowSpecs } from '../ipc/build-window-specs';
-import { applyPersistedWindowOrder } from '../ipc/apply-persisted-window-order';
+import { ok, err } from '../domain/result-helpers';
+import { RemoteCommand } from '../../shared/remote-commands';
 
 export type DispatcherDeps = {
   stateService: StateService;
-  sessionService: SessionService;
   workspaceService: WorkspaceService;
-  repoConfigService: RepoConfigService;
-  preferenceService: PreferenceService;
+  sessionLifecycle: SessionLifecycleService;
   git: GitPort;
   tmux: TmuxPort;
-  /** Validates directory is within allowed workspace roots */
-  isAllowedDirectory?: (dir: string) => boolean;
+  /** Validates directory is within allowed workspace roots. Required —
+   * pass `() => true` only in trusted local-test contexts. */
+  isAllowedDirectory: (dir: string) => boolean;
 };
 
 type DispatchResult = Result<unknown>;
 
+// ── Input validation (defense in depth) ───────────────────────────────────
+// Even with argv-based exec in adapters, we reject obviously dangerous values
+// at the boundary so they never reach path joins, persisted state, or tmux
+// session names. Allow-lists are intentionally narrow.
+
+const BRANCH_RE = /^[A-Za-z0-9._/-]+$/;
+const LABEL_RE = /^[\w. -]+$/;
+const REPO_PATH_RE = /^[^\0]+$/;
+
+function validateBranch(branch: unknown): branch is string {
+  if (typeof branch !== 'string') return false;
+  if (branch.length === 0 || branch.length > 200) return false;
+  if (!BRANCH_RE.test(branch)) return false;
+  if (branch.includes('..')) return false;
+  if (branch.startsWith('-') || branch.startsWith('/')) return false;
+  return true;
+}
+
+function validateLabel(label: unknown): label is string {
+  if (typeof label !== 'string') return false;
+  if (label.length === 0 || label.length > 64) return false;
+  return LABEL_RE.test(label);
+}
+
+function validateWorkspaceName(name: unknown): name is string {
+  return typeof name === 'string' && name.length > 0 && name.length <= 64
+    && !name.includes('/') && !name.includes('\\') && !/[\0\n\r]/.test(name);
+}
+
+function validateRepoPath(path: unknown): path is string {
+  return typeof path === 'string' && path.length > 0 && REPO_PATH_RE.test(path);
+}
+
+/** Sanitise an Error message for a remote client. Logs the full message
+ * server-side and returns a brief category string so paths/internals don't
+ * leak over the WebSocket. */
+function sanitiseError(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  // eslint-disable-next-line no-console
+  console.error('[remote-dispatcher] error:', msg);
+  if (/not.*found|no such|unknown/i.test(msg)) return 'Not found';
+  if (/invalid|bad|malformed|forbidden/i.test(msg)) return 'Invalid argument';
+  return 'Internal error';
+}
+
+/**
+ * Translate WebSocket session-command messages into `SessionLifecycleService`
+ * calls. Responsibilities (and only these):
+ *
+ *  - Validate user-controlled inputs (branch, label, workspace, paths).
+ *  - Enforce the allowed-directory boundary check.
+ *  - Sanitise errors before they cross the wire.
+ *  - Map service results to the wire-format Result envelope.
+ *
+ * The dispatcher does not own session/window business logic — that lives in
+ * `SessionLifecycleService`, shared with the local IPC handler.
+ */
 export class CommandDispatcher {
   constructor(private deps: DispatcherDeps) {}
 
   async dispatch(command: string, params: Record<string, unknown>): Promise<DispatchResult> {
     try {
       switch (command) {
-        case 'get-state':
+        case RemoteCommand.GetState:
           return ok(await this.deps.stateService.collectWorkspaces());
 
-        case 'get-branches': {
+        case RemoteCommand.GetBranches: {
           const repoRoot = params.repoRoot as string;
-          if (this.deps.isAllowedDirectory && !this.deps.isAllowedDirectory(repoRoot)) {
+          if (!validateRepoPath(repoRoot)) return err('Invalid argument');
+          if (!this.deps.isAllowedDirectory(repoRoot)) {
             return err('Directory not within any workspace root');
           }
           return ok(await this.deps.git.listBranches(repoRoot));
         }
 
-        case 'discover-repos': {
+        case RemoteCommand.DiscoverRepos: {
           const dir = params.directory as string;
-          if (this.deps.isAllowedDirectory && !this.deps.isAllowedDirectory(dir)) {
+          if (!validateRepoPath(dir)) return err('Invalid argument');
+          if (!this.deps.isAllowedDirectory(dir)) {
             return err('Directory not within any workspace root');
           }
           return ok(this.deps.workspaceService.discoverGitRepos(dir, 3));
         }
 
-        case 'select-window': {
+        case RemoteCommand.SelectWindow: {
           const session = params.session as string;
           const window = params.window as string;
-          if (!this.deps.workspaceService.findBySessionPrefix(session) && !session.startsWith('_standalone/')) {
-            return err('Unknown session');
-          }
-          await this.deps.tmux.selectWindow(session, window);
-          return ok(undefined);
+          if (!this.assertKnownSession(session)) return err('Unknown session');
+          return this.deps.sessionLifecycle.selectWindow(session, window);
         }
 
-        case 'new-window': {
+        case RemoteCommand.NewWindow: {
           const session = params.session as string;
           const name = params.name as string;
-          if (!this.deps.workspaceService.findBySessionPrefix(session) && !session.startsWith('_standalone/')) {
-            return err('Unknown session');
-          }
-          const cwd = (await this.deps.tmux.displayMessage(`${session}:0`, '#{pane_current_path}')).trim() || '/';
-          await this.deps.tmux.newWindow(session, name, cwd);
-          await this.deps.tmux.selectWindow(session, name);
-          return ok(undefined);
+          if (!this.assertKnownSession(session)) return err('Unknown session');
+          // For tmux backend, the dispatcher fetches the pane cwd before
+          // delegating, since the supervisor doesn't expose that primitive
+          // and the service deliberately doesn't reach for tmux directly.
+          const cwd = this.deps.workspaceService.resolveBackend(session) === 'tmux'
+            ? (await this.deps.tmux.displayMessage(`${session}:0`, '#{pane_current_path}')).trim() || '/'
+            : undefined;
+          return this.deps.sessionLifecycle.newWindow(session, name, cwd);
         }
 
-        case 'kill-window': {
+        case RemoteCommand.KillWindow: {
           const session = params.session as string;
           const windowIndex = params.windowIndex as number;
-          if (!this.deps.workspaceService.findBySessionPrefix(session) && !session.startsWith('_standalone/')) {
-            return err('Unknown session');
-          }
-          const windows = await this.deps.tmux.listWindows(session);
-          if (windows.length <= 1) {
-            await this.deps.tmux.killSession(session);
-          } else {
-            await this.deps.tmux.killWindow(session, windowIndex);
-          }
+          if (!this.assertKnownSession(session)) return err('Unknown session');
+          const r = await this.deps.sessionLifecycle.killWindow(session, windowIndex);
+          if (!r.success) return r;
           return ok(undefined);
         }
 
-        case 'set-window-order': {
+        case RemoteCommand.SetWindowOrder: {
           const session = params.session as string;
           const names = params.names as string[];
           if (typeof session !== 'string' || !session) return err('Invalid session');
           if (!Array.isArray(names) || !names.every((n) => typeof n === 'string')) {
             return err('Invalid names payload');
           }
-          const ws = this.deps.workspaceService.findBySessionPrefix(session);
-          if (!ws) return err('Workspace not found for session');
-          await this.deps.workspaceService.setSessionWindowOrder(ws.id, session, names);
-          return ok(undefined);
+          return this.deps.sessionLifecycle.setWindowOrder(session, names);
         }
 
-        case 'list-windows': {
+        case RemoteCommand.ListWindows: {
           const session = params.session as string;
-          if (!this.deps.workspaceService.findBySessionPrefix(session) && !session.startsWith('_standalone/')) {
-            return err('Unknown session');
-          }
-          const live = await this.deps.tmux.listWindows(session);
-          const ws = this.deps.workspaceService.findBySessionPrefix(session);
-          const persisted = ws
-            ? this.deps.workspaceService.getPersistedSessions(ws.id).find((s) => s.tmuxSession === session)
-            : undefined;
-          return ok(applyPersistedWindowOrder(live, persisted?.windows ?? []));
+          if (!this.assertKnownSession(session)) return err('Unknown session');
+          return this.deps.sessionLifecycle.listWindows(session);
         }
 
-        case 'sleep-session': {
+        case RemoteCommand.SleepSession: {
           const session = params.session as string;
-          // Only allow killing Gustav-managed sessions
-          if (!this.deps.workspaceService.findBySessionPrefix(session) && !session.startsWith('_standalone/')) {
-            return err('Unknown session');
-          }
-          if (await this.deps.tmux.hasSession(session)) {
-            await this.deps.tmux.killSession(session);
-          }
-          return ok(undefined);
+          if (!this.assertKnownSession(session)) return err('Unknown session');
+          return this.deps.sessionLifecycle.sleep(session);
         }
 
-        case 'wake-session': {
+        case RemoteCommand.WakeSession: {
           const session = params.session as string;
-          const ws = this.deps.workspaceService.findBySessionPrefix(session);
-          if (ws) {
-            const persisted = this.deps.workspaceService
-              .getPersistedSessions(ws.id)
-              .find((s) => s.tmuxSession === session);
-            if (persisted) {
-              await this.deps.sessionService.restoreSession(persisted);
-              return ok(undefined);
-            }
-          }
-          return err('No persisted session found');
+          const r = await this.deps.sessionLifecycle.wake(session);
+          if (!r.success) return r;
+          if (r.data === null) return err('No persisted session found');
+          // Native sessions return a synthesized window list; tmux returns
+          // null and the renderer will follow up with list-windows.
+          return ok(r.data.windows ?? undefined);
         }
 
-        case 'destroy-session': {
+        case RemoteCommand.DestroySession: {
           const session = params.session as string;
-          if (!this.deps.workspaceService.findBySessionPrefix(session) && !session.startsWith('_standalone/')) {
-            return err('Unknown session');
-          }
-          if (await this.deps.tmux.hasSession(session)) {
-            await this.deps.tmux.killSession(session);
-          }
-          const ws = this.deps.workspaceService.findBySessionPrefix(session);
-          if (ws) {
-            await this.deps.workspaceService.removeSession(ws.id, session);
-          }
-          return ok(undefined);
+          if (!this.assertKnownSession(session)) return err('Unknown session');
+          return this.deps.sessionLifecycle.destroy(session);
         }
 
-        case 'create-workspace-session': {
+        case RemoteCommand.CreateWorkspaceSession: {
           const { workspaceName, workspaceDir, label } = params as {
             workspaceName: string; workspaceDir: string; label?: string;
           };
-          if (this.deps.isAllowedDirectory && !this.deps.isAllowedDirectory(workspaceDir)) {
+          if (!validateWorkspaceName(workspaceName)) return err('Invalid argument');
+          if (!validateRepoPath(workspaceDir)) return err('Invalid argument');
+          if (label !== undefined && !validateLabel(label)) return err('Invalid argument');
+          if (!this.deps.isAllowedDirectory(workspaceDir)) {
             return err('Directory not within any workspace root');
           }
-          const sessionName = this.deps.sessionService.getSessionName(workspaceName, { type: 'workspace', label });
-          const ws = this.deps.workspaceService.list().find((w) => w.name === workspaceName) ?? null;
-          const windows = buildWindowSpecs({
-            type: 'workspace',
-            workspace: ws,
-            preferences: this.deps.preferenceService.load(),
-            repoConfig: null,
+          const r = await this.deps.sessionLifecycle.createWorkspaceSession({
+            workspaceName, workspaceDir, label,
           });
-          const session = await this.deps.sessionService.launchSession(sessionName, workspaceDir, windows);
-          return ok(session);
+          return r.success ? ok(r.data.sessionId) : r;
         }
 
-        case 'create-repo-session': {
-          const { workspaceName, repoRoot, mode, branch } = params as {
+        case RemoteCommand.CreateRepoSession: {
+          const { workspaceName, repoRoot, mode, branch, base } = params as {
             workspaceName: string; repoRoot: string; mode: string;
             branch?: string; base?: string;
           };
-          if (this.deps.isAllowedDirectory && !this.deps.isAllowedDirectory(repoRoot)) {
+          if (!validateWorkspaceName(workspaceName)) return err('Invalid argument');
+          if (!validateRepoPath(repoRoot)) return err('Invalid argument');
+          if (mode !== 'directory' && mode !== 'worktree') return err('Invalid argument');
+          if (mode === 'worktree') {
+            if (!validateBranch(branch)) return err('Invalid argument');
+            if (base !== undefined && !validateBranch(base.replace(/^origin\//, ''))) return err('Invalid argument');
+          }
+          if (!this.deps.isAllowedDirectory(repoRoot)) {
             return err('Directory not within any workspace root');
           }
-          if (mode === 'directory') {
-            const repoName = repoRoot.split('/').pop() ?? repoRoot;
-            const sessionName = this.deps.sessionService.getSessionName(workspaceName, { type: 'directory', repoName });
-            const ws = this.deps.workspaceService.list().find((w) => w.name === workspaceName) ?? null;
-            const windows = buildWindowSpecs({
-              type: 'directory',
-              workspace: ws,
-              preferences: this.deps.preferenceService.load(),
-              repoConfig: this.deps.repoConfigService.get(repoRoot),
-            });
-            const session = await this.deps.sessionService.launchSession(sessionName, repoRoot, windows);
-            return ok(session);
-          }
-          if (!branch) return err('Branch required for worktree session');
-          // Worktree mode would need worktree creation first — delegate to caller
-          return ok(undefined);
+          const r = await this.deps.sessionLifecycle.createRepoSession({
+            workspaceName, repoRoot, mode, branch, base,
+          });
+          return r.success ? ok(r.data.sessionId) : r;
         }
 
-        case 'create-standalone-session': {
+        case RemoteCommand.CreateStandaloneSession: {
           const { label, dir } = params as { label: string; dir: string };
-          if (this.deps.isAllowedDirectory && !this.deps.isAllowedDirectory(dir)) {
+          if (!validateLabel(label)) return err('Invalid argument');
+          if (!validateRepoPath(dir)) return err('Invalid argument');
+          if (!this.deps.isAllowedDirectory(dir)) {
             return err('Directory not within any workspace root');
           }
-          const sessionName = this.deps.sessionService.getSessionName(null, { type: 'workspace', label });
-          const windows = buildWindowSpecs({
-            type: 'workspace',
-            workspace: null,
-            preferences: this.deps.preferenceService.load(),
-            repoConfig: null,
-          });
-          const session = await this.deps.sessionService.launchSession(sessionName, dir, windows);
-          return ok(session);
+          const r = await this.deps.sessionLifecycle.createStandaloneSession({ label, dir });
+          return r.success ? ok(r.data.sessionId) : r;
         }
 
         default:
           return err(`Unknown command: ${command}`);
       }
     } catch (e) {
-      return err((e as Error).message);
+      return err(sanitiseError(e));
     }
   }
-}
 
-function ok<T>(data: T): Result<T> {
-  return { success: true, data };
-}
-
-function err(message: string): Result<never> {
-  return { success: false, error: message };
+  /** A session is "known" if it lives under a registered workspace prefix or
+   *  is a standalone session. Used as a coarse pre-check before delegating
+   *  window operations to the lifecycle service. */
+  private assertKnownSession(session: string): boolean {
+    if (this.deps.workspaceService.findBySessionPrefix(session)) return true;
+    if (typeof session === 'string' && session.startsWith('_standalone/')) return true;
+    return false;
+  }
 }

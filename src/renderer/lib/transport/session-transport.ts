@@ -1,4 +1,4 @@
-import type { WorkspaceAppState, WindowInfo, Result } from '../../../main/domain/types';
+import type { WorkspaceAppState, WindowInfo, BranchInfo, Result } from '../../../main/domain/types';
 
 /**
  * Renderer-side port for talking to a session source.
@@ -18,6 +18,20 @@ import type { WorkspaceAppState, WindowInfo, Result } from '../../../main/domain
 export interface SessionTransport {
   /** Tag for diagnostics and the (rare) place that legitimately needs to differentiate. */
   readonly kind: 'local' | 'remote';
+
+  /**
+   * Whether this transport is the authoritative owner of the renderer's
+   * `windows` slice while it's the active transport. When true, the
+   * renderer's local 1Hz state push must NOT overwrite `windows` —
+   * `switchSession` and the TabBar's optimistic updates own that field.
+   * When false, the local poll is the source of truth.
+   *
+   * Local transports run on the same Electron process as the state poll,
+   * so the poll always knows the active session and can rebuild windows
+   * authoritatively. Remote transports leave the local poll blind, so
+   * the transport's own `switchSession` result must be preserved.
+   */
+  readonly ownsWindows: boolean;
 
   // ── PTY data plane (fire-and-forget) ────────────────────────────
   sendPtyInput(data: string): void;
@@ -42,6 +56,14 @@ export interface SessionTransport {
   newWindow(session: string, name: string): Promise<Result<void>>;
   killWindow(session: string, windowIndex: number): Promise<Result<void>>;
   setWindowOrder(session: string, names: string[]): Promise<Result<void>>;
+
+  // ── Session creation ───────────────────────────────────────────
+  /** Returns the new session's id on success. */
+  createWorkspaceSession(workspaceName: string, workspaceDir: string, label?: string): Promise<Result<string>>;
+  createRepoSession(workspaceName: string, repoRoot: string, mode: 'directory' | 'worktree', branch?: string, base?: string): Promise<Result<string>>;
+  createStandaloneSession(label: string, dir: string): Promise<Result<string>>;
+  /** List git branches at `repoRoot`. Returns `[]` on failure (e.g. remote disconnected). */
+  getBranches(repoRoot: string): Promise<BranchInfo[]>;
 
   // ── Lifecycle ──────────────────────────────────────────────────
   /**

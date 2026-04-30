@@ -23,6 +23,10 @@ const api = {
   newWindow: vi.fn(),
   killWindow: vi.fn(),
   setWindowOrder: vi.fn(),
+  createWorkspaceSession: vi.fn(),
+  createRepoSession: vi.fn(),
+  createStandaloneSession: vi.fn(),
+  getBranches: vi.fn(),
   supervisor: supervisorApi,
 };
 
@@ -186,6 +190,48 @@ describe('LocalTransport', () => {
         cols: 140,
         rows: 50,
       });
+    });
+  });
+
+  describe('session creation methods', () => {
+    it('createWorkspaceSession delegates with name/dir/label', async () => {
+      api.createWorkspaceSession.mockResolvedValue({ success: true, data: 'ws/_ws' });
+      const t = new LocalTransport();
+
+      const r = await t.createWorkspaceSession('Dev', '/srv/dev', 'scratch');
+
+      expect(api.createWorkspaceSession).toHaveBeenCalledWith('Dev', '/srv/dev', 'scratch');
+      expect(r).toEqual({ success: true, data: 'ws/_ws' });
+    });
+
+    it('createRepoSession delegates with name/repoRoot/mode/branch/base', async () => {
+      api.createRepoSession.mockResolvedValue({ success: true, data: 'Dev/repo/main' });
+      const t = new LocalTransport();
+
+      const r = await t.createRepoSession('Dev', '/srv/repo', 'worktree', 'feat/x', 'origin/main');
+
+      expect(api.createRepoSession).toHaveBeenCalledWith('Dev', '/srv/repo', 'worktree', 'feat/x', 'origin/main');
+      expect(r).toEqual({ success: true, data: 'Dev/repo/main' });
+    });
+
+    it('createStandaloneSession delegates with label/dir', async () => {
+      api.createStandaloneSession.mockResolvedValue({ success: true, data: '_standalone/scratch' });
+      const t = new LocalTransport();
+
+      const r = await t.createStandaloneSession('scratch', '/tmp/s');
+
+      expect(api.createStandaloneSession).toHaveBeenCalledWith('scratch', '/tmp/s');
+      expect(r).toEqual({ success: true, data: '_standalone/scratch' });
+    });
+
+    it('getBranches delegates to window.api.getBranches', async () => {
+      api.getBranches.mockResolvedValue([{ name: 'main', isRemote: false }]);
+      const t = new LocalTransport();
+
+      const r = await t.getBranches('/srv/repo');
+
+      expect(api.getBranches).toHaveBeenCalledWith('/srv/repo');
+      expect(r).toEqual([{ name: 'main', isRemote: false }]);
     });
   });
 

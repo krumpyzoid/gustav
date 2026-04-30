@@ -219,6 +219,32 @@ export class WorkspaceService {
     return getBackend(persisted);
   }
 
+  /**
+   * Resolve the backend for a session. Returns `'tmux'` when the session is
+   * not in any persisted entry — covers legacy sessions that predate the
+   * strangler flag and sessions created by a different Gustav process.
+   * Centralises the `?? 'tmux'` default that was previously duplicated in
+   * every IPC and remote-dispatcher call site.
+   */
+  resolveBackend(sessionId: string): SessionBackend {
+    return this.findPersistedBackend(sessionId) ?? 'tmux';
+  }
+
+  /**
+   * Look up the previous Claude session ID for a session name, so a recreate
+   * after sleep/destroy can pass `claude --resume <id>` and continue the same
+   * conversation. Returns `undefined` if no persisted entry exists or no
+   * Claude window was tracked.
+   */
+  findClaudeSessionId(sessionId: string): string | undefined {
+    const ws = this.findBySessionPrefix(sessionId);
+    if (!ws) return undefined;
+    const persisted = this.getPersistedSessions(ws.id).find((s) => s.tmuxSession === sessionId);
+    if (!persisted) return undefined;
+    const claude = persisted.windows.find((s) => s.name === 'Claude Code');
+    return claude?.claudeSessionId;
+  }
+
   findByDirectory(directory: string): Workspace | undefined {
     return this.list().find((w) => w.directory === directory);
   }

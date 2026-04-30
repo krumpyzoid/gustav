@@ -337,6 +337,28 @@ describe('WorkspaceService', () => {
     });
   });
 
+  describe('resolveBackend', () => {
+    it('returns "tmux" by default for unknown sessions', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      await svc.create('Dev', '/path/dev');
+      expect(svc.resolveBackend('Dev/missing')).toBe('tmux');
+      expect(svc.resolveBackend('UnknownWs/anything')).toBe('tmux');
+    });
+
+    it('returns the persisted backend when set', async () => {
+      const svc = new WorkspaceService(makeFsPort(), storageDir);
+      const ws = await svc.create('Dev', '/path/dev');
+      await svc.persistSession(ws.id, {
+        tmuxSession: 'Dev/native-session',
+        type: 'workspace',
+        directory: '/path/dev',
+        windows: [{ name: 'Shell', kind: 'command' }],
+        backend: 'native',
+      });
+      expect(svc.resolveBackend('Dev/native-session')).toBe('native');
+    });
+  });
+
   describe('setSessionWindowOrder', () => {
     async function seed(svc: WorkspaceService) {
       const ws = await svc.create('Dev', '/path/dev');

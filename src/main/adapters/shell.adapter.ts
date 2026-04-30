@@ -1,4 +1,4 @@
-import { execSync as nodeExecSync, exec as nodeExec } from 'node:child_process';
+import { execSync as nodeExecSync, exec as nodeExec, execFile as nodeExecFile } from 'node:child_process';
 import type { ShellPort } from '../ports/shell.port';
 
 export class ShellAdapter implements ShellPort {
@@ -18,6 +18,29 @@ export class ShellAdapter implements ShellPort {
         (err, stdout) => {
           if (err) reject(err);
           else resolve(stdout.trim());
+        },
+      );
+    });
+  }
+
+  async execFile(
+    command: string,
+    args: string[],
+    opts?: { cwd?: string; env?: Record<string, string>; timeout?: number },
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      nodeExecFile(
+        command,
+        args,
+        {
+          cwd: opts?.cwd,
+          env: opts?.env ? { ...process.env, ...opts.env } : undefined,
+          timeout: opts?.timeout ?? 30_000,
+          encoding: 'utf-8',
+        },
+        (err, stdout) => {
+          if (err) reject(err);
+          else resolve((stdout as string).trim());
         },
       );
     });

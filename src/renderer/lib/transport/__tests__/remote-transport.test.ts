@@ -108,6 +108,20 @@ describe('RemoteGustavTransport', () => {
     expect(api.sendRemotePtyInput).toHaveBeenLastCalledWith(2, 'x');
   });
 
+  it('switchSession returns an error when attach-pty data has no channelId field', async () => {
+    api.remoteSessionCommand.mockImplementation((action: string) => {
+      if (action === 'attach-pty') return Promise.resolve({ success: true, data: { channelId: 'not-a-number' } });
+      return Promise.resolve({ success: true, data: [] });
+    });
+
+    const t = new RemoteGustavTransport();
+    const result = await t.switchSession('Dev/_ws');
+
+    expect(result).toEqual({ success: false, error: 'attach-pty did not return a channelId' });
+    // No follow-up list-windows when the channelId guard fires.
+    expect(api.remoteSessionCommand).not.toHaveBeenCalledWith('list-windows', expect.anything());
+  });
+
   it('switchSession returns the attach failure as a Result error when attach-pty fails', async () => {
     api.remoteSessionCommand.mockImplementation((action: string) => {
       if (action === 'attach-pty') return Promise.resolve({ success: false, error: 'not connected' });
@@ -189,6 +203,23 @@ describe('RemoteGustavTransport', () => {
 
   // ── State subscription ─────────────────────────────────────────
 
+  it('getState round-trips through remoteSessionCommand("get-state")', async () => {
+    const fakeState = { defaultWorkspace: { workspace: null, sessions: [], repoGroups: [], status: 'none' }, workspaces: [], windows: [] };
+    api.remoteSessionCommand.mockResolvedValue({ success: true, data: fakeState });
+
+    const t = new RemoteGustavTransport();
+    const out = await t.getState();
+
+    expect(api.remoteSessionCommand).toHaveBeenCalledWith('get-state', {});
+    expect(out).toEqual(fakeState);
+  });
+
+  it('getState rejects when the remote command fails', async () => {
+    api.remoteSessionCommand.mockResolvedValue({ success: false, error: 'not connected' });
+    const t = new RemoteGustavTransport();
+    await expect(t.getState()).rejects.toThrow(/not connected/);
+  });
+
   it('onStateUpdate wraps window.api.onRemoteStateUpdate', () => {
     const cleanup = vi.fn();
     api.onRemoteStateUpdate.mockReturnValue(cleanup);
@@ -225,6 +256,69 @@ describe('RemoteGustavTransport', () => {
     t.sendPtyInput('x');
     expect(api.sendRemotePtyInput).not.toHaveBeenCalled();
     warn.mockRestore();
+  });
+
+  describe('session creation methods', () => {
+    it('createWorkspaceSession dispatches create-workspace-session', async () => {
+      api.remoteSessionCommand.mockResolvedValue({ success: true, data: 'Dev/_ws' });
+      const t = new RemoteGustavTransport();
+
+      const r = await t.createWorkspaceSession('Dev', '/srv/dev', 'scratch');
+
+      expect(api.remoteSessionCommand).toHaveBeenCalledWith(
+        'create-workspace-session',
+        { workspaceName: 'Dev', workspaceDir: '/srv/dev', label: 'scratch' },
+      );
+      expect(r).toEqual({ success: true, data: 'Dev/_ws' });
+    });
+
+    it('createRepoSession dispatches create-repo-session with all params', async () => {
+      api.remoteSessionCommand.mockResolvedValue({ success: true, data: 'Dev/repo/main' });
+      const t = new RemoteGustavTransport();
+
+      const r = await t.createRepoSession('Dev', '/srv/repo', 'worktree', 'feat/x', 'origin/main');
+
+      expect(api.remoteSessionCommand).toHaveBeenCalledWith(
+        'create-repo-session',
+        { workspaceName: 'Dev', repoRoot: '/srv/repo', mode: 'worktree', branch: 'feat/x', base: 'origin/main' },
+      );
+      expect(r).toEqual({ success: true, data: 'Dev/repo/main' });
+    });
+
+    it('createStandaloneSession dispatches create-standalone-session', async () => {
+      api.remoteSessionCommand.mockResolvedValue({ success: true, data: '_standalone/scratch' });
+      const t = new RemoteGustavTransport();
+
+      const r = await t.createStandaloneSession('scratch', '/tmp/s');
+
+      expect(api.remoteSessionCommand).toHaveBeenCalledWith(
+        'create-standalone-session',
+        { label: 'scratch', dir: '/tmp/s' },
+      );
+      expect(r).toEqual({ success: true, data: '_standalone/scratch' });
+    });
+
+    it('getBranches dispatches get-branches and unwraps the Result envelope', async () => {
+      api.remoteSessionCommand.mockResolvedValue({ success: true, data: [{ name: 'main', isRemote: false }] });
+      const t = new RemoteGustavTransport();
+
+      const r = await t.getBranches('/srv/repo');
+
+      expect(api.remoteSessionCommand).toHaveBeenCalledWith(
+        'get-branches',
+        { repoRoot: '/srv/repo' },
+      );
+      expect(r).toEqual([{ name: 'main', isRemote: false }]);
+    });
+
+    it('getBranches returns [] when the remote command fails', async () => {
+      api.remoteSessionCommand.mockResolvedValue({ success: false, error: 'not connected' });
+      const t = new RemoteGustavTransport();
+
+      const r = await t.getBranches('/srv/repo');
+
+      expect(r).toEqual([]);
+    });
   });
 
   it('detach() releases all subscriptions registered through the transport', () => {

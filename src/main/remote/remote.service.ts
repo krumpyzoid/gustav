@@ -16,10 +16,9 @@ import type { ShellPort } from '../ports/shell.port';
 
 export type RemoteServiceDeps = {
   stateService: StateService;
-  sessionService: SessionService;
   workspaceService: WorkspaceService;
-  repoConfigService: import('../services/repo-config.service').RepoConfigService;
-  preferenceService: import('../services/preference.service').PreferenceService;
+  sessionLifecycle: import('../services/session-lifecycle.service').SessionLifecycleService;
+  supervisor: import('../supervisor/supervisor.port').SessionSupervisorPort;
   git: GitPort;
   tmux: TmuxPort;
   shell: ShellPort;
@@ -50,10 +49,8 @@ export class RemoteService {
   constructor(private deps: RemoteServiceDeps) {
     this.dispatcher = new CommandDispatcher({
       stateService: deps.stateService,
-      sessionService: deps.sessionService,
       workspaceService: deps.workspaceService,
-      repoConfigService: deps.repoConfigService,
-      preferenceService: deps.preferenceService,
+      sessionLifecycle: deps.sessionLifecycle,
       git: deps.git,
       tmux: deps.tmux,
       isAllowedDirectory: (dir) => this.isAllowedDirectory(dir),
@@ -295,15 +292,18 @@ export class RemoteService {
 
   private handleAttachPty(msgId: string, params: Record<string, unknown>): void {
     if (!this.ptyManager) {
-      this.ptyManager = new PtyManager((frame) => {
-        this.server?.sendBinary(frame);
-      });
+      this.ptyManager = new PtyManager(
+        (frame) => { this.server?.sendBinary(frame); },
+        this.deps.supervisor,
+      );
     }
 
     const session = params.tmuxSession as string;
 
-    // S4: Validate tmux session name — only allow Gustav-managed sessions
-    if (!this.isKnownSession(session)) {
+    // S4: Validate tmux session name — only allow Gustav-managed sessions.
+    // Stricter for attach-pty: require an actual persisted session, not
+    // just a known workspace prefix.
+    if (!this.isKnownSession(session) || !this.isPersistedSession(session)) {
       this.server?.sendText(encodeControlMessage({
         type: 'session-command',
         id: msgId,
@@ -314,12 +314,20 @@ export class RemoteService {
 
     const cols = (params.cols as number) || 80;
     const rows = (params.rows as number) || 24;
-    const channelId = this.ptyManager.attach(session, cols, rows);
 
+    // Backend dispatch: native-supervisor sessions cannot be reached via
+    // `tmux attach`; route them through the supervisor data plane instead.
+    const backend = this.deps.workspaceService.resolveBackend(session);
+    const channelId = backend === 'native'
+      ? this.ptyManager.attachSupervisor(session, cols, rows)
+      : this.ptyManager.attachTmux(session, cols, rows);
+
+    // Result envelope shape — `data` carries command-specific data so the
+    // renderer's `result.data` reads consistently across all commands.
     this.server?.sendText(encodeControlMessage({
       type: 'session-command',
       id: msgId,
-      payload: { success: true, channelId },
+      payload: { success: true, data: { channelId } },
     }));
   }
 
@@ -385,15 +393,34 @@ export class RemoteService {
     this.tunnelManager = null;
   }
 
-  /** S4: Check if a tmux session name is managed by Gustav */
+  /** S4: Check if a tmux session name is managed by Gustav.
+   * Stricter than the regex-only check it replaces — also rejects `..`,
+   * empty path components, and leading `-` (could be parsed as a tmux flag).
+   * For attach-pty, callers should additionally require that the session
+   * matches an actual persisted entry (see `isPersistedSession`). */
   private isKnownSession(session: string): boolean {
-    // Must match pattern: workspace/repo/branch, workspace/repo/_dir, workspace/_ws, _standalone/label
-    if (!/^[\w\-. /]+$/.test(session)) return false;
-    // Check against known workspaces and persisted sessions
+    if (typeof session !== 'string' || session.length === 0 || session.length > 256) return false;
+    if (!/^[\w][\w\-. /]*$/.test(session)) return false; // must start with word char
+    const segments = session.split('/');
+    if (segments.some((s) => s === '' || s === '.' || s === '..')) return false;
     const ws = this.deps.workspaceService.findBySessionPrefix(session);
     if (ws) return true;
-    if (session.startsWith('_standalone/')) return true;
+    if (session.startsWith('_standalone/') && segments.length === 2) return true;
     return false;
+  }
+
+  /** Stronger gate for attach-pty: require an actual persisted session, not
+   * just a known workspace prefix. Closes the gap where any
+   * `<known-workspace>/<arbitrary>` value would pass `isKnownSession`. */
+  private isPersistedSession(session: string): boolean {
+    const ws = this.deps.workspaceService.findBySessionPrefix(session);
+    if (ws) {
+      const persisted = this.deps.workspaceService.getPersistedSessions(ws.id);
+      return persisted.some((s) => s.tmuxSession === session);
+    }
+    // Standalone sessions aren't persisted today, so allow them through if
+    // they have the correct prefix shape.
+    return session.startsWith('_standalone/');
   }
 
   /** Validate directory is within a known workspace root (resolves symlinks) */

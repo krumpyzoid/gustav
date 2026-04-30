@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Sidebar } from './components/sidebar/Sidebar';
 import { SettingsSidebar } from './components/settings/SettingsSidebar';
 import { SettingsView } from './components/settings/SettingsView';
@@ -17,6 +17,8 @@ import { DeleteWorkspaceDialog } from './components/dialogs/DeleteWorkspaceDialo
 import { WorkspaceSettingsDialog } from './components/workspace/WorkspaceSettingsDialog';
 import { RepoSettingsDialog } from './components/repo/RepoSettingsDialog';
 import { useAppStateSubscription, refreshState } from './hooks/use-app-state';
+import { RemoteGustavTransport } from './lib/transport/remote-transport';
+import type { SessionTransport } from './lib/transport/session-transport';
 import { useKeyboardShortcuts } from './hooks/use-keyboard-shortcuts';
 import { focusTerminal } from './hooks/use-terminal';
 import { useTheme } from './hooks/use-theme';
@@ -29,6 +31,11 @@ export function App() {
   useAppStateSubscription();
   useTheme();
   useKeyboardShortcuts();
+
+  // Subscribe to workspaces so derived dialog inputs (delete, settings)
+  // re-read reactively rather than via `useAppStore.getState()` calls
+  // that would silently miss updates.
+  const workspaces = useAppStore((s) => s.workspaces);
 
   const sidebarRef = useRef<HTMLElement>(null);
   const [view, setView] = useState<View>('terminal');
@@ -47,6 +54,24 @@ export function App() {
   const [newWorktreeRepo, setNewWorktreeRepo] = useState('');
   const [newWorktreeRoot, setNewWorktreeRoot] = useState('');
   const [newWorktreeWorkspaceName, setNewWorktreeWorkspaceName] = useState('');
+
+  /** Single discriminator for "the user is opening a remote-targeted dialog".
+   * Carries any data the dialog needs (e.g. the workspace descriptor for a
+   * remote workspace, since remote workspaces are not in the local store). */
+  type RemoteDialogTarget =
+    | { kind: 'session'; workspace: { name: string; directory: string } }
+    | { kind: 'standalone' }
+    | { kind: 'worktree' };
+  const [remoteTarget, setRemoteTarget] = useState<RemoteDialogTarget | null>(null);
+
+  /** Stable remote transport instance for one-shot creation calls.
+   * Memoised so React re-renders don't construct a new transport on every
+   * pass — important because the dialog wires `transport.getBranches` into
+   * a useEffect dep. */
+  const remoteTransport: SessionTransport | undefined = useMemo(
+    () => (remoteTarget ? new RemoteGustavTransport() : undefined),
+    [remoteTarget],
+  );
   const [removeTab, setRemoveTab] = useState<SessionTab | null>(null);
   const [removeRepoRoot, setRemoveRepoRoot] = useState<string | null>(null);
   const [connectRemoteOpen, setConnectRemoteOpen] = useState(false);
@@ -69,7 +94,7 @@ export function App() {
             onPinRepos={(wsId) => setPinReposWorkspaceId(wsId)}
             onEditWorkspace={(wsId) => setEditWorkspaceId(wsId)}
             onDeleteWorkspace={(wsId) => {
-              const ws = useAppStore.getState().workspaces.find((w) => w.workspace?.id === wsId);
+              const ws = workspaces.find((w) => w.workspace?.id === wsId);
               if (ws) setDeleteWorkspace(ws);
             }}
             onEditSettings={(wsId) => setSettingsWorkspaceId(wsId)}
@@ -79,6 +104,24 @@ export function App() {
             onUnpinRepo={async (workspaceId, repoPath) => { await window.api.unpinRepo(workspaceId, repoPath); refreshState(); }}
             onOpenSettings={() => setView('settings')}
             onConnectRemote={() => setConnectRemoteOpen(true)}
+            onNewRemoteSession={(name, directory) => {
+              setRemoteTarget({ kind: 'session', workspace: { name, directory } });
+            }}
+            onNewRemoteStandalone={() => {
+              setRemoteTarget({ kind: 'standalone' });
+              setNewStandaloneOpen(true);
+            }}
+            onAddRemoteWorktree={(repoName, repoRoot, workspaceName) => {
+              setNewWorktreeRepo(repoName);
+              setNewWorktreeRoot(repoRoot);
+              setNewWorktreeWorkspaceName(workspaceName);
+              setRemoteTarget({ kind: 'worktree' });
+              setNewWorktreeOpen(true);
+            }}
+            onRemoveRemoteWorktree={(tab, repoRoot) => {
+              setRemoveTab(tab);
+              setRemoveRepoRoot(repoRoot);
+            }}
           />
         ) : (
           <SettingsSidebar
@@ -114,9 +157,22 @@ export function App() {
         onClose={() => setNewSessionWorkspaceId(null)}
         workspaceId={newSessionWorkspaceId}
       />
+      {/* Remote new-session dialog — same component as local, but with
+          a synthetic workspace descriptor (remote workspaces aren't in
+          the local store) and a remote transport. */}
+      <NewSessionDialog
+        open={remoteTarget?.kind === 'session'}
+        onClose={() => setRemoteTarget(null)}
+        workspaceDescriptor={remoteTarget?.kind === 'session' ? remoteTarget.workspace : undefined}
+        transport={remoteTransport}
+      />
       <NewStandaloneDialog
         open={newStandaloneOpen}
-        onClose={() => setNewStandaloneOpen(false)}
+        onClose={() => {
+          setNewStandaloneOpen(false);
+          if (remoteTarget?.kind === 'standalone') setRemoteTarget(null);
+        }}
+        transport={remoteTarget?.kind === 'standalone' ? remoteTransport : undefined}
       />
       <PinReposDialog
         open={pinReposWorkspaceId !== null}
@@ -125,10 +181,14 @@ export function App() {
       />
       <NewWorktreeDialog
         open={newWorktreeOpen}
-        onClose={() => setNewWorktreeOpen(false)}
+        onClose={() => {
+          setNewWorktreeOpen(false);
+          if (remoteTarget?.kind === 'worktree') setRemoteTarget(null);
+        }}
         repo={newWorktreeRepo}
         repoRoot={newWorktreeRoot}
         workspaceName={newWorktreeWorkspaceName || undefined}
+        transport={remoteTarget?.kind === 'worktree' ? remoteTransport : undefined}
       />
       <RemoveWorktreeDialog
         open={removeTab !== null}
@@ -150,7 +210,7 @@ export function App() {
         workspace={deleteWorkspace}
       />
       {(() => {
-        const ws = useAppStore.getState().workspaces.find((w) => w.workspace?.id === settingsWorkspaceId)?.workspace;
+        const ws = workspaces.find((w) => w.workspace?.id === settingsWorkspaceId)?.workspace;
         if (!ws) return null;
         return (
           <WorkspaceSettingsDialog

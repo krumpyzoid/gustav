@@ -51,6 +51,7 @@ import { ThemeService } from './services/theme.service';
 import { PreferenceService } from './services/preference.service';
 import { StateService } from './services/state.service';
 import { WorktreeService } from './services/worktree.service';
+import { SessionLifecycleService } from './services/session-lifecycle.service';
 import { ClaudeSessionTracker } from './services/claude-session-tracker';
 import { ClaudeLogObserver } from './services/claude-log-observer';
 
@@ -99,18 +100,26 @@ const stateService = new StateService(gitAdapter, tmuxAdapter, workspaceService,
 const sessionLauncher = new SessionLauncherService(sessionService, nativeSupervisor, preferenceService);
 
 const dataDir = require('node:path').join(require('node:os').homedir(), '.local', 'share', 'gustav');
-const remoteService = new RemoteService({
-  stateService, sessionService, workspaceService,
+const worktreeService = new WorktreeService(
+  gitAdapter, fsAdapter, shellAdapter, repoConfigService, sessionService, workspaceService,
+);
+// Phase 2b: shared SessionLifecycleService — both local IPC handlers and the
+// remote command dispatcher delegate session/window operations here so they
+// cannot drift on backend dispatch, persistence, or Claude resume contracts.
+const sessionLifecycle = new SessionLifecycleService({
+  workspaceService, sessionService, sessionLauncher, worktreeService,
   repoConfigService, preferenceService,
+  supervisor: nativeSupervisor, git: gitAdapter, tmux: tmuxAdapter,
+});
+const remoteService = new RemoteService({
+  stateService, workspaceService, sessionLifecycle,
+  supervisor: nativeSupervisor,
   git: gitAdapter, tmux: tmuxAdapter, shell: shellAdapter, dataDir,
 });
 const remoteClientService = new RemoteClientService(dataDir);
 
 // Apply saved theme preference at startup
 themeService.setPreference(preferenceService.load().theme);
-const worktreeService = new WorktreeService(
-  gitAdapter, fsAdapter, shellAdapter, repoConfigService, sessionService, workspaceService,
-);
 
 // ── PTY ───────────────────────────────────────────────────────────
 async function getPtyClientTty(): Promise<string | null> {
@@ -234,6 +243,7 @@ app.on('ready', async () => {
         sessionService,
         sessionLauncher,
         supervisor: nativeSupervisor,
+        sessionLifecycle,
         stateService,
         themeService,
         workspaceService,
@@ -310,6 +320,7 @@ app.on('ready', async () => {
     sessionService,
     sessionLauncher,
     supervisor: nativeSupervisor,
+    sessionLifecycle,
     stateService,
     themeService,
     workspaceService,
