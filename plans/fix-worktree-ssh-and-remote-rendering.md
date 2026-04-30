@@ -2,7 +2,7 @@
 
 **Created**: 2026-04-30
 **Branch**: main
-**Status**: approved
+**Status**: implemented
 
 ## Goal
 
@@ -16,13 +16,13 @@ The plan executes in three independent slices (one per issue) so each is shippab
 
 ## Acceptance Criteria
 
-- [ ] Creating a worktree against an SSH-only remote succeeds when the user has a working ssh-agent
-- [ ] When the agent is genuinely unreachable, the user sees a structured, actionable error (not raw ssh stderr)
-- [ ] `RemoteGustavTransport.switchSession` no longer hardcodes `80, 24` — it attaches at the renderer's actual viewport size
-- [ ] Switching window tabs inside a remote session repaints without a manual OS-window resize
-- [ ] Repeated remote attaches do not leak `?1;2c` (or any other DA-shaped reply tail) into the visible buffer
-- [ ] All existing tests still pass; new tests added for each behavioural change
-- [ ] No regression in local sessions, in the remote env-minimisation policy (`pty-manager.attachTmux`), or in xterm.js scrollback / font state across transport swaps
+- [~] Creating a worktree against an SSH-only remote succeeds when the user has a working ssh-agent — *requires manual verification against a real SSH remote (steps 1–3 land the agent-env contract + structured error + startup warning; the actual launch-context fix may need an env import step depending on what the warning surfaces)*
+- [x] When the agent is genuinely unreachable, the user sees a structured, actionable error (not raw ssh stderr) — `WorktreeService.create` now rethrows a classified `Error` with `code: 'SSH_AGENT_UNAVAILABLE'` and an actionable message
+- [x] `RemoteGustavTransport.switchSession` no longer hardcodes `80, 24` — it attaches at the renderer's actual viewport size (Step 4 + SessionTab call site)
+- [x] Switching window tabs inside a remote session repaints without a manual OS-window resize (Step 6: `requestTerminalFit()` after `selectWindow`)
+- [~] Repeated remote attaches do not leak `?1;2c` (or any other DA-shaped reply tail) into the visible buffer — *renderer-side invariant pinned by regression test (step 7); manual verification needed to confirm symptom is gone in practice*
+- [x] All existing tests still pass; new tests added for each behavioural change (603 tests passing, +24 new)
+- [x] No regression in local sessions, in the remote env-minimisation policy (`pty-manager.attachTmux`), or in xterm.js scrollback / font state across transport swaps (`pty-manager.ts` untouched; full suite green)
 
 ## Steps
 
